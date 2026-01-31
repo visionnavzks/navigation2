@@ -32,15 +32,27 @@ def create_occupancy_grid(width=100, height=100, res=0.2):
     
     return grid
 
-def draw_robot(x, y, yaw, length, width):
+def draw_robot(x, y, yaw, length, width, center_offset=0.0):
     # Simple box
-    outline = np.array([
-        [length/2, width/2],
-        [-length/2, width/2],
-        [-length/2, -width/2],
-        [length/2, -width/2],
-        [length/2, width/2]
-    ])
+    # Geometric center is at (center_offset, 0) in base frame
+    # Corners relative to Geometric center are +/- length/2, +/- width/2
+    # So corners relative to base are +/- length/2 + center_offset
+    
+    half_l = length / 2.0
+    half_w = width / 2.0
+    
+    # Define corners in Base Frame
+    # FL, BL, BR, FR, FL
+    # Front is positive X
+    
+    # If offset=0, range is [-L/2, L/2]
+    # If offset=1, range is [-L/2+1, L/2+1]
+    
+    corners_x = np.array([half_l, -half_l, -half_l, half_l, half_l]) + center_offset
+    corners_y = np.array([half_w, half_w, -half_w, -half_w, half_w])
+    
+    outline = np.column_stack((corners_x, corners_y))
+    
     rot = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
     outline_rot = outline @ rot.T
     outline_rot += np.array([x, y])
@@ -104,8 +116,13 @@ def main():
     print(f"Map Size: {grid_w*res}m x {grid_h*res}m")
     
     # Smoother
+    # TEST OFFSET: Base is 2.0m BEHIND the center (or center is 2.0m in front of base)
+    # Robot Length 7.0. Half length 3.5.
+    # If offset = 2.0. Front is at 2.0 + 3.5 = 5.5. Back is at 2.0 - 3.5 = -1.5.
+    center_offset = 2.0 # Let's try 1.0m forward offset
+    
     smoother = KinematicSmoother(
-        robot_params={'length': 7.0, 'width': 2.0},
+        robot_params={'length': 7.0, 'width': 2.0, 'center_x_offset': center_offset},
         esdf_map=esdf,
         w_obs=200.0,
         w_danger=50.0,
@@ -151,9 +168,12 @@ def main():
               head_width=0.6, head_length=0.6, fc='red', ec='red', alpha=0.5, width=0.15)
     
     # Plot Robot Footprint at intervals
-    indices = np.linspace(0, len(ox)-1, 2000, dtype=int)
+    indices = np.arange(0, len(ox), 10)
+    # 2. 如果最后一个索引不是 len(ox)-1，则补上终点索引
+    if indices[-1] != len(ox) - 1:
+        indices = np.append(indices, len(ox) - 1)
     for i in indices:
-        draw_robot(ox[i], oy[i], oth[i], smoother.rob_length, smoother.rob_width)
+        draw_robot(ox[i], oy[i], oth[i], smoother.rob_length, smoother.rob_width, smoother.center_offset)
 
     # VISUALIZATION: Draw covering circles for the first robot (index 0)
     # This helps verify the collision model

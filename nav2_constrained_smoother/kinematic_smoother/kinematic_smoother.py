@@ -51,12 +51,13 @@ class KinematicSmoother:
         self.esdf_map = esdf_map
         
         # Initialize Multi-Circle Decomposition
-        self._init_circle_decomposition(robot_params['length'], robot_params['width'])
+        self._init_circle_decomposition(robot_params.get('length', 4.0), 
+                                        robot_params.get('width', 2.0),
+                                        robot_params.get('center_x_offset', 0.0))
 
-    def _init_circle_decomposition(self, length, width):
+    def _init_circle_decomposition(self, length, width, center_offset):
         # Heuristic: use N circles to cover the length
-        # Radius R = width / 2 * sqrt(2) to cover corners? 
-        # Or just inscribed circles R = width / 2?
+        # Radius R = width / 2 * slightly less to be safe or slightly more?
         # Standard conservative: R = sqrt((L/2)^2 + (W/2)^2) is one big circle.
         # Decomposition:
         # We want circles with radius r roughly equal to width/2 (or slightly larger).
@@ -65,46 +66,44 @@ class KinematicSmoother:
         # Let's use simple covering:
         self.rob_width = width
         self.rob_length = length
+        self.center_offset = center_offset
         
         # Radius of covering circles.
         # Setting R = width / 2 makes sense for tight fits width-wise.
-        # But for corners, we might need slightly bigger or accept corner cut.
-        # Prompt says: "r is derived from width". Let's assume r = width / 2.
         self.circle_radius = width / 2.0
         
         # Distance between circle centers.
-        # If we place them closely, we approximate the rectangle.
-        # Let's space them by radius? or diameter?
-        # Ideally we want to cover the length L.
-        # effective length covered by one circle is 2*R.
-        # We place circles along the main axis.
+        # Geometric center is at (center_offset, 0) in base frame.
+        # Robot extends from [center_offset - L/2, center_offset + L/2].
+        
         if self.circle_radius < 1e-3: 
-             self.circle_offsets = np.array([0.0])
+             self.circle_offsets = np.array([center_offset])
              self.n_circles = 1
              return
 
         # Simple approach: Place circles such that they touch or overlap to cover L.
-        # We distribute centers from x = -L/2 + r to x = L/2 - r.
-        # If L < W, we just put one circle at 0.
+        # We distribute centers from x_min + r to x_max - r.
         
-        start_x = -length / 2.0 + self.circle_radius
-        end_x = length / 2.0 - self.circle_radius
+        min_x = center_offset - length / 2.0
+        max_x = center_offset + length / 2.0
+        
+        start_x = min_x + self.circle_radius
+        end_x = max_x - self.circle_radius
         
         if start_x > end_x: # Length < width case or Length approx Width
-            self.circle_offsets = np.array([0.0])
+            self.circle_offsets = np.array([center_offset])
         else:
             # How many circles? 
             # Distribute roughly every R?
             # Range size = end_x - start_x.
             # We want gaps to be small. 
-            # Let's say we want overlap.
             num_circles = int(np.ceil((end_x - start_x) / self.circle_radius)) + 1
             if num_circles < 2: num_circles = 2
             
             self.circle_offsets = np.linspace(start_x, end_x, num_circles)
         
         self.n_circles = len(self.circle_offsets)
-        # print(f"[KinematicSmoother] Robot {length}x{width} decomposed into {self.n_circles} circles (R={self.circle_radius:.2f})")
+        # print(f"[KinematicSmoother] Robot {length}x{width} offset={center_offset} decomposed into {self.n_circles} circles")
 
     def optimize(self, raw_path, gear_directions=None):
         """
