@@ -195,10 +195,20 @@ class KinematicSmoother:
         end_pose[:2] = processed_path[-1, :2]
         end_pose[2] = theta_init[-1] if raw_path.shape[1] < 3 else raw_path[-1, 2]
         
+        # Bounds
+        low = np.full(5*N, -np.inf)
+        up = np.full(5*N, np.inf)
+        # Apply ds >= 0
+        # Check variable order: [x, y, theta, kappa, ds]. ds is index 4.
+        # Indices: 4, 9, 14, ...
+        ds_indices = np.arange(4, 5*N, 5)
+        low[ds_indices] = 0.0 # or 1e-6
+
         # 3. Optimize
         res = least_squares(
             self._residuals,
             initial_guess,
+            bounds=(low, up),
             args=(processed_path, processed_gears, is_cusp_segment, start_pose, end_pose),
             verbose=1,
             max_nfev=self.max_iter

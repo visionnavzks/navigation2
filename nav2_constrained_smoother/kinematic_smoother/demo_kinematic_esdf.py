@@ -119,7 +119,7 @@ def main():
     # TEST OFFSET: Base is 2.0m BEHIND the center (or center is 2.0m in front of base)
     # Robot Length 7.0. Half length 3.5.
     # If offset = 2.0. Front is at 2.0 + 3.5 = 5.5. Back is at 2.0 - 3.5 = -1.5.
-    center_offset = 2.0 # Let's try 1.0m forward offset
+    center_offset = 0.0 # Let's try 1.0m forward offset
     
     smoother = KinematicSmoother(
         robot_params={'length': 7.0, 'width': 2.0, 'center_x_offset': center_offset},
@@ -137,6 +137,14 @@ def main():
     start_time = time.time()
     opt_vars = smoother.optimize(raw_path, gears)
     print(f"Optimization took {time.time() - start_time:.4f}s")
+    
+    # Verification: Check ds >= 0
+    ds_vals = opt_vars[:, 4]
+    print(f"Minimum ds: {np.min(ds_vals):.6f}")
+    if np.min(ds_vals) < -1e-6:
+        print("WARNING: ds < 0 detected!")
+    else:
+        print("VERIFIED: ds >= 0 constraint hold.")
     
     # Plot
     plt.figure(figsize=(10, 10))
@@ -168,7 +176,7 @@ def main():
               head_width=0.6, head_length=0.6, fc='red', ec='red', alpha=0.5, width=0.15)
     
     # Plot Robot Footprint at intervals
-    indices = np.arange(0, len(ox), 10)
+    indices = np.arange(0, len(ox), 1)
     # 2. 如果最后一个索引不是 len(ox)-1，则补上终点索引
     if indices[-1] != len(ox) - 1:
         indices = np.append(indices, len(ox) - 1)
@@ -195,7 +203,7 @@ def main():
         # Plot center
         plt.plot(cur_cx, cur_cy, 'm.', markersize=3)
 
-    plt.title("Kinematic Smoothing in '回' Corridor")
+    plt.title("Kinematic Smoothing in '' Corridor")
     plt.legend()
     # plt.axis('equal') 
     plt.xlim(0, 20)
