@@ -43,7 +43,7 @@ def main():
         w_smooth=50.0,       # High smoothing for corners
         w_s=1.0,             # Regularize spacing
         w_fix=100.0,         # Fix start/end
-        target_spacing=0.5,
+        target_spacing=0.1,
         max_iter=500
     )
     
@@ -101,7 +101,7 @@ def main():
     
     plt.tight_layout()
     plt.savefig("kinematic_corner_result.png")
-    # plt.show() # Non-blocking for script
+    plt.show() # Non-blocking for script
     print("Result saved to kinematic_corner_result.png")
 
 if __name__ == "__main__":

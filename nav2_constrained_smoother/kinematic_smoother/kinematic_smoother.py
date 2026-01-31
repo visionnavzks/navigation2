@@ -227,8 +227,11 @@ class KinematicSmoother:
         for i in range(N - 1):
             if not is_cusp[i]:
                 # Standard segment
-                # Prevent division by zero
-                denom = ds[i] if ds[i] > 1e-4 else 1e-4
+                # Fix: Use sqrt(ds) to match physical bending energy (integral of curvature^2)
+                # This prevents gradient explosion when ds is small.
+                ds_val = ds[i] if ds[i] > 1e-4 else 1e-4
+                denom = np.sqrt(ds_val)
+                
                 d_k = (kappa[i+1] - kappa[i]) / denom
                 residuals.append(self.w_smooth * d_k)
             else:
@@ -248,14 +251,20 @@ class KinematicSmoother:
     def _calculate_spacing_residuals(self, ds, is_cusp):
         residuals = []
         N = len(ds)
+        
+        # Normalize by target_spacing to ensure regularization strength is consistent
+        # regardless of the absolute scale of target_spacing.
+        scale = self.target_spacing if self.target_spacing > 1e-4 else 1.0
+        
         for i in range(N - 1):
             if is_cusp[i]:
-                residuals.append(self.w_s * 10 * (ds[i] - 0.0)) # Strong force to 0
+                residuals.append(self.w_s * 10 * (ds[i] - 0.0) / scale) # Strong force to 0
             else:
-                residuals.append(self.w_s * (ds[i] - self.target_spacing))
+                # Normalized deviation from target
+                residuals.append(self.w_s * (ds[i] - self.target_spacing) / scale)
         
         # Constrain the last ds to 0 (no segment after last point)
-        residuals.append(self.w_s * 10 * (ds[-1] - 0.0))
+        residuals.append(self.w_s * 10 * (ds[-1] - 0.0) / scale)
         return residuals
 
     def _calculate_boundary_residuals(self, x, y, theta, start_yaw, end_yaw, ref_path_orig_nodes):
