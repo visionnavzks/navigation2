@@ -60,10 +60,10 @@ def main():
     # A(4,4) -> B(16,4) -> C(16,16) -> D(4,16) -> A(4,4)
     # 4 segments
     
-    pts_per_leg = 10
+    pts_per_leg = 20
     
-    # 1. Bottom: (4,4) -> (16,4)
-    x1 = np.linspace(4, 16, pts_per_leg)
+    # 1. Bottom: (8,4) -> (16,4)
+    x1 = np.linspace(8, 16, pts_per_leg)
     y1 = np.full_like(x1, 4.0)
     th1 = np.zeros_like(x1)
     
@@ -77,8 +77,8 @@ def main():
     y3 = np.full_like(x3, 16.0)
     th3 = np.full_like(x3, np.pi)
     
-    # 4. Left: (4,16) -> (4,4)
-    y4 = np.linspace(16, 4, pts_per_leg)
+    # 4. Left: (4,16) -> (4,8)
+    y4 = np.linspace(16, 8, pts_per_leg)
     x4 = np.full_like(y4, 4.0)
     th4 = np.full_like(y4, -np.pi/2)
     
@@ -105,12 +105,14 @@ def main():
     
     # Smoother
     smoother = KinematicSmoother(
-        robot_params={'length': 2.0, 'width': 1.0},
+        robot_params={'length': 7.0, 'width': 2.0},
         esdf_map=esdf,
-        w_obs=20.0,
+        w_obs=200.0,
+        w_danger=50.0,
+        d_safe=0.3,
         w_smooth=2.0,
-        w_model=10.0,
-        w_fix=100.0,
+        w_model=1000.0,
+        w_fix=1000.0,
         target_spacing=0.25,
         max_iter=100
     )
@@ -149,9 +151,29 @@ def main():
               head_width=0.6, head_length=0.6, fc='red', ec='red', alpha=0.5, width=0.15)
     
     # Plot Robot Footprint at intervals
-    indices = np.linspace(0, len(ox)-1, 20, dtype=int)
+    indices = np.linspace(0, len(ox)-1, 2000, dtype=int)
     for i in indices:
         draw_robot(ox[i], oy[i], oth[i], smoother.rob_length, smoother.rob_width)
+
+    # VISUALIZATION: Draw covering circles for the first robot (index 0)
+    # This helps verify the collision model
+    idx_first = 0
+    cx_base = ox[idx_first]
+    cy_base = oy[idx_first]
+    cth = oth[idx_first]
+    
+    for offset in smoother.circle_offsets:
+        # Calculate circle center in global frame
+        # offset is along the robot's x-axis (heading)
+        cur_cx = cx_base + offset * np.cos(cth)
+        cur_cy = cy_base + offset * np.sin(cth)
+        
+        # Draw Circle
+        circle = plt.Circle((cur_cx, cur_cy), smoother.circle_radius, 
+                            color='m', fill=False, linestyle='-', linewidth=1.5, alpha=0.8, label='Coverage Limit')
+        plt.gca().add_patch(circle)
+        # Plot center
+        plt.plot(cur_cx, cur_cy, 'm.', markersize=3)
 
     plt.title("Kinematic Smoothing in '回' Corridor")
     plt.legend()
@@ -162,7 +184,7 @@ def main():
     plt.tight_layout()
     plt.savefig("kinematic_corridor_result.png")
     print("Saved kinematic_corridor_result.png")
-    # plt.show()
+    plt.show()
 
 if __name__ == "__main__":
     main()

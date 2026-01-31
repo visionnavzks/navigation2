@@ -18,6 +18,8 @@ class KinematicSmoother:
                  w_model=10.0, 
                  w_smooth=10.0, 
                  w_obs=20.0,
+                 w_danger=10.0,
+                 d_safe=0.1,
                  w_s=1.0, 
                  ref_weight=1.0,
                  w_fix=100.0,
@@ -26,7 +28,9 @@ class KinematicSmoother:
         """
         w_model: Weight for kinematic consistency.
         w_smooth: Weight for minimizing Jerk (d_kappa).
-        w_obs: Weight for obstacle cost.
+        w_obs: Weight for obstacle cost (Collision).
+        w_danger: Weight for obstacle cost (Danger zone).
+        d_safe: Safe distance margin.
         w_s: Weight for spacing regularization.
         w_fix: Weight for hard boundary constraints.
         ref_weight: Weight to stay close to original path (optional).
@@ -36,6 +40,8 @@ class KinematicSmoother:
         self.w_model = w_model
         self.w_smooth = w_smooth
         self.w_obs = w_obs
+        self.w_danger = w_danger
+        self.d_safe = d_safe
         self.w_s = w_s
         self.w_fix = w_fix
         self.ref_weight = ref_weight
@@ -317,14 +323,32 @@ class KinematicSmoother:
         
         surf_dists = dists - self.circle_radius
         
-        # Select touching/colliding points
-        mask = surf_dists < 0
-        costs = np.zeros_like(surf_dists)
-        costs[mask] = -surf_dists[mask]
+        # 3-Stage Cost Function:
+        # 1. d > d_safe: 0
+        # 2. 0 < d <= d_safe: w_danger * (d - d_safe)
+        # 3. d <= 0: w_collision * (d - d_safe) (using w_obs as w_collision)
         
-        # Apply weight
-        # Flatten calls return flat array, which is good for extend()
-        return (self.w_obs * costs).tolist()
+        weights = np.zeros_like(surf_dists)
+        
+        # Mask for Danger Zone (approaching wall)
+        mask_danger = (surf_dists > 0) & (surf_dists <= self.d_safe)
+        weights[mask_danger] = self.w_danger
+        
+        # Mask for Collision (hit wall)
+        mask_collision = surf_dists <= 0
+        weights[mask_collision] = self.w_obs
+        
+        # Calculate weighted residuals
+        # The residual is weight * (d - d_safe). 
+        # Since d <= d_safe in active regions, (d - d_safe) is negative. 
+        # least_squares minimizes sum(res^2), so sign doesn't matter for magnitude.
+        costs = weights * (surf_dists - self.d_safe)
+        
+        # Only return non-zero terms to save computation? 
+        # No, structure structure must be consistent? 
+        # optimize handles zeros fine.
+        
+        return costs.tolist()
 
     def _spacing_residuals(self, ds, is_cusp):
         res = []
