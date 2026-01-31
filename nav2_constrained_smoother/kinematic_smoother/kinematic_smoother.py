@@ -2,6 +2,7 @@
 import numpy as np
 from scipy.optimize import least_squares
 import math
+from esdf_map import ESDFMap
 
 def normalize_angle(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -11,161 +12,197 @@ def angle_diff(a, b):
     return normalize_angle(d)
 
 class KinematicSmoother:
-    def __init__(self, w_model=10.0, w_ref=1.0, w_smooth=10.0, w_s=1.0, w_fix=100.0, 
-                 target_spacing=0.2, max_iter=50):
+    def __init__(self, 
+                 robot_params={'length': 4.0, 'width': 2.0},
+                 esdf_map=None,
+                 w_model=10.0, 
+                 w_smooth=10.0, 
+                 w_obs=20.0,
+                 w_s=1.0, 
+                 ref_weight=1.0,
+                 w_fix=100.0,
+                 target_spacing=0.2, 
+                 max_iter=50):
         """
-        w_model: Weight for kinematic model constraints.
-        w_ref: Weight for reference path deviation.
-        w_smooth: Weight for curvature smoothness (d_kappa/ds).
-        w_s: Weight for point spacing regularization.
-        w_fix: Weight for start/end pose constraints.
-        target_spacing: Desired distance between points (ds).
+        w_model: Weight for kinematic consistency.
+        w_smooth: Weight for minimizing Jerk (d_kappa).
+        w_obs: Weight for obstacle cost.
+        w_s: Weight for spacing regularization.
+        w_fix: Weight for hard boundary constraints.
+        ref_weight: Weight to stay close to original path (optional).
+        robot_params: dict with 'length' and 'width' of the footprint.
+        esdf_map: Instance of ESDFMap.
         """
         self.w_model = w_model
-        self.w_ref = w_ref
         self.w_smooth = w_smooth
+        self.w_obs = w_obs
         self.w_s = w_s
         self.w_fix = w_fix
+        self.ref_weight = ref_weight
         self.target_spacing = target_spacing
         self.max_iter = max_iter
+        
+        self.esdf_map = esdf_map
+        
+        # Initialize Multi-Circle Decomposition
+        self._init_circle_decomposition(robot_params['length'], robot_params['width'])
+
+    def _init_circle_decomposition(self, length, width):
+        # Heuristic: use N circles to cover the length
+        # Radius R = width / 2 * sqrt(2) to cover corners? 
+        # Or just inscribed circles R = width / 2?
+        # Standard conservative: R = sqrt((L/2)^2 + (W/2)^2) is one big circle.
+        # Decomposition:
+        # We want circles with radius r roughly equal to width/2 (or slightly larger).
+        # Number of circles n_circles approx Length / (2*r) * overla_factor
+        
+        # Let's use simple covering:
+        self.rob_width = width
+        self.rob_length = length
+        
+        # Radius of covering circles.
+        # Setting R = width / 2 makes sense for tight fits width-wise.
+        # But for corners, we might need slightly bigger or accept corner cut.
+        # Prompt says: "r is derived from width". Let's assume r = width / 2.
+        self.circle_radius = width / 2.0
+        
+        # Distance between circle centers.
+        # If we place them closely, we approximate the rectangle.
+        # Let's space them by radius? or diameter?
+        # Ideally we want to cover the length L.
+        # effective length covered by one circle is 2*R.
+        # We place circles along the main axis.
+        if self.circle_radius < 1e-3: 
+             self.circle_offsets = np.array([0.0])
+             self.n_circles = 1
+             return
+
+        # Simple approach: Place circles such that they touch or overlap to cover L.
+        # We distribute centers from x = -L/2 + r to x = L/2 - r.
+        # If L < W, we just put one circle at 0.
+        
+        start_x = -length / 2.0 + self.circle_radius
+        end_x = length / 2.0 - self.circle_radius
+        
+        if start_x > end_x: # Length < width case or Length approx Width
+            self.circle_offsets = np.array([0.0])
+        else:
+            # How many circles? 
+            # Distribute roughly every R?
+            # Range size = end_x - start_x.
+            # We want gaps to be small. 
+            # Let's say we want overlap.
+            num_circles = int(np.ceil((end_x - start_x) / self.circle_radius)) + 1
+            if num_circles < 2: num_circles = 2
+            
+            self.circle_offsets = np.linspace(start_x, end_x, num_circles)
+        
+        self.n_circles = len(self.circle_offsets)
+        # print(f"[KinematicSmoother] Robot {length}x{width} decomposed into {self.n_circles} circles (R={self.circle_radius:.2f})")
 
     def optimize(self, raw_path, gear_directions=None):
         """
-        raw_path: np.array of shape (N, 2) or (N, 3). [x, y, (theta)]
-        gear_directions: np.array of shape (N-1,), values +1 (fwd) or -1 (bwd).
-                         If None, assumes all +1.
+        raw_path: (N, 2) or (N, 3) [x, y, (theta)]
+        gear_directions: (N-1,) 1 or -1.
         """
         raw_path = np.array(raw_path)
         N_orig = len(raw_path)
-        if N_orig < 2:
-            return raw_path
-
+        if N_orig < 2: return raw_path
+        
         if gear_directions is None:
             gear_directions = np.ones(N_orig - 1)
-        else:
-            gear_directions = np.array(gear_directions)
-
-        # 1. Preprocess: Inject cusps (duplicate nodes where gear flips)
+        
+        # 1. Preprocess: Inject cusps
         processed_path = [raw_path[0]]
         processed_gears = []
-        is_cusp_segment = [] # True if segment is a zero-length cusp transition
-
-        # We will reconstruct the path and gears.
-        # Original: Point 0 --(gear0)--> Point 1 --(gear1)--> Point 2
-        # If gear0 != gear1, we insert Point 1' (duplicate of 1).
-        # New: Point 0 --(gear0)--> Point 1 --(0)--> Point 1' --(gear1)--> Point 2
+        is_cusp_segment = []
+        orig_indices_map = [0]
         
-        orig_indices_map = [0] # Map new index to original index (for ref cost)
-
         for i in range(N_orig - 1):
-            # Add current segment
-            # Current point is already in processed_path (from init or prev loop)
-            # We are preparing to add next point.
-            
             curr_gear = gear_directions[i]
             next_gear = gear_directions[i+1] if i + 1 < len(gear_directions) else curr_gear
             
-            # Add the segment to next point
+            # Segment
             processed_gears.append(curr_gear)
             is_cusp_segment.append(False)
             processed_path.append(raw_path[i+1])
             orig_indices_map.append(i+1)
             
-            # Check for cusp
+            # Cusp handling
             if i < N_orig - 2 and curr_gear != next_gear:
-                # Insert duplicate node
-                processed_gears.append(0) # Gear 0 for "switch"
+                # Add duplicate point for cusp
+                processed_gears.append(0) # 0 indicates transition? Or just placeholder.
                 is_cusp_segment.append(True)
-                processed_path.append(raw_path[i+1]) # Duplicate
-                orig_indices_map.append(i+1) # Maps to same ref point
-
+                processed_path.append(raw_path[i+1])
+                orig_indices_map.append(i+1)
+        
         processed_path = np.array(processed_path)
         processed_gears = np.array(processed_gears)
         is_cusp_segment = np.array(is_cusp_segment, dtype=bool)
-        
         N = len(processed_path)
         
         # 2. Initial Guess
-        # Need: x, y, theta, kappa, ds
         x_init = processed_path[:, 0]
         y_init = processed_path[:, 1]
         
-        # Estimate theta
         theta_init = np.zeros(N)
-        # Use simple difference for initial theta, respecting gear
-        for i in range(N - 1):
-            dx = processed_path[i+1, 0] - processed_path[i, 0]
-            dy = processed_path[i+1, 1] - processed_path[i, 1]
-            dist = np.sqrt(dx**2 + dy**2)
-            
+        # Compute headings
+        for i in range(N-1):
+            dx = processed_path[i+1,0] - processed_path[i,0]
+            dy = processed_path[i+1,1] - processed_path[i,1]
             if is_cusp_segment[i]:
-                # In-place switch, keep theta same as prev (or average?)
-                # Actually, usually theta is continuous at cusp
-                theta_init[i] = theta_init[i-1] if i > 0 else 0
+                 theta_init[i] = theta_init[i-1] if i > 0 else 0
             else:
-                if dist > 1e-6:
-                    angle = np.arctan2(dy, dx)
-                    if processed_gears[i] < 0:
-                        angle += np.pi
-                    theta_init[i] = normalize_angle(angle)
-                else:
-                    theta_init[i] = theta_init[i-1] if i > 0 else 0.0
-
+                 norm = np.hypot(dx, dy)
+                 if norm > 1e-6:
+                     th = np.arctan2(dy, dx)
+                     if processed_gears[i] < 0: th += np.pi
+                     theta_init[i] = normalize_angle(th)
+                 else:
+                     theta_init[i] = theta_init[i-1] if i>0 else 0
         theta_init[-1] = theta_init[-2]
         
-        # Use provided theta if available in raw_path?
-        # If raw_path has 3 cols, we should guide theta_init using it.
         if raw_path.shape[1] >= 3:
-             # simple nearest neighbor or use map
-             pass
-             # For now rely on geom.
-        
+            # If input has orientation, guide the start/end
+            theta_init[0] = raw_path[0, 2] # Force start yaw
+            # For intermediate, we trust geometry unless explicit?
+            # Let's trust geometry for smooth start.
+            pass
+
         kappa_init = np.zeros(N)
         ds_init = np.zeros(N)
-        
-        for i in range(N - 1):
+        for i in range(N-1):
             if is_cusp_segment[i]:
                 ds_init[i] = 0.0
             else:
-                dist = np.linalg.norm(processed_path[i+1, :2] - processed_path[i, :2])
-                ds_init[i] = dist
+                ds_init[i] = np.hypot(processed_path[i+1,0]-processed_path[i,0], 
+                                      processed_path[i+1,1]-processed_path[i,1])
         
-        # Flatten
-        # x, y, theta, kappa, ds
+        # Flatten state: [x0, y0, th0, k0, ds0, x1, ...]
         initial_guess = np.column_stack((x_init, y_init, theta_init, kappa_init, ds_init)).flatten()
         
-        start_yaw = theta_init[0]
-        if raw_path.shape[1] >= 3:
-            start_yaw = raw_path[0, 2]
-            
-        # End yaw
-        end_yaw = theta_init[-1]
-        if raw_path.shape[1] >= 3:
-            end_yaw = raw_path[-1, 2]
-
+        # Boundary Values
+        start_pose = np.zeros(3)
+        start_pose[:2] = processed_path[0, :2]
+        start_pose[2] = theta_init[0] if raw_path.shape[1] < 3 else raw_path[0, 2]
+        
+        end_pose = np.zeros(3)
+        end_pose[:2] = processed_path[-1, :2]
+        end_pose[2] = theta_init[-1] if raw_path.shape[1] < 3 else raw_path[-1, 2]
+        
         # 3. Optimize
         res = least_squares(
             self._residuals,
             initial_guess,
-            args=(processed_path, processed_gears, is_cusp_segment, start_yaw, end_yaw, orig_indices_map),
+            args=(processed_path, processed_gears, is_cusp_segment, start_pose, end_pose),
             verbose=1,
             max_nfev=self.max_iter
         )
         
-        # 4. Post-process
-        opt_vars = res.x.reshape((N, 5))
-        
-        # Filter out cusp duplicate nodes (where ds ~ 0 and is_cusp_segment)
-        # Or just return full path? 
-        # For control, full path is fine, but maybe we want to merge them back?
-        # User usually expects same number of points? 
-        # But we changed N by inserting points.
-        # We should return the dense path, containing all info.
-        
-        return opt_vars
+        return res.x.reshape((N, 5))
 
-    def _residuals(self, vars, ref_path_orig_nodes, gears, is_cusp, start_yaw, end_yaw, orig_map):
-        N = len(ref_path_orig_nodes)
+    def _residuals(self, vars, ref_path, gears, is_cusp, start_pose, end_pose):
+        N = len(ref_path)
         state = vars.reshape((N, 5))
         
         x = state[:, 0]
@@ -174,107 +211,143 @@ class KinematicSmoother:
         kappa = state[:, 3]
         ds = state[:, 4]
         
-        residuals = []
+        res = []
         
-        # A. Kinematic Consistency
-        residuals.extend(self._calculate_kinematic_residuals(x, y, theta, kappa, ds, gears, is_cusp))
+        # A. Kinematic Model
+        res.extend(self._kinematic_residuals(x, y, theta, kappa, ds, gears, is_cusp))
         
         # B. Smoothness
-        residuals.extend(self._calculate_smoothness_residuals(kappa, ds, is_cusp))
+        res.extend(self._smoothness_residuals(kappa, ds, is_cusp))
         
-        # C. Reference Follow
-        residuals.extend(self._calculate_reference_residuals(x, y, ref_path_orig_nodes))
+        # C. Obstacles (ESDF)
+        if self.esdf_map is not None:
+             res.extend(self._obstacle_residuals(x, y, theta))
         
-        # D. Spacing Regularization
-        residuals.extend(self._calculate_spacing_residuals(ds, is_cusp))
+        # D. Spacing / Regularization
+        res.extend(self._spacing_residuals(ds, is_cusp))
+        
+        # E. Boundary & Ref
+        res.extend(self._boundary_residuals(x, y, theta, start_pose, end_pose))
+        
+        # Optional: Reference deviation (soft)
+        if self.ref_weight > 1e-5:
+             dist_err = np.hypot(x - ref_path[:,0], y - ref_path[:,1])
+             res.extend((self.ref_weight * dist_err).tolist())
 
-        # E. Boundary Constraints
-        residuals.extend(self._calculate_boundary_residuals(x, y, theta, start_yaw, end_yaw, ref_path_orig_nodes))
-        
-        return np.array(residuals)
+        return np.array(res)
 
-    def _calculate_kinematic_residuals(self, x, y, theta, kappa, ds, gears, is_cusp):
-        residuals = []
+    def _kinematic_residuals(self, x, y, theta, kappa, ds, gears, is_cusp):
+        res = []
         N = len(x)
         for i in range(N - 1):
             if is_cusp[i]:
-                # Cusp segment: Ignore kinematic model, enforce strict state continuity.
-                # Use w_fix (or high weight) to ensure numerical "identity".
-                residuals.append(self.w_fix * (x[i+1] - x[i]))
-                residuals.append(self.w_fix * (y[i+1] - y[i]))
-                residuals.append(self.w_fix * angle_diff(theta[i+1], theta[i]))
+                # Force continuity at cusp (ds=0 usually, but positions must match)
+                res.append(self.w_fix * (x[i+1] - x[i]))
+                res.append(self.w_fix * (y[i+1] - y[i]))
+                res.append(self.w_fix * angle_diff(theta[i+1], theta[i]))
             else:
-                direction = gears[i] # 1, -1
-                dir_val = 1.0 if direction >= 0 else -1.0
+                d = 1.0 if gears[i] >= 0 else -1.0
+                step = ds[i]
+                k = kappa[i]
                 
-                # Mid-point integration
-                # theta_mid = theta + dir * ds * k / 2
-                mid_theta = theta[i] + dir_val * ds[i] * kappa[i] / 2.0
+                # Runge-Kutta or Midpoint. Midpoint is good.
+                # theta_mid = theta_i + d * step * k / 2
+                th_mid = theta[i] + d * step * k * 0.5
                 
-                x_pred = x[i] + dir_val * ds[i] * np.cos(mid_theta)
-                y_pred = y[i] + dir_val * ds[i] * np.sin(mid_theta)
-                theta_pred = theta[i] + dir_val * ds[i] * kappa[i]
+                x_pred = x[i] + d * step * np.cos(th_mid)
+                y_pred = y[i] + d * step * np.sin(th_mid)
+                th_pred = theta[i] + d * step * k
                 
-                # Calculate errors
-                residuals.append(self.w_model * (x[i+1] - x_pred))
-                residuals.append(self.w_model * (y[i+1] - y_pred))
-                residuals.append(self.w_model * angle_diff(theta[i+1], theta_pred))
-        return residuals
+                res.append(self.w_model * (x[i+1] - x_pred))
+                res.append(self.w_model * (y[i+1] - y_pred))
+                res.append(self.w_model * angle_diff(theta[i+1], th_pred))
+        return res
 
-    def _calculate_smoothness_residuals(self, kappa, ds, is_cusp):
-        residuals = []
+    def _smoothness_residuals(self, kappa, ds, is_cusp):
+        res = []
         N = len(kappa)
         for i in range(N - 1):
             if not is_cusp[i]:
-                # Standard segment
-                # Fix: Use sqrt(ds) to match physical bending energy (integral of curvature^2)
-                # This prevents gradient explosion when ds is small.
-                ds_val = ds[i] if ds[i] > 1e-4 else 1e-4
-                denom = np.sqrt(ds_val)
-                
-                d_k = (kappa[i+1] - kappa[i]) / denom
-                residuals.append(self.w_smooth * d_k)
-            else:
-                # Cusp segment: No kappa continuity enforced
-                pass
-        return residuals
+                # Minimize change in curvature (Jerky)
+                # dK/ds ~ (K_next - K_curr) / ds
+                # Optimization usually likes constant stepping.
+                # Using (k2 - k1) is simple. 
+                # If ds varies, maybe (k2-k1)/sqrt(ds) for energy?
+                denom = np.sqrt(ds[i]) if ds[i] > 1e-3 else 0.03 # avoid div 0
+                val = (kappa[i+1] - kappa[i]) / denom
+                res.append(self.w_smooth * val)
+        return res
 
-    def _calculate_reference_residuals(self, x, y, ref_path_orig_nodes):
-        # state[i] corresponds to orig_map[i] in ref_path_orig_nodes
-        # ref_path_orig_nodes has the shape of processed path, but its values are from raw_path.
-        # Actually passed `ref_path_orig_nodes` is already the processed array (with duplicates).
-        # So we just compare 1-to-1.
+    def _obstacle_residuals(self, x, y, theta):
+        # res = []
+        # Vectorized implementation
+        N = len(x)
+        M = self.n_circles
         
-        dist_err = np.sqrt((x - ref_path_orig_nodes[:, 0])**2 + (y - ref_path_orig_nodes[:, 1])**2)
-        return (self.w_ref * dist_err).tolist()
+        # Prepare all circle centers
+        # x shape: (N,)
+        # offsets shape: (M,)
+        # We want result shape (N*M,) or processing all N*M points.
+        
+        # Using broadcasting
+        # Centers X: x[:, None] + offsets[None, :] * cos(theta)[:, None]
+        cos_th = np.cos(theta)
+        sin_th = np.sin(theta)
+        
+        # (N, M)
+        cx = x[:, np.newaxis] + self.circle_offsets[np.newaxis, :] * cos_th[:, np.newaxis]
+        cy = y[:, np.newaxis] + self.circle_offsets[np.newaxis, :] * sin_th[:, np.newaxis]
+        
+        # Flatten to query (N*M,)
+        cx_flat = cx.flatten()
+        cy_flat = cy.flatten()
+        
+        # Batch Query ESDF
+        dists, _ = self.esdf_map.get_distance_and_gradient(cx_flat, cy_flat)
+        
+        # Helper: Hinge Loss is max(0, radius - dist)
+        # Note: If dist is negative (inside obstacle), surf_dist is even more negative.
+        # Wait, ESDF definition: Inside is Negative. 
+        # Collision if dist < radius.
+        
+        # dists is distance to obstacle boundary.
+        # Surface distance = dists - radius.
+        # Collision if Surface distance < 0.
+        # Cost = -Surface Distance = radius - dists.
+        
+        surf_dists = dists - self.circle_radius
+        
+        # Select touching/colliding points
+        mask = surf_dists < 0
+        costs = np.zeros_like(surf_dists)
+        costs[mask] = -surf_dists[mask]
+        
+        # Apply weight
+        # Flatten calls return flat array, which is good for extend()
+        return (self.w_obs * costs).tolist()
 
-    def _calculate_spacing_residuals(self, ds, is_cusp):
-        residuals = []
-        N = len(ds)
-        
-        # Normalize by target_spacing to ensure regularization strength is consistent
-        # regardless of the absolute scale of target_spacing.
-        scale = self.target_spacing if self.target_spacing > 1e-4 else 1.0
-        
-        for i in range(N - 1):
+    def _spacing_residuals(self, ds, is_cusp):
+        res = []
+        scale = max(self.target_spacing, 1e-4)
+        for i in range(len(ds) - 1):
             if is_cusp[i]:
-                residuals.append(self.w_s * 10 * (ds[i] - 0.0) / scale) # Strong force to 0
+                # Cusp spacing should be 0
+                res.append(self.w_s * 10.0 * ds[i]) 
             else:
-                # Normalized deviation from target
-                residuals.append(self.w_s * (ds[i] - self.target_spacing) / scale)
-        
-        # Constrain the last ds to 0 (no segment after last point)
-        residuals.append(self.w_s * 10 * (ds[-1] - 0.0) / scale)
-        return residuals
+                # Regular limits
+                res.append(self.w_s * (ds[i] - self.target_spacing) / scale)
+        return res
 
-    def _calculate_boundary_residuals(self, x, y, theta, start_yaw, end_yaw, ref_path_orig_nodes):
-        residuals = []
-        residuals.append(self.w_fix * angle_diff(theta[0], start_yaw))
-        residuals.append(self.w_fix * angle_diff(theta[-1], end_yaw))
+    def _boundary_residuals(self, x, y, theta, start, end):
+        res = []
+        # Start
+        res.append(self.w_fix * (x[0] - start[0]))
+        res.append(self.w_fix * (y[0] - start[1]))
+        res.append(self.w_fix * angle_diff(theta[0], start[2]))
         
-        # Start/End position could also be fixed if needed, but ref cost handles it softly.
-        residuals.append(self.w_fix * (x[0] - ref_path_orig_nodes[0, 0]))
-        residuals.append(self.w_fix * (y[0] - ref_path_orig_nodes[0, 1]))
-        residuals.append(self.w_fix * (x[-1] - ref_path_orig_nodes[-1, 0]))
-        residuals.append(self.w_fix * (y[-1] - ref_path_orig_nodes[-1, 1]))
-        return residuals
+        # End
+        res.append(self.w_fix * (x[-1] - end[0]))
+        res.append(self.w_fix * (y[-1] - end[1]))
+        res.append(self.w_fix * angle_diff(theta[-1], end[2]))
+        
+        return res

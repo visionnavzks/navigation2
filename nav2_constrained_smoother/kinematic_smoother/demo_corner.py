@@ -39,11 +39,11 @@ def main():
     # A generic "Ackermann-like" or differential constraints
     smoother = KinematicSmoother(
         w_model=100.0,       # Strict kinematic model
-        w_ref=0.01,          # Low weight to allow U-turn deviation
+        ref_weight=0.01,     # Low weight to allow U-turn deviation
         w_smooth=50.0,       # High smoothing for corners
         w_s=1.0,             # Regularize spacing
         w_fix=100.0,         # Fix start/end
-        target_spacing=0.1,
+        target_spacing=0.5,
         max_iter=500
     )
     

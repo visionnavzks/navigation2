@@ -1,0 +1,168 @@
+
+import numpy as np
+import matplotlib.pyplot as plt
+from kinematic_smoother import KinematicSmoother
+from esdf_map import ESDFMap
+import time
+
+def create_occupancy_grid(width=100, height=100, res=0.2):
+    # 0 = Free, 1 = Obstacle
+    # 20m x 20m grid
+    grid = np.ones((height, width), dtype=int)
+    
+    # Define "回" (Hui) Corridor Geometry
+    # Outer bounds: [2, 18]
+    # Inner bounds (obstacle): [6, 14]
+    # Corridor width approx 4m.
+    # Center of path approx at 4m offset from edges.
+    
+    for y in range(height):
+        for x in range(width):
+            wx = x * res
+            wy = y * res
+            
+            # Carve out the loop
+            # Outer limit
+            inside_outer = (2.0 <= wx <= 18.0) and (2.0 <= wy <= 18.0)
+            # Inner limit (Obstacle island)
+            inside_inner = (6.0 <= wx <= 14.0) and (6.0 <= wy <= 14.0)
+            
+            if inside_outer and not inside_inner:
+                grid[y, x] = 0 # Free
+    
+    return grid
+
+def draw_robot(x, y, yaw, length, width):
+    # Simple box
+    outline = np.array([
+        [length/2, width/2],
+        [-length/2, width/2],
+        [-length/2, -width/2],
+        [length/2, -width/2],
+        [length/2, width/2]
+    ])
+    rot = np.array([[np.cos(yaw), -np.sin(yaw)], [np.sin(yaw), np.cos(yaw)]])
+    outline_rot = outline @ rot.T
+    outline_rot += np.array([x, y])
+    plt.plot(outline_rot[:,0], outline_rot[:,1], 'b-', alpha=0.3)
+
+def main():
+    res = 0.2
+    grid_w, grid_h = 100, 100 # 20m x 20m
+    
+    # Create Occupancy Grid
+    occ_grid = create_occupancy_grid(grid_w, grid_h, res)
+    
+    # Create ESDF
+    esdf = ESDFMap(occ_grid, res, origin_x=0.0, origin_y=0.0, use_bicubic=False)
+    
+    # Path: "回" Loop
+    # A(4,4) -> B(16,4) -> C(16,16) -> D(4,16) -> A(4,4)
+    # 4 segments
+    
+    pts_per_leg = 10
+    
+    # 1. Bottom: (4,4) -> (16,4)
+    x1 = np.linspace(4, 16, pts_per_leg)
+    y1 = np.full_like(x1, 4.0)
+    th1 = np.zeros_like(x1)
+    
+    # 2. Right: (16,4) -> (16,16)
+    y2 = np.linspace(4, 16, pts_per_leg)
+    x2 = np.full_like(y2, 16.0)
+    th2 = np.full_like(y2, np.pi/2)
+    
+    # 3. Top: (16,16) -> (4,16)
+    x3 = np.linspace(16, 4, pts_per_leg)
+    y3 = np.full_like(x3, 16.0)
+    th3 = np.full_like(x3, np.pi)
+    
+    # 4. Left: (4,16) -> (4,4)
+    y4 = np.linspace(16, 4, pts_per_leg)
+    x4 = np.full_like(y4, 4.0)
+    th4 = np.full_like(y4, -np.pi/2)
+    
+    # Concatenate (handling overlaps crudely by just stacking, clean enough for demo)
+    path_x = np.concatenate([x1[:-1], x2[:-1], x3[:-1], y4]) # Wait x4 is constant 4.0
+    # Fix x/y concatenation
+    raw_x = np.concatenate([x1[:-1], x2[:-1], x3[:-1], x4])
+    raw_y = np.concatenate([y1[:-1], y2[:-1], y3[:-1], y4])
+    raw_th = np.concatenate([th1[:-1], th2[:-1], th3[:-1], th4])
+    
+    # Unwrap angles to avoid jumps?
+    # Actually simple 0->pi/2 is fine. But pi -> -pi/2 is a jump of -3pi/2 (270 deg).
+    # Ideally should be continuous: 0 -> pi/2 -> pi -> 3pi/2 (or -pi/2 mapped).
+    # Since the smoother might use diffs, we should ensure continuity if possible,
+    # or rely on the smoother's angle normalization handling.
+    # Let's clean up angles: 0, pi/2, pi, 3pi/2 (for 4th leg)
+    raw_th[-pts_per_leg:] = 3 * np.pi / 2
+    
+    raw_path = np.column_stack((raw_x, raw_y, raw_th))
+    gears = np.ones(len(raw_path)-1)
+    
+    print("Optimizing '回' Loop Path...")
+    print(f"Map Size: {grid_w*res}m x {grid_h*res}m")
+    
+    # Smoother
+    smoother = KinematicSmoother(
+        robot_params={'length': 2.0, 'width': 1.0},
+        esdf_map=esdf,
+        w_obs=20.0,
+        w_smooth=2.0,
+        w_model=10.0,
+        w_fix=100.0,
+        target_spacing=0.25,
+        max_iter=100
+    )
+    
+    start_time = time.time()
+    opt_vars = smoother.optimize(raw_path, gears)
+    print(f"Optimization took {time.time() - start_time:.4f}s")
+    
+    # Plot
+    plt.figure(figsize=(10, 10))
+    
+    # Plot ESDF Background
+    extent = [0, grid_w*res, 0, grid_h*res]
+    plt.imshow(esdf.esdf_field, origin='lower', extent=extent, cmap='RdBu', vmin=-2.0, vmax=5.0)
+    plt.colorbar(label='Distance (m)')
+
+    # Plot 0-distance line (Obstacle Boundary)
+    plt.contour(esdf.esdf_field, level=[0], origin='lower', extent=extent, levels=[0], colors='k', linewidths=2)
+    
+    # Plot Raw
+    plt.plot(raw_path[:,0], raw_path[:,1], 'k--', label='Raw Path', linewidth=2, alpha=0.5)
+    
+    # Plot Opt
+    ox = opt_vars[:, 0]
+    oy = opt_vars[:, 1]
+    oth = opt_vars[:, 2]
+    plt.plot(ox, oy, 'g-', label='Optimized', linewidth=3)
+
+    # Plot Start and End Arrows
+    arrow_len = 1.5
+    # Start (Blue)
+    plt.arrow(ox[0], oy[0], arrow_len*np.cos(oth[0]), arrow_len*np.sin(oth[0]), 
+              head_width=0.6, head_length=0.6, fc='blue', ec='blue', alpha=0.5, width=0.15)
+    # End (Red)
+    plt.arrow(ox[-1], oy[-1], arrow_len*np.cos(oth[-1]), arrow_len*np.sin(oth[-1]), 
+              head_width=0.6, head_length=0.6, fc='red', ec='red', alpha=0.5, width=0.15)
+    
+    # Plot Robot Footprint at intervals
+    indices = np.linspace(0, len(ox)-1, 20, dtype=int)
+    for i in indices:
+        draw_robot(ox[i], oy[i], oth[i], smoother.rob_length, smoother.rob_width)
+
+    plt.title("Kinematic Smoothing in '回' Corridor")
+    plt.legend()
+    # plt.axis('equal') 
+    plt.xlim(0, 20)
+    plt.ylim(0, 20)
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("kinematic_corridor_result.png")
+    print("Saved kinematic_corridor_result.png")
+    # plt.show()
+
+if __name__ == "__main__":
+    main()
