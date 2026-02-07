@@ -242,7 +242,7 @@ class KinematicSmoother:
         res.extend(self._spacing_residuals(ds, is_cusp))
         
         # E. Boundary & Ref
-        res.extend(self._boundary_residuals(x, y, theta, start_pose, end_pose))
+        res.extend(self._boundary_residuals(x, y, theta, ds, start_pose, end_pose))
         
         # Optional: Reference deviation (soft)
         if self.ref_weight > 1e-5:
@@ -371,7 +371,7 @@ class KinematicSmoother:
                 res.append(self.w_s * (ds[i] - self.target_spacing) / scale)
         return res
 
-    def _boundary_residuals(self, x, y, theta, start, end):
+    def _boundary_residuals(self, x, y, theta, ds, start, end):
         res = []
         # Start
         res.append(self.w_fix * (x[0] - start[0]))
@@ -382,5 +382,9 @@ class KinematicSmoother:
         res.append(self.w_fix * (x[-1] - end[0]))
         res.append(self.w_fix * (y[-1] - end[1]))
         res.append(self.w_fix * angle_diff(theta[-1], end[2]))
+        
+        # Constrain last ds to 0 (unused control input)
+        # This prevents it from drifting to large values
+        res.append(self.w_fix * ds[-1])
         
         return res

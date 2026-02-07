@@ -36,7 +36,7 @@ def main():
     
     smoother = KinematicSmoother(
         w_model=50.0,
-        w_ref=0.5,
+        ref_weight=0.5,
         w_smooth=20.0,
         w_s=1.0,
         w_fix=100.0,
