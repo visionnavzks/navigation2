@@ -1,30 +1,29 @@
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
+from rs_curve import ReedsSheppPlanner
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
-                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, N=50):
-    """Generates a reference path between start and goal states"""
-    # Simple linear interpolation for x and y
-    x_ref = np.linspace(start_x, goal_x, N)
+                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3):
+    """Generates a Reeds-Shepp reference path between start and goal states"""
+    planner = ReedsSheppPlanner(turning_radius=5.0)
+    result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
     
-    # Add a slight sine wave component if it's the default horizontal case for visual demo,
-    # otherwise just a straight line for arbitrary start/goal.
-    if abs(start_y) < 1e-3 and abs(goal_y) < 1e-3 and abs(goal_x - start_x - 20.0) < 1e-3:
-        y_ref = np.sin(x_ref / 20 * 2 * np.pi) * 2.0
+    if result.best_path:
+        x_ref, y_ref, theta_ref, dir_ref = result.best_path.generate_trajectory(
+            start_x, start_y, start_theta, step_size=target_ds
+        )
+        return np.array(x_ref), np.array(y_ref), np.array(theta_ref), np.array(dir_ref)
     else:
+        # Fallback to linear interpolation
+        N = 50
+        x_ref = np.linspace(start_x, goal_x, N)
         y_ref = np.linspace(start_y, goal_y, N)
-    
-    # Calculate headings and approximate curvatures for the reference path
-    dx = np.gradient(x_ref)
-    dy = np.gradient(y_ref)
-    theta_ref = np.arctan2(dy, dx)
-    
-    # Ensure start and goal theta from user are respected in reference path
-    theta_ref[0] = start_theta
-    theta_ref[-1] = goal_theta
-    
-    return x_ref, y_ref, theta_ref
+        dx = np.gradient(x_ref)
+        dy = np.gradient(y_ref)
+        theta_ref = np.unwrap(np.arctan2(dy, dx))
+        dir_ref = np.ones(N)
+        return x_ref, y_ref, theta_ref, dir_ref
 
 
 class NonlinearPathSmoother:
@@ -128,9 +127,15 @@ class NonlinearPathSmoother:
         try:
             sol = opti.solve()
             print("Optimization successfully formulated and solved!")
+            # Return optimized path and directions (sign of ds)
+            ds_val = sol.value(ds)
+            dir_opt = np.ones(N)
+            dir_opt[:-1] = np.sign(ds_val)
+            dir_opt[-1] = dir_opt[-2] if N > 1 else 1
+            
             return (sol.value(x), sol.value(y), sol.value(theta), 
-                    sol.value(kappa), sol.value(ds), sol.value(dkappa))
+                    sol.value(kappa), ds_val, sol.value(dkappa), dir_opt)
         except Exception as e:
             print(f"Optimization failed: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 
-                    opti.debug.value(theta), None, None, None)
+                    opti.debug.value(theta), None, None, None, None)

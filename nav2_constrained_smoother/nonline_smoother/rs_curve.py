@@ -37,9 +37,10 @@ class Path:
                     x += ds * math.cos(yaw)
                     y += ds * math.sin(yaw)
                 else:
-                    yaw += ds * cmd.curvature
-                    x += ds * math.cos(yaw)
-                    y += ds * math.sin(yaw)
+                    new_yaw = yaw + ds * cmd.curvature
+                    x += (math.sin(new_yaw) - math.sin(yaw)) / cmd.curvature
+                    y += (math.cos(yaw) - math.cos(new_yaw)) / cmd.curvature
+                    yaw = new_yaw
                     
                 yaw = self._mod2pi(yaw)
                 x_list.append(x)

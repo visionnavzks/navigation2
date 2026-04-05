@@ -34,19 +34,22 @@ def run_smoother():
         goal_x = params.get('goal_x', 20.0)
         goal_y = params.get('goal_y', 0.0)
         goal_theta = params.get('goal_theta', 0.0)
+        target_ds = params.get('target_ds', 0.4)
         
-        x_ref, y_ref, theta_ref = generate_reference_path(
-            start_x, start_y, start_theta, goal_x, goal_y, goal_theta
+        # If target_ds is 0, use a default for reference generation
+        ref_ds = target_ds if target_ds > 0.05 else 0.4
+        
+        x_ref, y_ref, theta_ref, dir_ref = generate_reference_path(
+            start_x, start_y, start_theta, goal_x, goal_y, goal_theta, target_ds=ref_ds
         )
         
-        np.random.seed(42)
-        x_ref[1:-1] += np.random.normal(0, 0.1, len(x_ref)-2)
-        y_ref[1:-1] += np.random.normal(0, 0.1, len(y_ref)-2)
-
+        # Add small noise to middle points for visual jitter if desired (optional)
+        # x_ref[1:-1] += np.random.normal(0, 0.02, len(x_ref)-2)
+        # y_ref[1:-1] += np.random.normal(0, 0.02, len(y_ref)-2)
         
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt = smoother.solve(x_ref, y_ref, theta_ref)
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, dir_opt = smoother.solve(x_ref, y_ref, theta_ref)
         
         if kappa_opt is None:
             # When it fails, it returns debug values but None for kappa
@@ -55,6 +58,7 @@ def run_smoother():
                 'message': 'Optimization failed to converge.',
                 'x_ref': x_ref.tolist(),
                 'y_ref': y_ref.tolist(),
+                'dir_ref': dir_ref.tolist(),
                 'x_opt': np.array(x_opt).tolist() if x_opt is not None else [],
                 'y_opt': np.array(y_opt).tolist() if y_opt is not None else []
             })
@@ -63,8 +67,10 @@ def run_smoother():
             'success': True,
             'x_ref': x_ref.tolist(),
             'y_ref': y_ref.tolist(),
+            'dir_ref': dir_ref.tolist(),
             'x_opt': np.array(x_opt).tolist(),
             'y_opt': np.array(y_opt).tolist(),
+            'dir_opt': np.array(dir_opt).tolist(),
             'kappa_opt': np.array(kappa_opt).tolist(),
             'ds_opt': np.array(ds_opt).tolist(),
             'dkappa_opt': np.array(dkappa_opt).tolist()
