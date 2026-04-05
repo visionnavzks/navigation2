@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return traces;
     };
 
-    const plotCharts = (data) => {
+    const plotCharts = (data, params) => {
         const chartLayout = {
             plot_bgcolor: 'rgba(0,0,0,0)',
             paper_bgcolor: 'rgba(0,0,0,0)',
@@ -88,10 +88,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const refTraces = getSegmentTraces(data.x_ref, data.y_ref, data.dir_ref || new Array(data.x_ref.length).fill(1), 'Ref', true);
         const optTraces = getSegmentTraces(data.x_opt, data.y_opt, data.dir_opt || new Array(data.x_opt.length).fill(1), 'Smooth', false);
 
+        const annotations = [
+            {
+                x: params.start_x + Math.cos(params.start_theta) * 1.5,
+                y: params.start_y + Math.sin(params.start_theta) * 1.5,
+                ax: params.start_x,
+                ay: params.start_y,
+                xref: 'x', yref: 'y', axref: 'x', ayref: 'y',
+                showarrow: true, arrowhead: 2, arrowsize: 1.5, arrowwidth: 4,
+                arrowcolor: 'rgba(99, 102, 241, 0.5)' // Indigo with 0.5 alpha
+            },
+            {
+                x: params.goal_x + Math.cos(params.goal_theta) * 1.5,
+                y: params.goal_y + Math.sin(params.goal_theta) * 1.5,
+                ax: params.goal_x,
+                ay: params.goal_y,
+                xref: 'x', yref: 'y', axref: 'x', ayref: 'y',
+                showarrow: true, arrowhead: 2, arrowsize: 1.5, arrowwidth: 4,
+                arrowcolor: 'rgba(244, 63, 94, 0.5)' // Rose with 0.5 alpha
+            }
+        ];
+
         Plotly.newPlot('path-chart', [...refTraces, ...optTraces], {
             ...chartLayout,
             title: 'Path Geometry (Indigo: Fwd, Rose: Bwd)',
-            yaxis: { ...chartLayout.yaxis, scaleanchor: 'x', scaleratio: 1 }
+            yaxis: { ...chartLayout.yaxis, scaleanchor: 'x', scaleratio: 1 },
+            annotations: annotations
         });
 
         // 2. Curvature Plot
@@ -158,13 +180,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.success) {
                 statusMsg.textContent = 'Optimization solved successfully!';
                 statusMsg.className = 'status-msg success';
-                plotCharts(data);
+                plotCharts(data, payload.params);
             } else {
                 statusMsg.textContent = data.message || 'Optimization failed.';
                 statusMsg.className = 'status-msg error';
-                // Still plot whatever we have (maybe reference path)
                 if (data.x_ref) {
-                    plotCharts(data);
+                    plotCharts(data, payload.params);
                 }
             }
         } catch (err) {

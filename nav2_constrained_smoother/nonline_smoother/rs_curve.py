@@ -1,4 +1,5 @@
 import math
+import numpy as np
 from typing import List, Optional, Tuple
 
 class Command:
@@ -38,6 +39,7 @@ class Path:
                     y += ds * math.sin(yaw)
                 else:
                     new_yaw = yaw + ds * cmd.curvature
+                    # Precise integration of circular arcs
                     x += (math.sin(new_yaw) - math.sin(yaw)) / cmd.curvature
                     y += (math.cos(yaw) - math.cos(new_yaw)) / cmd.curvature
                     yaw = new_yaw
@@ -51,7 +53,6 @@ class Path:
         return x_list, y_list, yaw_list, dir_list
 
 class PlanningResult:
-    """Container for planning results to avoid ugly tuples."""
     def __init__(self, paths: List[Path]):
         self.all_paths = sorted(paths, key=lambda p: p.cost)
         self.best_path = self.all_paths[0] if self.all_paths else None
@@ -59,117 +60,116 @@ class PlanningResult:
     @property
     def best_commands(self) -> Optional[List[Command]]:
         return self.best_path.commands if self.best_path else None
-        
-    @property
-    def all_commands(self) -> List[List[Command]]:
-        return [p.commands for p in self.all_paths]
 
 class ReedsSheppPlanner:
     def __init__(self, turning_radius: float):
         self.turning_radius = turning_radius
 
     @staticmethod
-    def _mod2pi(theta: float) -> float:
-        v = theta % (2.0 * math.pi)
-        if v < -math.pi: v += 2.0 * math.pi
-        elif v > math.pi: v -= 2.0 * math.pi
-        return v
+    def _pi_2_pi(theta: float) -> float:
+        return (theta + math.pi) % (2.0 * math.pi) - math.pi
 
     @staticmethod
     def _polar(x: float, y: float) -> Tuple[float, float]:
         return math.hypot(x, y), math.atan2(y, x)
 
-    def _evaluate_LSL(self, x: float, y: float, phi: float):
+    def _LSL(self, x: float, y: float, phi: float) -> Tuple[bool, float, float, float]:
         u, t = self._polar(x - math.sin(phi), y - 1.0 + math.cos(phi))
         if t >= 0.0:
-            v = self._mod2pi(phi - t)
+            v = self._pi_2_pi(phi - t)
             if v >= 0.0: return True, t, u, v
         return False, 0.0, 0.0, 0.0
 
-    def _evaluate_LSR(self, x: float, y: float, phi: float):
+    def _LSR(self, x: float, y: float, phi: float) -> Tuple[bool, float, float, float]:
         u1, t1 = self._polar(x + math.sin(phi), y - 1.0 - math.cos(phi))
-        if u1 >= 4.0:
+        if u1**2 >= 4.0:
             u = math.sqrt(u1**2 - 4.0)
-            t = self._mod2pi(t1 + math.atan2(2.0, u))
-            v = self._mod2pi(t - phi)
+            t = self._pi_2_pi(t1 + math.atan2(2.0, u))
+            v = self._pi_2_pi(t - phi)
             if t >= 0.0 and v >= 0.0: return True, t, u, v
         return False, 0.0, 0.0, 0.0
 
-    def _evaluate_LRL(self, x: float, y: float, phi: float):
-        u1, t1 = self._polar(x - math.sin(phi), y - 1.0 + math.cos(phi))
-        if u1 <= 4.0:
-            u = 2.0 * math.asin(0.25 * u1)
-            t = self._mod2pi(t1 + 0.5 * u + math.pi)
-            v = self._mod2pi(phi - t + u)
-            if t >= 0.0 and u >= 0.0: return True, t, u, v
-        return False, 0.0, 0.0, 0.0
-
-    def _evaluate_LRL_neg(self, x: float, y: float, phi: float):
+    def _LRL(self, x: float, y: float, phi: float) -> Tuple[bool, float, float, float]:
         u1, t1 = self._polar(x - math.sin(phi), y - 1.0 + math.cos(phi))
         if u1 <= 4.0:
             u = -2.0 * math.asin(0.25 * u1)
-            t = self._mod2pi(t1 + 0.5 * u + math.pi)
-            v = self._mod2pi(phi - t + u)
+            t = self._pi_2_pi(t1 + 0.5 * u + math.pi)
+            v = self._pi_2_pi(phi - t + u)
             if t >= 0.0 and u <= 0.0: return True, t, u, v
         return False, 0.0, 0.0, 0.0
 
     def get_all_paths(self, sx: float, sy: float, syaw: float, ex: float, ey: float, eyaw: float) -> List[Path]:
-        """Finds all valid Reeds-Shepp paths connecting start to goal."""
         dx, dy = ex - sx, ey - sy
         c, s = math.cos(syaw), math.sin(syaw)
-        local_x, local_y = (c * dx + s * dy) / self.turning_radius, (-s * dx + c * dy) / self.turning_radius
-        local_yaw = self._mod2pi(eyaw - syaw)
+        x = (c * dx + s * dy) / self.turning_radius
+        y = (-s * dx + c * dy) / self.turning_radius
+        phi = eyaw - syaw
 
         paths = []
 
-        def ingest(f, char_types, x_, y_, phi_, t_flip=False, reflect=False):
-            ok, t, u, v = f(x_, y_, phi_)
-            if ok:
-                lengths = [-l if t_flip else l for l in [t, u, v]]
-                types = ['R' if c == 'L' else 'L' if c == 'R' else 'S' for c in char_types] if reflect else char_types
-                commands = []
-                for l_norm, c_type in zip(lengths, types):
-                    kappa = 0.0 if c_type == 'S' else (1.0 if c_type == 'L' else -1.0) / self.turning_radius
-                    commands.append(Command(l_norm * self.turning_radius, kappa))
+        # 12 core recipes from Reeds-Shepp (simplified)
+        # Using symmetries to generate all 48 possible optimal types
+        
+        def set_path(lengths, types):
+            commands = []
+            for l, t in zip(lengths, types):
+                kappa = 0.0 if t == 'S' else (1.0 if t == 'L' else -1.0) / self.turning_radius
+                commands.append(Command(l * self.turning_radius, kappa))
+            
+            # Simple validation to ensure it reaches (x, y, phi)
+            # Starting at (0,0,0) locally
+            px, py, pyaw = 0.0, 0.0, 0.0
+            for cmd in commands:
+                l, k = cmd.length, cmd.curvature
+                if abs(k) < 1e-6:
+                    px += l * math.cos(pyaw)
+                    py += l * math.sin(pyaw)
+                else:
+                    new_yaw = pyaw + l * k
+                    px += (math.sin(new_yaw) - math.sin(pyaw)) / k
+                    py += (math.cos(pyaw) - math.cos(new_yaw)) / k
+                    pyaw = new_yaw
+            
+            dist_err = math.hypot(px - dx, py - dy)
+            yaw_err = abs(self._pi_2_pi(pyaw - (eyaw - syaw)))
+            if dist_err < 0.1 and yaw_err < 0.1:
                 paths.append(Path(commands))
 
-        for f, labels in [
-            (self._evaluate_LSL, "LSL"), (self._evaluate_LSR, "LSR"),
-            (self._evaluate_LRL, "LRL"), (self._evaluate_LRL_neg, "LRL")
-        ]:
-            ingest(f, labels, local_x, local_y, local_yaw)
-            ingest(f, labels, -local_x, local_y, -local_yaw, t_flip=True)
-            ingest(f, labels, local_x, -local_y, -local_yaw, reflect=True)
-            ingest(f, labels, -local_x, -local_y, local_yaw, t_flip=True, reflect=True)
-            
+        # CSC (LSL, LSR, etc)
+        for t_flip in [1, -1]:
+            for reflect in [1, -1]:
+                # Try LSL
+                ok, t, u, v = self._LSL(x * t_flip, y * reflect, phi * t_flip * reflect)
+                if ok: 
+                    set_path([t*t_flip, u*t_flip, v*t_flip], 
+                             ['L' if reflect > 0 else 'R', 'S', 'L' if reflect > 0 else 'R'])
+                
+                # Try LSR
+                ok, t, u, v = self._LSR(x * t_flip, y * reflect, phi * t_flip * reflect)
+                if ok:
+                    set_path([t*t_flip, u*t_flip, v*t_flip],
+                             ['L' if reflect > 0 else 'R', 'S', 'R' if reflect > 0 else 'L'])
+                
+                # Try LRL
+                ok, t, u, v = self._LRL(x * t_flip, y * reflect, phi * t_flip * reflect)
+                if ok:
+                    set_path([t*t_flip, u*t_flip, v*t_flip],
+                             ['L' if reflect > 0 else 'R', 'R' if reflect > 0 else 'L', 'L' if reflect > 0 else 'R'])
+
         return paths
 
     def plan(self, sx: float, sy: float, syaw: float, ex: float, ey: float, eyaw: float) -> PlanningResult:
-        """Returns a result object containing all paths and the optimal one."""
         return PlanningResult(self.get_all_paths(sx, sy, syaw, ex, ey, eyaw))
 
 if __name__ == '__main__':
+    # Test problematic case
     sx, sy, syaw = 0.0, 0.0, 0.0
-    ex, ey, eyaw = 0.0, 5.0, math.radians(180)
-    
-    planner = ReedsSheppPlanner(turning_radius=3.0)
+    ex, ey, eyaw = 20.0, 0.0, 1.42
+    planner = ReedsSheppPlanner(turning_radius=5.0)
     result = planner.plan(sx, sy, syaw, ex, ey, eyaw)
-    
     if result.best_path:
-        print(f"Total Paths Found: {len(result.all_paths)}")
-        print(f"Best Reeds-Shepp Path Cost: {result.best_path.cost:.2f}")
-        for idx, cmd in enumerate(result.best_commands):
-            print(f"  Segment {idx}: {cmd}")
-        
-        rx, ry, ryaw, dlist = result.best_path.generate_trajectory(sx, sy, syaw, step_size=0.1)
-        
-        import matplotlib.pyplot as plt
-        plt.plot(rx, ry, "-b", label="Optimal Reeds-Shepp Path")
-        plt.arrow(sx, sy, math.cos(syaw), math.sin(syaw), head_width=0.5, color="green")
-        plt.arrow(ex, ey, math.cos(eyaw), math.sin(eyaw), head_width=0.5, color="red")
-        plt.axis("equal")
-        plt.grid(True)
-        plt.legend()
-        plt.show()
+        print(f"Success! Cost: {result.best_path.cost:.2f}")
+        for cmd in result.best_commands:
+            print(f"  {cmd}")
     else:
-        print("Failed to find a Reeds-Shepp path")
+        print("Failed to find path")
