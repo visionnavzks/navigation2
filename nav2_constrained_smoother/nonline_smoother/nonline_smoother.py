@@ -4,26 +4,26 @@ import matplotlib.pyplot as plt
 from rs_curve import ReedsSheppPlanner
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
-                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3):
+                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0):
     """Generates a Reeds-Shepp reference path between start and goal states"""
-    planner = ReedsSheppPlanner(turning_radius=5.0)
+    planner = ReedsSheppPlanner(turning_radius=turning_radius)
     result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
     
     if result.best_path:
         x_ref, y_ref, theta_ref, dir_ref = result.best_path.generate_trajectory(
             start_x, start_y, start_theta, step_size=target_ds
         )
-        return np.array(x_ref), np.array(y_ref), np.array(theta_ref), np.array(dir_ref)
+        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(dir_ref)
     else:
-        # Fallback to linear interpolation
-        N = 50
+        raise ValueError("Failed to generate Reeds-Shepp path")
+        # Fallback to linear interpolation (ensure theta endpoints match)
+        N = max(int(np.hypot(goal_x - start_x, goal_y - start_y) / target_ds), 20)
         x_ref = np.linspace(start_x, goal_x, N)
         y_ref = np.linspace(start_y, goal_y, N)
-        dx = np.gradient(x_ref)
-        dy = np.gradient(y_ref)
-        theta_ref = np.unwrap(np.arctan2(dy, dx))
+        # Interpolate orientation between endpoints
+        theta_ref = np.linspace(start_theta, goal_theta, N)
         dir_ref = np.ones(N)
-        return x_ref, y_ref, theta_ref, dir_ref
+        return x_ref, y_ref, np.unwrap(theta_ref), dir_ref
 
 
 class NonlinearPathSmoother:
@@ -43,13 +43,13 @@ class NonlinearPathSmoother:
         self.w_ds = self.params.get('w_ds', 1.0)                # Weight for step size (uniformity)
         self.target_ds = self.params.get('target_ds', 0.0)      # Desired spacing (0.0 means auto)
 
-    def solve(self, x_ref, y_ref, theta_ref):
+    def solve(self, x_ref, y_ref, theta_ref, dir_ref):
         """Run nonlinear mathematical optimization on given reference path"""
         N = len(x_ref)
         if self.target_ds > 0.01:
-            target_ds = self.target_ds
+            target_ds_mag = self.target_ds
         else:
-            target_ds = np.mean(np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1))
+            target_ds_mag = np.mean(np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1))
         
         # --- Setup Opti stack ---
         opti = ca.Opti()
@@ -69,11 +69,16 @@ class NonlinearPathSmoother:
         obj = 0
         for i in range(N):
             obj += self.w_ref * ((x[i] - x_ref[i])**2 + (y[i] - y_ref[i])**2)
+            # Use w_ref for theta error to keep heading aligned. 1-cos handles angle wrapping.
+            obj += self.w_ref * (1.0 - ca.cos(theta[i] - theta_ref[i]))
             obj += self.w_kappa * kappa[i]**2
             
         for i in range(N-1):
-            obj += self.w_dkappa * dkappa[i]**2
-            obj += self.w_ds * (ds[i] - target_ds)**2
+            # Use absolute value for weighting the smoothness term to ensure positive cost
+            obj += self.w_dkappa * dkappa[i]**2 * ca.fabs(ds[i])
+            # Match the signed target step size based on reference direction
+            # obj += self.w_ds * (ds[i] - target_ds_mag * dir_ref[i])**2
+            obj += self.w_ds * (ds[i])**2
 
         opti.minimize(obj)
 
@@ -96,6 +101,13 @@ class NonlinearPathSmoother:
 
         # --- State and Control Bounds ---
         opti.subject_to(opti.bounded(-self.max_kappa, kappa, self.max_kappa))
+        
+        # Add topology constraints: ds must maintain its sign and stay within reasonable bounds
+        for i in range(N-1):
+            # Constraint ds to be within [0.05, 2.0] times the target step size with correct direction
+            # Tightened upper bound to prevent looping
+            opti.subject_to(ds[i] * dir_ref[i] >= 0.05 * target_ds_mag)
+            opti.subject_to(ds[i] * dir_ref[i] <= 2.0 * target_ds_mag)
 
         # --- Boundary Conditions ---
         # Start point
@@ -115,7 +127,8 @@ class NonlinearPathSmoother:
         opti.set_initial(y, y_ref)
         opti.set_initial(theta, theta_ref)
         opti.set_initial(kappa, np.zeros(N))
-        opti.set_initial(ds, np.ones(N-1) * target_ds)
+        # Important: Initialize ds with the correct sign!
+        opti.set_initial(ds, dir_ref[:-1] * target_ds_mag)
         opti.set_initial(dkappa, np.zeros(N-1))
 
         # --- Setup Solver ---

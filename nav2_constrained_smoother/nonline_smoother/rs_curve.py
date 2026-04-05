@@ -43,8 +43,7 @@ class Path:
                     x += (math.sin(new_yaw) - math.sin(yaw)) / cmd.curvature
                     y += (math.cos(yaw) - math.cos(new_yaw)) / cmd.curvature
                     yaw = new_yaw
-                    
-                yaw = self._mod2pi(yaw)
+                
                 x_list.append(x)
                 y_list.append(y)
                 yaw_list.append(yaw)

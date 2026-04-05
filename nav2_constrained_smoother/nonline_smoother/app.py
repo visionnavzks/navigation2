@@ -39,8 +39,13 @@ def run_smoother():
         # If target_ds is 0, use a default for reference generation
         ref_ds = target_ds if target_ds > 0.05 else 0.4
         
+        # Calculate turning radius from max_kappa parameter
+        max_kappa = params.get('max_kappa', 0.5)
+        turning_radius = 1.0 / max_kappa if max_kappa > 0.01 else 5.0
+        
         x_ref, y_ref, theta_ref, dir_ref = generate_reference_path(
-            start_x, start_y, start_theta, goal_x, goal_y, goal_theta, target_ds=ref_ds
+            start_x, start_y, start_theta, goal_x, goal_y, goal_theta, 
+            target_ds=ref_ds, turning_radius=turning_radius
         )
         
         # Add small noise to middle points for visual jitter if desired (optional)
@@ -49,7 +54,7 @@ def run_smoother():
         
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, dir_opt = smoother.solve(x_ref, y_ref, theta_ref)
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, dir_opt = smoother.solve(x_ref, y_ref, theta_ref, dir_ref)
         
         if kappa_opt is None:
             # When it fails, it returns debug values but None for kappa
