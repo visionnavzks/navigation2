@@ -15,28 +15,48 @@ document.addEventListener('DOMContentLoaded', () => {
         let startIdx = 0;
 
         for (let i = 1; i <= x.length; i++) {
-            // End of segment if direction changes or end of array
             if (i === x.length || directions[i] !== currentDir) {
-                const segmentX = x.slice(startIdx, i + 1); // Include the last point to connect segments
+                const segmentX = x.slice(startIdx, i + 1);
                 const segmentY = y.slice(startIdx, i + 1);
                 
                 const isForward = currentDir >= 0;
-                const color = isForward ? '#3b82f6' : '#f97316';
+                
+                // Premium Color Palette
+                const colors = {
+                    smoothFwd: '#6366f1', // Indigo 500
+                    smoothBwd: '#f43f5e', // Rose 500
+                    refFwd: '#94a3b8',    // Slate 400
+                    refBwd: '#fda4af'     // Rose 200 (muted)
+                };
+
+                let color;
+                if (isRef) {
+                    color = isForward ? colors.refFwd : colors.refBwd;
+                } else {
+                    color = isForward ? colors.smoothFwd : colors.smoothBwd;
+                }
+
                 const label = `${namePrefix} (${isForward ? 'Forward' : 'Backward'})`;
                 
                 traces.push({
                     x: segmentX,
                     y: segmentY,
-                    mode: 'lines+markers',
+                    mode: isRef ? 'lines' : 'lines+markers',
                     name: label,
                     line: {
-                        color: isRef ? '#94a3b8' : color, 
-                        dash: isRef ? 'dash' : 'solid',
-                        width: isRef ? 2 : 4
+                        color: color, 
+                        dash: isRef ? 'dot' : 'solid',
+                        width: isRef ? 2 : 4,
+                        shape: 'spline',
+                        smoothing: 1.3
                     },
-                    marker: { size: isRef ? 3 : 5, color: isRef ? '#94a3b8' : color },
+                    marker: isRef ? {} : { 
+                        size: 6, 
+                        color: color,
+                        line: { color: '#ffffff', width: 1 }
+                    },
                     legendgroup: label,
-                    showlegend: traces.findIndex(t => t.name === label) === -1 // Only show legend once per group
+                    showlegend: traces.findIndex(t => t.name === label) === -1
                 });
                 
                 if (i < x.length) {
@@ -49,24 +69,28 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const plotCharts = (data) => {
-        // Shared layout styling
         const chartLayout = {
             plot_bgcolor: 'rgba(0,0,0,0)',
             paper_bgcolor: 'rgba(0,0,0,0)',
             font: { color: '#f1f5f9', family: 'Outfit' },
-            xaxis: { gridcolor: 'rgba(255,255,255,0.1)', zerolinecolor: 'rgba(255,255,255,0.2)' },
-            yaxis: { gridcolor: 'rgba(255,255,255,0.1)', zerolinecolor: 'rgba(255,255,255,0.2)' },
-            margin: { t: 40, b: 40, l: 50, r: 20 },
-            legend: { orientation: 'h', y: 1.1 }
+            xaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)' },
+            yaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)' },
+            margin: { t: 60, b: 40, l: 50, r: 20 },
+            legend: { 
+                orientation: 'h', 
+                y: -0.2, 
+                x: 0.5, 
+                xanchor: 'center',
+                font: { size: 10 }
+            }
         };
 
-        // 1. Path Plot with colored segments
         const refTraces = getSegmentTraces(data.x_ref, data.y_ref, data.dir_ref || new Array(data.x_ref.length).fill(1), 'Ref', true);
-        const optTraces = getSegmentTraces(data.x_opt, data.y_opt, data.dir_opt || new Array(data.x_opt.length).fill(1), 'Smoothed', false);
+        const optTraces = getSegmentTraces(data.x_opt, data.y_opt, data.dir_opt || new Array(data.x_opt.length).fill(1), 'Smooth', false);
 
         Plotly.newPlot('path-chart', [...refTraces, ...optTraces], {
             ...chartLayout,
-            title: 'Path Geometry (Blue: Fwd, Orange: Bwd)',
+            title: 'Path Geometry (Indigo: Fwd, Rose: Bwd)',
             yaxis: { ...chartLayout.yaxis, scaleanchor: 'x', scaleratio: 1 }
         });
 
