@@ -2,17 +2,30 @@ import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
 
-def generate_reference_path():
-    """Generates a simple reference path (e.g., a lane change or curve)"""
-    x_ref = np.linspace(0, 20, 50)
-    y_ref = np.sin(x_ref / 20 * 2 * np.pi) * 2.0  # sine wave path
+def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
+                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, N=50):
+    """Generates a reference path between start and goal states"""
+    # Simple linear interpolation for x and y
+    x_ref = np.linspace(start_x, goal_x, N)
+    
+    # Add a slight sine wave component if it's the default horizontal case for visual demo,
+    # otherwise just a straight line for arbitrary start/goal.
+    if abs(start_y) < 1e-3 and abs(goal_y) < 1e-3 and abs(goal_x - start_x - 20.0) < 1e-3:
+        y_ref = np.sin(x_ref / 20 * 2 * np.pi) * 2.0
+    else:
+        y_ref = np.linspace(start_y, goal_y, N)
     
     # Calculate headings and approximate curvatures for the reference path
     dx = np.gradient(x_ref)
     dy = np.gradient(y_ref)
     theta_ref = np.arctan2(dy, dx)
     
+    # Ensure start and goal theta from user are respected in reference path
+    theta_ref[0] = start_theta
+    theta_ref[-1] = goal_theta
+    
     return x_ref, y_ref, theta_ref
+
 
 class NonlinearPathSmoother:
     def __init__(self, params=None):
@@ -29,11 +42,15 @@ class NonlinearPathSmoother:
         self.w_dkappa = self.params.get('w_dkappa', 10.0)       # Weight for subjective smoothness
         self.w_kappa = self.params.get('w_kappa', 0.1)          # Weight for curvature
         self.w_ds = self.params.get('w_ds', 1.0)                # Weight for step size (uniformity)
+        self.target_ds = self.params.get('target_ds', 0.0)      # Desired spacing (0.0 means auto)
 
     def solve(self, x_ref, y_ref, theta_ref):
         """Run nonlinear mathematical optimization on given reference path"""
         N = len(x_ref)
-        target_ds = np.mean(np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1))
+        if self.target_ds > 0.01:
+            target_ds = self.target_ds
+        else:
+            target_ds = np.mean(np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1))
         
         # --- Setup Opti stack ---
         opti = ca.Opti()
@@ -82,10 +99,17 @@ class NonlinearPathSmoother:
         opti.subject_to(opti.bounded(-self.max_kappa, kappa, self.max_kappa))
 
         # --- Boundary Conditions ---
+        # Start point
         opti.subject_to(x[0] == x_ref[0])
         opti.subject_to(y[0] == y_ref[0])
         opti.subject_to(theta[0] == theta_ref[0])
         opti.subject_to(kappa[0] == 0.0)
+
+        # End point
+        opti.subject_to(x[N-1] == x_ref[N-1])
+        opti.subject_to(y[N-1] == y_ref[N-1])
+        opti.subject_to(theta[N-1] == theta_ref[N-1])
+
 
         # --- Initial Guess ---
         opti.set_initial(x, x_ref)
@@ -110,54 +134,3 @@ class NonlinearPathSmoother:
             print(f"Optimization failed: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 
                     opti.debug.value(theta), None, None, None)
-
-def plot_results(x_ref, y_ref, x_opt, y_opt, kappa_opt, ds_opt, dkappa_opt):
-    plt.figure(figsize=(12, 10))
-    
-    # Path plot
-    plt.subplot(3, 1, 1)
-    plt.plot(x_ref, y_ref, 'r--', label='Reference Path', marker='.')
-    plt.plot(x_opt, y_opt, 'b-', label='Smoothed Path', marker='o', markersize=3)
-    plt.title('Nonlinear Path Smoothing (Bicycle Model) - OOP')
-    plt.xlabel('X [m]')
-    plt.ylabel('Y [m]')
-    plt.legend()
-    plt.axis('equal')
-    plt.grid(True)
-
-    if kappa_opt is not None:
-        # Curvature plot
-        plt.subplot(3, 1, 2)
-        plt.plot(kappa_opt, 'g-', label=r'Curvature $\kappa$')
-        plt.title('Curvature Profile')
-        plt.xlabel('Node Index')
-        plt.ylabel('Curvature [1/m]')
-        plt.grid(True)
-        plt.legend()
-
-        # Control plot
-        plt.subplot(3, 1, 3)
-        plt.plot(ds_opt, 'm-', label='Step Size $ds$')
-        plt.plot(dkappa_opt, 'c-', label=r'Curvature Derivative $d\kappa$')
-        plt.title('Control Outputs')
-        plt.xlabel('Node Index')
-        plt.legend()
-        plt.grid(True)
-
-    plt.tight_layout()
-    plt.savefig('smoother_result.png')
-    print("Saved plot to smoother_result.png")
-    plt.show()
-
-if __name__ == "__main__":
-    x_ref, y_ref, theta_ref = generate_reference_path()
-    
-    # Introduce some noise to make reference path unsmooth
-    np.random.seed(42)
-    x_ref[1:-1] += np.random.normal(0, 0.1, len(x_ref)-2)
-    y_ref[1:-1] += np.random.normal(0, 0.1, len(y_ref)-2)
-    
-    smoother = NonlinearPathSmoother()
-    x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt = smoother.solve(x_ref, y_ref, theta_ref)
-    
-    plot_results(x_ref, y_ref, x_opt, y_opt, kappa_opt, ds_opt, dkappa_opt)

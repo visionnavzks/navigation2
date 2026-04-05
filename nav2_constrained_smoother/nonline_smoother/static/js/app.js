@@ -3,7 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusMsg = document.getElementById('status-msg');
 
     const params = [
-        'max_kappa', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds'
+        'start_x', 'start_y', 'start_theta',
+        'goal_x', 'goal_y', 'goal_theta',
+        'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds'
     ];
 
     const plotCharts = (data) => {

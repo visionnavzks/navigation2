@@ -27,11 +27,22 @@ def run_smoother():
             except ValueError:
                 pass
                 
-        # Generate reference path with same noise as original file
-        x_ref, y_ref, theta_ref = generate_reference_path()
+        # Generate reference path with user endpoints
+        start_x = params.get('start_x', 0.0)
+        start_y = params.get('start_y', 0.0)
+        start_theta = params.get('start_theta', 0.0)
+        goal_x = params.get('goal_x', 20.0)
+        goal_y = params.get('goal_y', 0.0)
+        goal_theta = params.get('goal_theta', 0.0)
+        
+        x_ref, y_ref, theta_ref = generate_reference_path(
+            start_x, start_y, start_theta, goal_x, goal_y, goal_theta
+        )
+        
         np.random.seed(42)
         x_ref[1:-1] += np.random.normal(0, 0.1, len(x_ref)-2)
         y_ref[1:-1] += np.random.normal(0, 0.1, len(y_ref)-2)
+
         
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
