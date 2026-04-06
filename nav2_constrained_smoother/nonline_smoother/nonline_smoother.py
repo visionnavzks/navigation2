@@ -56,9 +56,6 @@ class NonlinearPathSmoother:
         U = opti.variable(2, N-1)
         ds     = U[0, :]
         dkappa = U[1, :]
-        
-        # Fixed gear (direction) from reference path
-        gear = gears
 
         # --- Objective Function ---
         obj = 0
@@ -80,13 +77,13 @@ class NonlinearPathSmoother:
         for i in range(N-1):
             # Exact integration for curvature and heading (assuming piecewise constant dkappa)
             kappa_next = kappa[i] + ds[i] * dkappa[i]
-            theta_next = theta[i] + gear[i] * (ds[i] * kappa[i] + 0.5 * ds[i]**2 * dkappa[i])
+            theta_next = theta[i] + gears[i] * (ds[i] * kappa[i] + 0.5 * ds[i]**2 * dkappa[i])
 
             # Simpson's rule for x and y integration (better approximation of Fresnel integrals)
-            theta_mid = theta[i] + gear[i] * (0.5 * ds[i] * kappa[i] + 0.125 * ds[i]**2 * dkappa[i])
+            theta_mid = theta[i] + gears[i] * (0.5 * ds[i] * kappa[i] + 0.125 * ds[i]**2 * dkappa[i])
             
-            x_next = x[i] + gear[i] * (ds[i] / 6.0) * (ca.cos(theta[i]) + 4.0 * ca.cos(theta_mid) + ca.cos(theta_next))
-            y_next = y[i] + gear[i] * (ds[i] / 6.0) * (ca.sin(theta[i]) + 4.0 * ca.sin(theta_mid) + ca.sin(theta_next))
+            x_next = x[i] + gears[i] * (ds[i] / 6.0) * (ca.cos(theta[i]) + 4.0 * ca.cos(theta_mid) + ca.cos(theta_next))
+            y_next = y[i] + gears[i] * (ds[i] / 6.0) * (ca.sin(theta[i]) + 4.0 * ca.sin(theta_mid) + ca.sin(theta_next))
 
             opti.subject_to(x[i+1] == x_next)
             y_next_val = y_next # to avoid name conflict if needed
