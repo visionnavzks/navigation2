@@ -43,15 +43,30 @@ def run_smoother():
         max_kappa = params.get('max_kappa', 0.5)
         turning_radius = 1.0 / max_kappa if max_kappa > 0.01 else 5.0
         
-        x_ref, y_ref, theta_ref, gears = generate_reference_path(
+        x_ref, y_ref, theta_ref, gears, dubins_commands = generate_reference_path(
             start_x, start_y, start_theta, goal_x, goal_y, goal_theta, 
             target_ds=ref_ds, turning_radius=turning_radius
         )
         
+        if x_ref is None:
+            return jsonify({'success': False, 'message': 'Failed to generate initial Dubins path.'})
+            
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
         x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt = smoother.solve(x_ref, y_ref, theta_ref, gears)
         
+        formatted_commands = []
+        if dubins_commands:
+            for cmd in dubins_commands:
+                cmd_type = "S"
+                if abs(cmd.curvature) > 1e-6:
+                    cmd_type = "L" if cmd.curvature > 0 else "R"
+                formatted_commands.append({
+                    "length": float(cmd.length),
+                    "curvature": float(cmd.curvature),
+                    "type": cmd_type
+                })
+                
         if kappa_opt is None:
             # When it fails, it returns debug values but None for kappa
             return jsonify({
@@ -61,7 +76,8 @@ def run_smoother():
                 'y_ref': y_ref.tolist(),
                 'gears': gears.tolist(),
                 'x_opt': np.array(x_opt).tolist() if x_opt is not None else [],
-                'y_opt': np.array(y_opt).tolist() if y_opt is not None else []
+                'y_opt': np.array(y_opt).tolist() if y_opt is not None else [],
+                'dubins_commands': formatted_commands
             })
             
         return jsonify({
@@ -74,7 +90,8 @@ def run_smoother():
             'gears_opt': np.array(gears_opt).tolist(),
             'kappa_opt': np.array(kappa_opt).tolist(),
             'ds_opt': np.array(ds_opt).tolist(),
-            'dkappa_opt': np.array(dkappa_opt).tolist()
+            'dkappa_opt': np.array(dkappa_opt).tolist(),
+            'dubins_commands': formatted_commands
         })
     except Exception as e:
         traceback.print_exc()

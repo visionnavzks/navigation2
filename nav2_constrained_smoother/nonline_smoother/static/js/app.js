@@ -134,8 +134,8 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('kappa-chart').innerHTML = '';
         }
 
-        // 3. Control Outputs Plot
-        if (data.ds_opt && data.dkappa_opt && data.ds_opt.length > 0) {
+        // 3. Step Size Plot
+        if (data.ds_opt && data.ds_opt.length > 0) {
             const traceDs = {
                 y: data.ds_opt,
                 type: 'scatter',
@@ -143,6 +143,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 name: 'Step Size ds',
                 line: {color: '#8b5cf6', width: 2}
             };
+            Plotly.newPlot('ds-chart', [traceDs], {
+                ...chartLayout,
+                title: 'Step Size (ds)'
+            });
+        } else {
+            document.getElementById('ds-chart').innerHTML = '';
+        }
+
+        // 4. Curvature Derivative Plot
+        if (data.dkappa_opt && data.dkappa_opt.length > 0) {
             const traceDkappa = {
                 y: data.dkappa_opt,
                 type: 'scatter',
@@ -150,13 +160,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 name: 'Curvature Deriv dκ',
                 line: {color: '#f59e0b', width: 2}
             };
-            Plotly.newPlot('control-chart', [traceDs, traceDkappa], {
+            Plotly.newPlot('dk-chart', [traceDkappa], {
                 ...chartLayout,
-                title: 'Control Outputs'
+                title: 'Curvature Derivative (dκ/ds)'
             });
         } else {
-            document.getElementById('control-chart').innerHTML = '';
+            document.getElementById('dk-chart').innerHTML = '';
         }
+    };
+
+    const renderDubinsCommands = (commands, currentMaxKappa) => {
+        const container = document.getElementById('dubins-commands-list');
+        const radiusDisplay = document.getElementById('display-turning-radius');
+        
+        // Update turning radius display
+        if (currentMaxKappa > 0.01) {
+            radiusDisplay.textContent = (1.0 / currentMaxKappa).toFixed(2);
+        } else {
+            radiusDisplay.textContent = '--';
+        }
+
+        if (!commands || commands.length === 0) {
+            container.innerHTML = '<p class="empty-msg">No path generated yet.</p>';
+            return;
+        }
+
+        container.innerHTML = '';
+        commands.forEach((cmd, i) => {
+            if (cmd.length < 0.01) return; // Skip tiny segments
+
+            const pill = document.createElement('div');
+            pill.className = `command-pill type-${cmd.type}`;
+            
+            let label = cmd.type; // L, R, or S
+            
+            pill.innerHTML = `
+                <span class="type-icon">${label}</span>
+                <span class="dist">${cmd.length.toFixed(2)}m</span>
+            `;
+            container.appendChild(pill);
+        });
     };
 
     const runOptimization = async () => {
@@ -170,6 +213,8 @@ document.addEventListener('DOMContentLoaded', () => {
             payload.params[param] = parseFloat(document.getElementById(param).value);
         });
 
+        const currentMaxKappa = payload.params.max_kappa;
+
         try {
             const res = await fetch('/api/smooth', {
                 method: 'POST',
@@ -182,11 +227,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusMsg.textContent = 'Optimization solved successfully!';
                 statusMsg.className = 'status-msg success';
                 plotCharts(data, payload.params);
+                renderDubinsCommands(data.dubins_commands, currentMaxKappa);
             } else {
                 statusMsg.textContent = data.message || 'Optimization failed.';
                 statusMsg.className = 'status-msg error';
                 if (data.x_ref) {
                     plotCharts(data, payload.params);
+                    renderDubinsCommands(data.dubins_commands, currentMaxKappa);
                 }
             }
         } catch (err) {

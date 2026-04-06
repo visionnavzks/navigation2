@@ -13,7 +13,8 @@ def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0,
         x_ref, y_ref, theta_ref, gears = result.best_path.generate_trajectory(
             start_x, start_y, start_theta, step_size=target_ds
         )
-        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears)
+        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears), result.best_commands
+    return None, None, None, None, None
 
 
 class NonlinearPathSmoother:
@@ -70,6 +71,7 @@ class NonlinearPathSmoother:
             obj += self.w_dkappa * dkappa[i]**2 * ds[i]
             # Match the target step size (always positive now)
             obj += self.w_ds * (ds[i] - target_ds_mag)**2
+            # obj += self.w_ds * (ds[i] - 0)**2
 
         opti.minimize(obj)
 

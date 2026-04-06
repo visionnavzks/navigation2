@@ -91,9 +91,22 @@
             </aside>
             
             <section class="charts glass-panel">
+                <div class="top-info-bar">
+                    <div class="info-badge">
+                        <span class="label">Turning Radius:</span>
+                        <span id="display-turning-radius" class="value">--</span>
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="divider"></div>
+                    <div id="dubins-commands-list" class="commands-hbar">
+                        <p class="empty-msg">No path generated yet.</p>
+                    </div>
+                </div>
+                
                 <div id="path-chart" class="chart-container"></div>
                 <div id="kappa-chart" class="chart-container" style="height: 250px;"></div>
-                <div id="control-chart" class="chart-container" style="height: 250px;"></div>
+                <div id="ds-chart" class="chart-container" style="height: 250px;"></div>
+                <div id="dk-chart" class="chart-container" style="height: 250px;"></div>
             </section>
         </div>
     </div>
