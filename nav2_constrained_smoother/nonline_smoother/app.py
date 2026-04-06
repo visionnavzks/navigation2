@@ -43,6 +43,13 @@ def run_smoother():
         max_kappa = params.get('max_kappa', 0.5)
         turning_radius = 1.0 / max_kappa if max_kappa > 0.01 else 5.0
         
+        # Handle optional start curvature
+        fix_start_kappa = params.get('fix_start_kappa', True)
+        if fix_start_kappa:
+            params['kappa_start'] = params.get('start_kappa', 0.0)
+        else:
+            params['kappa_start'] = None
+            
         x_ref, y_ref, theta_ref, gears, dubins_commands = generate_reference_path(
             start_x, start_y, start_theta, goal_x, goal_y, goal_theta, 
             target_ds=ref_ds, turning_radius=turning_radius

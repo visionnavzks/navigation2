@@ -33,6 +33,7 @@ class NonlinearPathSmoother:
         self.w_kappa = self.params.get('w_kappa', 0.1)          # Weight for curvature
         self.w_ds = self.params.get('w_ds', 1.0)                # Weight for step size (uniformity)
         self.target_ds = self.params.get('target_ds', 0.0)      # Desired spacing (0.0 means auto)
+        self.kappa_start = self.params.get('kappa_start', 0.0)  # Start curvature (float or None)
 
     def solve(self, x_ref, y_ref, theta_ref, gears):
         """Run nonlinear mathematical optimization on given reference path"""
@@ -107,7 +108,12 @@ class NonlinearPathSmoother:
         opti.subject_to(x[0] == x_ref[0])
         opti.subject_to(y[0] == y_ref[0])
         opti.subject_to(theta[0] == theta_ref[0])
-        opti.subject_to(kappa[0] == 0.0)
+        if self.kappa_start is not None:
+            opti.subject_to(kappa[0] == self.kappa_start)
+        else:
+            # If not fixed, we still want it to be within bounded range
+            # which is already covered by opti.bounded(-self.max_kappa, kappa, self.max_kappa)
+            pass
 
         # End point
         opti.subject_to(x[N-1] == x_ref[N-1])

@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = [
         'start_x', 'start_y', 'start_theta',
         'goal_x', 'goal_y', 'goal_theta',
-        'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds'
+        'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds',
+        'start_kappa'
     ];
 
     const getSegmentTraces = (x, y, gears, namePrefix, isRef) => {
@@ -210,8 +211,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const payload = { params: {} };
         params.forEach(param => {
-            payload.params[param] = parseFloat(document.getElementById(param).value);
+            const el = document.getElementById(param);
+            if (el) payload.params[param] = parseFloat(el.value);
         });
+        
+        // Add manual curvature flag
+        payload.params['fix_start_kappa'] = document.getElementById('fix_start_kappa').checked;
 
         const currentMaxKappa = payload.params.max_kappa;
 
@@ -252,10 +257,21 @@ document.addEventListener('DOMContentLoaded', () => {
     params.forEach(param => {
         const input = document.getElementById(param);
         const span = document.getElementById(`val_${param}`);
-        input.addEventListener('input', () => {
-            span.textContent = parseFloat(input.value).toFixed(2);
-        });
-        input.addEventListener('change', runOptimization);
+        if (input && span) {
+            input.addEventListener('input', () => {
+                span.textContent = parseFloat(input.value).toFixed(2);
+            });
+            input.addEventListener('change', runOptimization);
+        }
+    });
+
+    const fixKappaToggle = document.getElementById('fix_start_kappa');
+    const kappaContainer = document.getElementById('start_kappa_container');
+    
+    fixKappaToggle.addEventListener('change', () => {
+        kappaContainer.style.opacity = fixKappaToggle.checked ? '1' : '0.4';
+        kappaContainer.style.pointerEvents = fixKappaToggle.checked ? 'auto' : 'none';
+        runOptimization();
     });
     
     // Initial run
