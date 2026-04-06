@@ -1,29 +1,19 @@
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
-from rs_curve import ReedsSheppPlanner
+from dubins_curve import DubinsPlanner
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
                             goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0):
     """Generates a Reeds-Shepp reference path between start and goal states"""
-    planner = ReedsSheppPlanner(turning_radius=turning_radius)
+    planner = DubinsPlanner(turning_radius=turning_radius)
     result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
     
     if result.best_path:
-        x_ref, y_ref, theta_ref, dir_ref = result.best_path.generate_trajectory(
+        x_ref, y_ref, theta_ref, gears = result.best_path.generate_trajectory(
             start_x, start_y, start_theta, step_size=target_ds
         )
-        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(dir_ref)
-    else:
-        raise ValueError("Failed to generate Reeds-Shepp path")
-        # Fallback to linear interpolation (ensure theta endpoints match)
-        N = max(int(np.hypot(goal_x - start_x, goal_y - start_y) / target_ds), 20)
-        x_ref = np.linspace(start_x, goal_x, N)
-        y_ref = np.linspace(start_y, goal_y, N)
-        # Interpolate orientation between endpoints
-        theta_ref = np.linspace(start_theta, goal_theta, N)
-        dir_ref = np.ones(N)
-        return x_ref, y_ref, np.unwrap(theta_ref), dir_ref
+        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears)
 
 
 class NonlinearPathSmoother:
@@ -43,8 +33,10 @@ class NonlinearPathSmoother:
         self.w_ds = self.params.get('w_ds', 1.0)                # Weight for step size (uniformity)
         self.target_ds = self.params.get('target_ds', 0.0)      # Desired spacing (0.0 means auto)
 
-    def solve(self, x_ref, y_ref, theta_ref, dir_ref):
+    def solve(self, x_ref, y_ref, theta_ref, gears):
         """Run nonlinear mathematical optimization on given reference path"""
+        # Ensure angles are unwrapped for continuity in optimization
+        theta_ref = np.unwrap(theta_ref)
         N = len(x_ref)
         if self.target_ds > 0.01:
             target_ds_mag = self.target_ds
@@ -64,6 +56,9 @@ class NonlinearPathSmoother:
         U = opti.variable(2, N-1)
         ds     = U[0, :]
         dkappa = U[1, :]
+        
+        # Fixed gear (direction) from reference path
+        gear = gears
 
         # --- Objective Function ---
         obj = 0
@@ -74,11 +69,10 @@ class NonlinearPathSmoother:
             obj += self.w_kappa * kappa[i]**2
             
         for i in range(N-1):
-            # Use absolute value for weighting the smoothness term to ensure positive cost
-            obj += self.w_dkappa * dkappa[i]**2 * ca.fabs(ds[i])
-            # Match the signed target step size based on reference direction
-            # obj += self.w_ds * (ds[i] - target_ds_mag * dir_ref[i])**2
-            obj += self.w_ds * (ds[i])**2
+            # Use positive ds for weighting the smoothness term
+            obj += self.w_dkappa * dkappa[i]**2 * ds[i]
+            # Match the target step size (always positive now)
+            obj += self.w_ds * (ds[i] - target_ds_mag)**2
 
         opti.minimize(obj)
 
@@ -86,15 +80,16 @@ class NonlinearPathSmoother:
         for i in range(N-1):
             # Exact integration for curvature and heading (assuming piecewise constant dkappa)
             kappa_next = kappa[i] + ds[i] * dkappa[i]
-            theta_next = theta[i] + ds[i] * kappa[i] + 0.5 * ds[i]**2 * dkappa[i]
+            theta_next = theta[i] + gear[i] * (ds[i] * kappa[i] + 0.5 * ds[i]**2 * dkappa[i])
 
             # Simpson's rule for x and y integration (better approximation of Fresnel integrals)
-            theta_mid = theta[i] + 0.5 * ds[i] * kappa[i] + 0.125 * ds[i]**2 * dkappa[i]
+            theta_mid = theta[i] + gear[i] * (0.5 * ds[i] * kappa[i] + 0.125 * ds[i]**2 * dkappa[i])
             
-            x_next = x[i] + (ds[i] / 6.0) * (ca.cos(theta[i]) + 4.0 * ca.cos(theta_mid) + ca.cos(theta_next))
-            y_next = y[i] + (ds[i] / 6.0) * (ca.sin(theta[i]) + 4.0 * ca.sin(theta_mid) + ca.sin(theta_next))
+            x_next = x[i] + gear[i] * (ds[i] / 6.0) * (ca.cos(theta[i]) + 4.0 * ca.cos(theta_mid) + ca.cos(theta_next))
+            y_next = y[i] + gear[i] * (ds[i] / 6.0) * (ca.sin(theta[i]) + 4.0 * ca.sin(theta_mid) + ca.sin(theta_next))
 
             opti.subject_to(x[i+1] == x_next)
+            y_next_val = y_next # to avoid name conflict if needed
             opti.subject_to(y[i+1] == y_next)
             opti.subject_to(theta[i+1] == theta_next)
             opti.subject_to(kappa[i+1] == kappa_next)
@@ -102,12 +97,11 @@ class NonlinearPathSmoother:
         # --- State and Control Bounds ---
         opti.subject_to(opti.bounded(-self.max_kappa, kappa, self.max_kappa))
         
-        # Add topology constraints: ds must maintain its sign and stay within reasonable bounds
+        # Add topology constraints: ds must be strictly positive and within bounds
         for i in range(N-1):
-            # Constraint ds to be within [0.05, 2.0] times the target step size with correct direction
-            # Tightened upper bound to prevent looping
-            opti.subject_to(ds[i] * dir_ref[i] >= 0.05 * target_ds_mag)
-            opti.subject_to(ds[i] * dir_ref[i] <= 2.0 * target_ds_mag)
+            # Constraint ds to be within [0.05, 2.0] times the target step size
+            opti.subject_to(ds[i] >= 0.05 * target_ds_mag)
+            opti.subject_to(ds[i] <= 2.0 * target_ds_mag)
 
         # --- Boundary Conditions ---
         # Start point
@@ -127,8 +121,8 @@ class NonlinearPathSmoother:
         opti.set_initial(y, y_ref)
         opti.set_initial(theta, theta_ref)
         opti.set_initial(kappa, np.zeros(N))
-        # Important: Initialize ds with the correct sign!
-        opti.set_initial(ds, dir_ref[:-1] * target_ds_mag)
+        # Now ds is always positive in our formulation
+        opti.set_initial(ds, np.ones(N-1) * target_ds_mag)
         opti.set_initial(dkappa, np.zeros(N-1))
 
         # --- Setup Solver ---
@@ -140,14 +134,13 @@ class NonlinearPathSmoother:
         try:
             sol = opti.solve()
             print("Optimization successfully formulated and solved!")
-            # Return optimized path and directions (sign of ds)
+            # Return optimized path and re-apply sign to ds for compatibility
             ds_val = sol.value(ds)
-            dir_opt = np.ones(N)
-            dir_opt[:-1] = np.sign(ds_val)
-            dir_opt[-1] = dir_opt[-2] if N > 1 else 1
+            signed_ds = ds_val * gears
+            gears_opt = np.sign(signed_ds)
             
             return (sol.value(x), sol.value(y), sol.value(theta), 
-                    sol.value(kappa), ds_val, sol.value(dkappa), dir_opt)
+                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt)
         except Exception as e:
             print(f"Optimization failed: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 

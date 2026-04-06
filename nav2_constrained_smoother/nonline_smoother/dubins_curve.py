@@ -23,7 +23,7 @@ class Path:
 
     def generate_trajectory(self, sx: float, sy: float, syaw: float, step_size: float = 0.1) -> Tuple[List[float], List[float], List[float], List[int]]:
         x, y, yaw = sx, sy, syaw
-        x_list, y_list, yaw_list, dir_list = [x], [y], [yaw], [1]
+        x_list, y_list, yaw_list, gears = [x], [y], [yaw], []
         
         for cmd in self.commands:
             if abs(cmd.length) < 1e-6: continue
@@ -46,9 +46,9 @@ class Path:
                 x_list.append(x)
                 y_list.append(y)
                 yaw_list.append(yaw)
-                dir_list.append(direction)
+                gears.append(direction)
 
-        return x_list, y_list, yaw_list, dir_list
+        return x_list, y_list, yaw_list, gears
 
 class PlanningResult:
     """Container for planning results to avoid ugly tuples."""
@@ -143,7 +143,7 @@ class DubinsPlanner:
 
 if __name__ == '__main__':
     sx, sy, syaw = 0.0, 0.0, 0.0
-    ex, ey, eyaw = 10.0, -10.0, math.radians(-45)
+    ex, ey, eyaw = 10.0, -10.0, math.radians(-180)
     
     planner = DubinsPlanner(turning_radius=3.0)
     result = planner.plan(sx, sy, syaw, ex, ey, eyaw)

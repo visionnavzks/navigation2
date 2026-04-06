@@ -8,14 +8,15 @@ document.addEventListener('DOMContentLoaded', () => {
         'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds'
     ];
 
-    const getSegmentTraces = (x, y, directions, namePrefix, isRef) => {
-        if (!x || x.length === 0) return [];
+    const getSegmentTraces = (x, y, gears, namePrefix, isRef) => {
+        if (!x || x.length < 2 || !gears || gears.length === 0) return [];
         const traces = [];
-        let currentDir = directions[0];
+        let currentDir = gears[0];
         let startIdx = 0;
 
-        for (let i = 1; i <= x.length; i++) {
-            if (i === x.length || directions[i] !== currentDir) {
+        for (let i = 1; i < x.length; i++) {
+            // Check if we are at the last point, or if the next segment's gear is different
+            if (i === x.length - 1 || gears[i] !== currentDir) {
                 const segmentX = x.slice(startIdx, i + 1);
                 const segmentY = y.slice(startIdx, i + 1);
                 
@@ -59,9 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     showlegend: traces.findIndex(t => t.name === label) === -1
                 });
                 
-                if (i < x.length) {
+                if (i < x.length - 1) {
                     startIdx = i;
-                    currentDir = directions[i];
+                    currentDir = gears[i];
                 }
             }
         }
@@ -85,8 +86,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        const refTraces = getSegmentTraces(data.x_ref, data.y_ref, data.dir_ref || new Array(data.x_ref.length).fill(1), 'Ref', true);
-        const optTraces = getSegmentTraces(data.x_opt, data.y_opt, data.dir_opt || new Array(data.x_opt.length).fill(1), 'Smooth', false);
+        const refTraces = getSegmentTraces(data.x_ref, data.y_ref, data.gears, 'Ref', true);
+        const optTraces = getSegmentTraces(data.x_opt, data.y_opt, data.gears_opt, 'Smooth', false);
 
         const annotations = [
             {

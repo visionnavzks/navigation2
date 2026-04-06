@@ -43,18 +43,14 @@ def run_smoother():
         max_kappa = params.get('max_kappa', 0.5)
         turning_radius = 1.0 / max_kappa if max_kappa > 0.01 else 5.0
         
-        x_ref, y_ref, theta_ref, dir_ref = generate_reference_path(
+        x_ref, y_ref, theta_ref, gears = generate_reference_path(
             start_x, start_y, start_theta, goal_x, goal_y, goal_theta, 
             target_ds=ref_ds, turning_radius=turning_radius
         )
         
-        # Add small noise to middle points for visual jitter if desired (optional)
-        # x_ref[1:-1] += np.random.normal(0, 0.02, len(x_ref)-2)
-        # y_ref[1:-1] += np.random.normal(0, 0.02, len(y_ref)-2)
-        
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, dir_opt = smoother.solve(x_ref, y_ref, theta_ref, dir_ref)
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt = smoother.solve(x_ref, y_ref, theta_ref, gears)
         
         if kappa_opt is None:
             # When it fails, it returns debug values but None for kappa
@@ -63,7 +59,7 @@ def run_smoother():
                 'message': 'Optimization failed to converge.',
                 'x_ref': x_ref.tolist(),
                 'y_ref': y_ref.tolist(),
-                'dir_ref': dir_ref.tolist(),
+                'gears': gears.tolist(),
                 'x_opt': np.array(x_opt).tolist() if x_opt is not None else [],
                 'y_opt': np.array(y_opt).tolist() if y_opt is not None else []
             })
@@ -72,10 +68,10 @@ def run_smoother():
             'success': True,
             'x_ref': x_ref.tolist(),
             'y_ref': y_ref.tolist(),
-            'dir_ref': dir_ref.tolist(),
+            'gears': gears.tolist(),
             'x_opt': np.array(x_opt).tolist(),
             'y_opt': np.array(y_opt).tolist(),
-            'dir_opt': np.array(dir_opt).tolist(),
+            'gears_opt': np.array(gears_opt).tolist(),
             'kappa_opt': np.array(kappa_opt).tolist(),
             'ds_opt': np.array(ds_opt).tolist(),
             'dkappa_opt': np.array(dkappa_opt).tolist()

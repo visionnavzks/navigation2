@@ -24,7 +24,7 @@ class Path:
         
     def generate_trajectory(self, sx: float, sy: float, syaw: float, step_size: float = 0.1) -> Tuple[List[float], List[float], List[float], List[int]]:
         x, y, yaw = sx, sy, syaw
-        x_list, y_list, yaw_list, dir_list = [x], [y], [yaw], [1]
+        x_list, y_list, yaw_list, gears = [x], [y], [yaw], []
         
         for cmd in self.commands:
             if abs(cmd.length) < 1e-6: continue
@@ -47,9 +47,9 @@ class Path:
                 x_list.append(x)
                 y_list.append(y)
                 yaw_list.append(yaw)
-                dir_list.append(direction)
+                gears.append(direction)
 
-        return x_list, y_list, yaw_list, dir_list
+        return x_list, y_list, yaw_list, gears
 
 class PlanningResult:
     def __init__(self, paths: List[Path]):
@@ -163,7 +163,7 @@ class ReedsSheppPlanner:
 if __name__ == '__main__':
     # Test problematic case
     sx, sy, syaw = 0.0, 0.0, 0.0
-    ex, ey, eyaw = 20.0, 0.0, 1.42
+    ex, ey, eyaw = 20.0, 0.0, 3.14
     planner = ReedsSheppPlanner(turning_radius=5.0)
     result = planner.plan(sx, sy, syaw, ex, ey, eyaw)
     if result.best_path:
