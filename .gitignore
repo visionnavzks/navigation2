@@ -70,3 +70,4 @@ Session.vim
 
 # Vim Temporary
 .netrwhist
+.DS_Store

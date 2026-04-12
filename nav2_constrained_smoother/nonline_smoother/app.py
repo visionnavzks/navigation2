@@ -4,9 +4,9 @@ import numpy as np
 import traceback
 from flask import Flask, request, jsonify, render_template
 
-# Add current directory to path to import nonline_smoother
+# Add current directory to path to import nonlinear_smoother
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from nonline_smoother import generate_reference_path, NonlinearPathSmoother
+from nonlinear_smoother import generate_reference_path, NonlinearPathSmoother
 
 app = Flask(__name__)
 
@@ -60,7 +60,7 @@ def run_smoother():
             
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt = smoother.solve(x_ref, y_ref, theta_ref, gears)
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt, solve_time = smoother.solve(x_ref, y_ref, theta_ref, gears)
         
         formatted_commands = []
         if dubins_commands:
@@ -79,6 +79,7 @@ def run_smoother():
             return jsonify({
                 'success': False, 
                 'message': 'Optimization failed to converge.',
+                'solve_time_ms': float(solve_time),
                 'x_ref': x_ref.tolist(),
                 'y_ref': y_ref.tolist(),
                 'gears': gears.tolist(),
@@ -89,6 +90,7 @@ def run_smoother():
             
         return jsonify({
             'success': True,
+            'solve_time_ms': float(solve_time),
             'x_ref': x_ref.tolist(),
             'y_ref': y_ref.tolist(),
             'gears': gears.tolist(),

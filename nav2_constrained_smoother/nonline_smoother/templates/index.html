@@ -92,6 +92,23 @@
 
                     </details>
                     
+                    <details>
+                        <summary>CasADi Solver</summary>
+                        <div class="param-group">
+                            <label>Max Iterations: <span id="val_ipopt_max_iter">500</span></label>
+                            <input type="range" id="ipopt_max_iter" min="10" max="2000" step="10" value="500">
+                        </div>
+                        <div class="param-group">
+                            <label>Tolerance (log10): <span id="val_ipopt_tol">1.0e-6</span></label>
+                            <input type="range" id="ipopt_tol_log" min="-12" max="-2" step="1" value="-6">
+                            <input type="hidden" id="ipopt_tol" value="1e-6">
+                        </div>
+                        <div class="param-group">
+                            <label>Print Level: <span id="val_ipopt_print_level">0</span></label>
+                            <input type="range" id="ipopt_print_level" min="0" max="5" step="1" value="0">
+                        </div>
+                    </details>
+                    
                     <button type="button" id="run-btn" class="glow-btn">Run Optimization</button>
 
                     <div id="status-msg" class="status-msg"></div>
@@ -104,6 +121,12 @@
                         <span class="label">Turning Radius:</span>
                         <span id="display-turning-radius" class="value">--</span>
                         <span class="unit">m</span>
+                    </div>
+                    <div class="divider"></div>
+                    <div class="info-badge">
+                        <span class="label">Solve Time:</span>
+                        <span id="display-solve-time" class="value">--</span>
+                        <span class="unit">ms</span>
                     </div>
                     <div class="divider"></div>
                     <div id="dubins-commands-list" class="commands-hbar">

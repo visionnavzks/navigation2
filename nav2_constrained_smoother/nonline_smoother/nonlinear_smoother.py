@@ -1,6 +1,7 @@
 import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 from dubins_curve import DubinsPlanner
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
@@ -34,16 +35,52 @@ class NonlinearPathSmoother:
         self.w_ds = self.params.get('w_ds', 1.0)                # Weight for step size (uniformity)
         self.target_ds = self.params.get('target_ds', 0.0)      # Desired spacing (0.0 means auto)
         self.kappa_start = self.params.get('kappa_start', 0.0)  # Start curvature (float or None)
+        
+        # Solver Parameters
+        self.ipopt_max_iter = int(self.params.get('ipopt_max_iter', 500))
+        self.ipopt_tol = float(self.params.get('ipopt_tol', 1e-6))
+        self.ipopt_print_level = int(self.params.get('ipopt_print_level', 0))
 
     def solve(self, x_ref, y_ref, theta_ref, gears):
         """Run nonlinear mathematical optimization on given reference path"""
         # Ensure angles are unwrapped for continuity in optimization
         theta_ref = np.unwrap(theta_ref)
+        
+        # Augment path to support cusps: detect where gear shifts and insert two points
+        aug_x_ref = [x_ref[0]]
+        aug_y_ref = [y_ref[0]]
+        aug_theta_ref = [theta_ref[0]]
+        aug_gears = []
+        is_virtual = [] # True if segment i -> i+1 is a virtual jump (zero-length)
+        
+        for i in range(len(x_ref) - 1):
+            if i > 0 and gears[i] != gears[i-1]:
+                # Cusp found at current index i. Insert virtual transition.
+                aug_x_ref.append(x_ref[i])
+                aug_y_ref.append(y_ref[i])
+                aug_theta_ref.append(theta_ref[i])
+                aug_gears.append(gears[i])
+                is_virtual.append(True)
+                
+            # Add regular segment i -> i+1
+            aug_x_ref.append(x_ref[i+1])
+            aug_y_ref.append(y_ref[i+1])
+            aug_theta_ref.append(theta_ref[i+1])
+            aug_gears.append(gears[i])
+            is_virtual.append(False)
+
+        x_ref = np.array(aug_x_ref)
+        y_ref = np.array(aug_y_ref)
+        theta_ref = np.array(aug_theta_ref)
+        gears = np.array(aug_gears)
         N = len(x_ref)
+
         if self.target_ds > 0.01:
             target_ds_mag = self.target_ds
         else:
-            target_ds_mag = np.mean(np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1))
+            # Estimate DS from non-virtual segments
+            diffs = np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1)
+            target_ds_mag = np.mean(diffs[diffs > 1e-4]) if any(diffs > 1e-4) else 0.1
         
         # --- Setup Opti stack ---
         opti = ca.Opti()
@@ -68,16 +105,27 @@ class NonlinearPathSmoother:
             obj += self.w_kappa * kappa[i]**2
             
         for i in range(N-1):
+            if is_virtual[i]:
+                # No smoothness or step-size cost for virtual jumps
+                continue
             # Use positive ds for weighting the smoothness term
             obj += self.w_dkappa * dkappa[i]**2 * ds[i]
             # Match the target step size (always positive now)
             obj += self.w_ds * (ds[i] - target_ds_mag)**2
-            # obj += self.w_ds * (ds[i] - 0)**2
 
         opti.minimize(obj)
 
         # --- Kinematic Constraints (Single-track bicycle model) ---
         for i in range(N-1):
+            if is_virtual[i]:
+                # Virtual transition: same pose, decoupled kappa
+                opti.subject_to(x[i+1] == x[i])
+                opti.subject_to(y[i+1] == y[i])
+                opti.subject_to(theta[i+1] == theta[i])
+                opti.subject_to(ds[i] == 0)
+                # Note: kappa[i+1] == kappa_next is NOT enforced here, allowing the jump
+                continue
+
             # Exact integration for curvature and heading (assuming piecewise constant dkappa)
             kappa_next = kappa[i] + ds[i] * dkappa[i]
             theta_next = theta[i] + gears[i] * (ds[i] * kappa[i] + 0.5 * ds[i]**2 * dkappa[i])
@@ -89,7 +137,6 @@ class NonlinearPathSmoother:
             y_next = y[i] + gears[i] * (ds[i] / 6.0) * (ca.sin(theta[i]) + 4.0 * ca.sin(theta_mid) + ca.sin(theta_next))
 
             opti.subject_to(x[i+1] == x_next)
-            y_next_val = y_next # to avoid name conflict if needed
             opti.subject_to(y[i+1] == y_next)
             opti.subject_to(theta[i+1] == theta_next)
             opti.subject_to(kappa[i+1] == kappa_next)
@@ -99,9 +146,10 @@ class NonlinearPathSmoother:
         
         # Add topology constraints: ds must be strictly positive and within bounds
         for i in range(N-1):
-            # Constraint ds to be within [0.05, 2.0] times the target step size
-            opti.subject_to(ds[i] >= 0.05 * target_ds_mag)
-            opti.subject_to(ds[i] <= 2.0 * target_ds_mag)
+            if not is_virtual[i]:
+                # Constraint ds to be within [0.05, 2.0] times the target step size
+                opti.subject_to(ds[i] >= 0.05 * target_ds_mag)
+                opti.subject_to(ds[i] <= 2.0 * target_ds_mag)
 
         # --- Boundary Conditions ---
         # Start point
@@ -110,10 +158,6 @@ class NonlinearPathSmoother:
         opti.subject_to(theta[0] == theta_ref[0])
         if self.kappa_start is not None:
             opti.subject_to(kappa[0] == self.kappa_start)
-        else:
-            # If not fixed, we still want it to be within bounded range
-            # which is already covered by opti.bounded(-self.max_kappa, kappa, self.max_kappa)
-            pass
 
         # End point
         opti.subject_to(x[N-1] == x_ref[N-1])
@@ -126,27 +170,39 @@ class NonlinearPathSmoother:
         opti.set_initial(y, y_ref)
         opti.set_initial(theta, theta_ref)
         opti.set_initial(kappa, np.zeros(N))
-        # Now ds is always positive in our formulation
-        opti.set_initial(ds, np.ones(N-1) * target_ds_mag)
+        
+        # Initial guess for ds needs to handle virtual segments
+        initial_ds = np.ones(N-1) * target_ds_mag
+        for i in range(N-1):
+            if is_virtual[i]:
+                initial_ds[i] = 0.0
+        opti.set_initial(ds, initial_ds)
         opti.set_initial(dkappa, np.zeros(N-1))
 
         # --- Setup Solver ---
         p_opts = {"expand": True, "print_time": False}
-        s_opts = {"max_iter": 500, "print_level": 0}
+        s_opts = {
+            "max_iter": self.ipopt_max_iter, 
+            "tol": self.ipopt_tol,
+            "print_level": self.ipopt_print_level
+        }
         opti.solver("ipopt", p_opts, s_opts)
 
         # --- Solve ---
+        start_time = time.time()
         try:
             sol = opti.solve()
-            print("Optimization successfully formulated and solved!")
+            solve_time = (time.time() - start_time) * 1000.0 # ms
+            print(f"Optimization successfully formulated and solved in {solve_time:.2f}ms")
             # Return optimized path and re-apply sign to ds for compatibility
             ds_val = sol.value(ds)
             signed_ds = ds_val * gears
             gears_opt = np.sign(signed_ds)
             
             return (sol.value(x), sol.value(y), sol.value(theta), 
-                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt)
+                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt, solve_time)
         except Exception as e:
-            print(f"Optimization failed: {e}")
+            solve_time = (time.time() - start_time) * 1000.0 # ms
+            print(f"Optimization failed after {solve_time:.2f}ms: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 
-                    opti.debug.value(theta), None, None, None, None)
+                    opti.debug.value(theta), None, None, None, None, solve_time)

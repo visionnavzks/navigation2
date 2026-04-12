@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'start_x', 'start_y', 'start_theta',
         'goal_x', 'goal_y', 'goal_theta',
         'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds',
-        'start_kappa'
+        'start_kappa', 'ipopt_max_iter', 'ipopt_tol', 'ipopt_print_level'
     ];
 
     const getSegmentTraces = (x, y, gears, namePrefix, isRef) => {
@@ -231,11 +231,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (data.success) {
                 statusMsg.textContent = 'Optimization solved successfully!';
                 statusMsg.className = 'status-msg success';
+                document.getElementById('display-solve-time').textContent = data.solve_time_ms.toFixed(1);
                 plotCharts(data, payload.params);
                 renderDubinsCommands(data.dubins_commands, currentMaxKappa);
             } else {
                 statusMsg.textContent = data.message || 'Optimization failed.';
                 statusMsg.className = 'status-msg error';
+                if (data.solve_time_ms !== undefined) {
+                    document.getElementById('display-solve-time').textContent = data.solve_time_ms.toFixed(1);
+                }
                 if (data.x_ref) {
                     plotCharts(data, payload.params);
                     renderDubinsCommands(data.dubins_commands, currentMaxKappa);
@@ -259,11 +263,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const span = document.getElementById(`val_${param}`);
         if (input && span) {
             input.addEventListener('input', () => {
-                span.textContent = parseFloat(input.value).toFixed(2);
+                const val = parseFloat(input.value);
+                if (input.step >= 1.0 || (input.max > 10 && input.step === "1")) {
+                    span.textContent = val.toFixed(0);
+                } else {
+                    span.textContent = val.toFixed(2);
+                }
             });
             input.addEventListener('change', runOptimization);
         }
     });
+
+    // Special Handler for Log10 Tolerance
+    const tolLogInput = document.getElementById('ipopt_tol_log');
+    const tolInput = document.getElementById('ipopt_tol');
+    const tolSpan = document.getElementById('val_ipopt_tol');
+    if (tolLogInput && tolInput && tolSpan) {
+        const updateTol = () => {
+            const exponent = parseInt(tolLogInput.value);
+            const tolValue = Math.pow(10, exponent);
+            tolInput.value = tolValue;
+            tolSpan.textContent = `1.0e${exponent}`;
+        };
+        tolLogInput.addEventListener('input', updateTol);
+        tolLogInput.addEventListener('change', runOptimization);
+        // Set initial
+        updateTol();
+    }
 
     const fixKappaToggle = document.getElementById('fix_start_kappa');
     const kappaContainer = document.getElementById('start_kappa_container');
