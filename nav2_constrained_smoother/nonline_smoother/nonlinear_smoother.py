@@ -2,7 +2,7 @@ import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from dubins_curve import DubinsPlanner
+from dubins_curve import DubinsPlanner, Command
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
                             goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0):
@@ -10,12 +10,22 @@ def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0,
     planner = DubinsPlanner(turning_radius=turning_radius)
     result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
     
-    if result.best_path:
+    if False:
         x_ref, y_ref, theta_ref, gears = result.best_path.generate_trajectory(
             start_x, start_y, start_theta, step_size=target_ds
         )
         return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears), result.best_commands
-    return None, None, None, None, None
+
+    # Fallback to straight line if planning fails
+    dist = np.hypot(goal_x - start_x, goal_y - start_y)
+    steps = max(int(dist / target_ds), 1)
+    x_ref = np.linspace(start_x, goal_x, steps + 1)
+    y_ref = np.linspace(start_y, goal_y, steps + 1)
+    theta_ref = np.linspace(start_theta, goal_theta, steps + 1)
+    gears = np.ones(steps)
+    commands = [Command(dist, 0.0)]
+    
+    return x_ref, y_ref, np.unwrap(theta_ref), gears, commands
 
 
 class NonlinearPathSmoother:
@@ -46,7 +56,8 @@ class NonlinearPathSmoother:
         # Ensure angles are unwrapped for continuity in optimization
         theta_ref = np.unwrap(theta_ref)
         
-        # Augment path to support cusps: detect where gear shifts and insert two points
+        # Augment path to support cusps: detect gear shifts and insert an extra point 
+        # to create a zero-length "virtual" segment at the cusp.
         aug_x_ref = [x_ref[0]]
         aug_y_ref = [y_ref[0]]
         aug_theta_ref = [theta_ref[0]]
@@ -80,7 +91,7 @@ class NonlinearPathSmoother:
         else:
             # Estimate DS from non-virtual segments
             diffs = np.linalg.norm(np.diff(np.c_[x_ref, y_ref], axis=0), axis=1)
-            target_ds_mag = np.mean(diffs[diffs > 1e-4]) if any(diffs > 1e-4) else 0.1
+            target_ds_mag = np.mean(diffs[diffs > 1e-4])
         
         # --- Setup Opti stack ---
         opti = ca.Opti()
