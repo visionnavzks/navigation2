@@ -64,7 +64,7 @@ def run_smoother():
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
         res = smoother.solve(x_ref, y_ref, theta_ref, gears)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt, solve_time, target_ds_mag = res
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt, solve_time, target_ds_mag, costs = res
         
         formatted_commands = []
         if dubins_commands:
@@ -102,11 +102,13 @@ def run_smoother():
             'gears': gears.tolist(),
             'x_opt': np.array(x_opt).tolist(),
             'y_opt': np.array(y_opt).tolist(),
+            'theta_opt': np.array(theta_opt).tolist(),
             'gears_opt': np.array(gears_opt).tolist(),
             'kappa_opt': np.array(kappa_opt).tolist(),
             'ds_opt': np.array(ds_opt).tolist(),
             'dkappa_opt': np.array(dkappa_opt).tolist(),
-            'dubins_commands': formatted_commands
+            'dubins_commands': formatted_commands,
+            'costs': costs
         })
     except Exception as e:
         traceback.print_exc()

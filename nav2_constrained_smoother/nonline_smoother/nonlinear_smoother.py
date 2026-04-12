@@ -62,6 +62,10 @@ class NonlinearPathSmoother:
         self.ipopt_tol = float(self.params.get('ipopt_tol', 1e-6))
         self.ipopt_print_level = int(self.params.get('ipopt_print_level', 0))
 
+        # Topology Parameters
+        self.ds_min_ratio = float(self.params.get('ds_min_ratio', 0.05))
+        self.ds_max_ratio = float(self.params.get('ds_max_ratio', 2.0))
+
     def solve(self, x_ref, y_ref, theta_ref, gears):
         """Run nonlinear mathematical optimization on given reference path"""
         # Ensure angles are unwrapped for continuity in optimization
@@ -119,22 +123,26 @@ class NonlinearPathSmoother:
         dkappa = U[1, :]
 
         # --- Objective Function ---
-        obj = 0
+        cost_ref = 0
+        cost_kappa = 0
         for i in range(N):
-            obj += self.w_ref * ((x[i] - x_ref[i])**2 + (y[i] - y_ref[i])**2)
+            cost_ref += self.w_ref * ((x[i] - x_ref[i])**2 + (y[i] - y_ref[i])**2)
             # Use w_ref for theta error to keep heading aligned. 1-cos handles angle wrapping.
-            obj += self.w_ref * (1.0 - ca.cos(theta[i] - theta_ref[i]))
-            obj += self.w_kappa * kappa[i]**2
+            cost_ref += self.w_ref * (1.0 - ca.cos(theta[i] - theta_ref[i]))
+            cost_kappa += self.w_kappa * kappa[i]**2
             
+        cost_smooth = 0
+        cost_ds = 0
         for i in range(N-1):
             if is_virtual[i]:
                 # No smoothness or step-size cost for virtual jumps
                 continue
             # Use positive ds for weighting the smoothness term
-            obj += self.w_dkappa * dkappa[i]**2 * ds[i]
+            cost_smooth += self.w_dkappa * dkappa[i]**2 * ds[i]
             # Match the target step size (always positive now)
-            obj += self.w_ds * (ds[i] - target_ds_mag)**2
+            cost_ds += self.w_ds * (ds[i] - target_ds_mag)**2
 
+        obj = cost_ref + cost_kappa + cost_smooth + cost_ds
         opti.minimize(obj)
 
         # --- Kinematic Constraints (Single-track bicycle model) ---
@@ -169,9 +177,9 @@ class NonlinearPathSmoother:
         # Add topology constraints: ds must be strictly positive and within bounds
         for i in range(N-1):
             if not is_virtual[i]:
-                # Constraint ds to be within [0.05, 2.0] times the target step size
-                opti.subject_to(ds[i] >= 0.05 * target_ds_mag)
-                opti.subject_to(ds[i] <= 2.0 * target_ds_mag)
+                # Constraint ds to be within [min_ratio, max_ratio] times the target step size
+                opti.subject_to(ds[i] >= self.ds_min_ratio * target_ds_mag)
+                opti.subject_to(ds[i] <= self.ds_max_ratio * target_ds_mag)
 
         # --- Boundary Conditions ---
         # Start point
@@ -222,9 +230,16 @@ class NonlinearPathSmoother:
             gears_opt = np.sign(signed_ds)
             
             return (sol.value(x), sol.value(y), sol.value(theta), 
-                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt, solve_time, target_ds_mag)
+                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt, solve_time, target_ds_mag,
+                    {
+                        'total': float(sol.value(obj)),
+                        'ref': float(sol.value(cost_ref)),
+                        'smooth': float(sol.value(cost_smooth)),
+                        'kappa': float(sol.value(cost_kappa)),
+                        'ds': float(sol.value(cost_ds))
+                    })
         except Exception as e:
             solve_time = (time.time() - start_time) * 1000.0 # ms
             print(f"Optimization failed after {solve_time:.2f}ms: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 
-                    opti.debug.value(theta), None, None, None, None, solve_time, target_ds_mag)
+                    opti.debug.value(theta), None, None, None, None, solve_time, target_ds_mag, None)

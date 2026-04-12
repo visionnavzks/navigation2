@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const params = [
         'start_x', 'start_y', 'start_theta',
         'goal_x', 'goal_y', 'goal_theta',
-        'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds',
+        'max_kappa', 'target_ds', 'ds_min_ratio', 'ds_max_ratio', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds',
         'start_kappa', 'ipopt_max_iter', 'ipopt_print_level'
     ];
 
@@ -266,6 +266,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 document.getElementById('display-target-ds').textContent = data.target_ds_mag.toFixed(3);
+                
+                // Calculate path length and points
+                if (data.x_opt) {
+                    document.getElementById('display-num-points').textContent = data.x_opt.length;
+                    if (data.ds_opt) {
+                        const totalLength = data.ds_opt.reduce((acc, ds) => acc + Math.abs(ds), 0);
+                        document.getElementById('display-path-length').textContent = totalLength.toFixed(2);
+                    }
+                    
+                    // Calculate total rotation
+                    if (data.theta_opt) {
+                        let totalRot = 0;
+                        for (let i = 1; i < data.theta_opt.length; i++) {
+                            totalRot += Math.abs(data.theta_opt[i] - data.theta_opt[i-1]);
+                        }
+                        // Convert to degrees
+                        document.getElementById('display-total-rotation').textContent = (totalRot * 180 / Math.PI).toFixed(1);
+                    }
+                }
+
+                // Update costs
+                if (data.costs) {
+                    document.getElementById('display-cost-total').textContent = data.costs.total.toFixed(2);
+                    document.getElementById('display-cost-ref').textContent = data.costs.ref.toFixed(2);
+                    document.getElementById('display-cost-smooth').textContent = data.costs.smooth.toFixed(2);
+                    document.getElementById('display-cost-kappa').textContent = data.costs.kappa.toFixed(2);
+                    document.getElementById('display-cost-ds').textContent = data.costs.ds.toFixed(2);
+                }
+
                 plotCharts(data, payload.params);
                 renderDubinsCommands(data.dubins_commands, currentMaxKappa);
             } else {

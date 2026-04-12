@@ -70,6 +70,14 @@
                         <label>Target Spacing (m): <span id="val_target_ds">0.40</span></label>
                         <input type="range" id="target_ds" min="0.0" max="1.5" step="0.05" value="0.4">
                     </div>
+                    <div class="param-group">
+                        <label>DS Min Ratio: <span id="val_ds_min_ratio">0.05</span></label>
+                        <input type="range" id="ds_min_ratio" min="0.01" max="1.0" step="0.01" value="0.05">
+                    </div>
+                    <div class="param-group">
+                        <label>DS Max Ratio: <span id="val_ds_max_ratio">2.00</span></label>
+                        <input type="range" id="ds_max_ratio" min="1.0" max="5.0" step="0.1" value="2.0">
+                    </div>
 
 
 
@@ -122,32 +130,82 @@
             
             <section class="charts glass-panel">
                 <div class="top-info-bar">
-                    <div class="info-badge">
-                        <span class="label">Turning Radius:</span>
-                        <span id="display-turning-radius" class="value">--</span>
-                        <span class="unit">m</span>
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Turning Radius:</span>
+                            <span id="display-turning-radius" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Target ds:</span>
+                            <span id="display-target-ds" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
                     </div>
-                    <div class="divider"></div>
-                    <div class="info-badge">
-                        <span class="label">Avg ds:</span>
-                        <span id="display-avg-ds" class="value">--</span>
-                        <span class="unit">m</span>
+                    
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Length:</span>
+                            <span id="display-path-length" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Points:</span>
+                            <span id="display-num-points" class="value">--</span>
+                            <span class="unit">pts</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Rotation:</span>
+                            <span id="display-total-rotation" class="value">--</span>
+                            <span class="unit">°</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Avg ds:</span>
+                            <span id="display-avg-ds" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Total Cost:</span>
+                            <span id="display-cost-total" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Ref:</span>
+                            <span id="display-cost-ref" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Smooth:</span>
+                            <span id="display-cost-smooth" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Kappa:</span>
+                            <span id="display-cost-kappa" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">DS:</span>
+                            <span id="display-cost-ds" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Solve Time:</span>
+                            <span id="display-solve-time" class="value">--</span>
+                            <span class="unit">ms</span>
+                        </div>
                     </div>
-                    <div class="divider"></div>
-                    <div class="info-badge">
-                        <span class="label">Target ds:</span>
-                        <span id="display-target-ds" class="value">--</span>
-                        <span class="unit">m</span>
-                    </div>
-                    <div class="divider"></div>
-                    <div class="info-badge">
-                        <span class="label">Solve Time:</span>
-                        <span id="display-solve-time" class="value">--</span>
-                        <span class="unit">ms</span>
-                    </div>
-                    <div class="divider"></div>
-                    <div id="dubins-commands-list" class="commands-hbar">
-                        <p class="empty-msg">No path generated yet.</p>
+
+                    <div class="info-row divider-top">
+                        <div id="dubins-commands-list" class="commands-hbar">
+                            <p class="empty-msg">No path generated yet.</p>
+                        </div>
                     </div>
                 </div>
                 
