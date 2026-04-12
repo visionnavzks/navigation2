@@ -21,7 +21,16 @@ def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0,
     steps = max(int(dist / target_ds), 1)
     x_ref = np.linspace(start_x, goal_x, steps + 1)
     y_ref = np.linspace(start_y, goal_y, steps + 1)
-    theta_ref = np.linspace(start_theta, goal_theta, steps + 1)
+    
+    # Use movement direction to ensure kinematic feasibility
+    move_direction = np.arctan2(goal_y - start_y, goal_x - start_x)
+    
+    # For a straight-line fallback, we want the robot to face the movement direction
+    # as much as possible, while respecting the boundary orientations.
+    theta_ref = np.full(steps + 1, move_direction)
+    theta_ref[0] = start_theta
+    theta_ref[-1] = goal_theta
+    
     gears = np.ones(steps)
     commands = [Command(dist, 0.0)]
     
