@@ -5,18 +5,20 @@ import time
 from dubins_curve import DubinsPlanner, Command
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
-                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0):
-    """Generates a Reeds-Shepp reference path between start and goal states"""
-    planner = DubinsPlanner(turning_radius=turning_radius)
-    result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
+                            goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0, use_dubins=True):
+    """Generates a reference path (Dubins or straight line) between start and goal states"""
     
-    if False:
-        x_ref, y_ref, theta_ref, gears = result.best_path.generate_trajectory(
-            start_x, start_y, start_theta, step_size=target_ds
-        )
-        return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears), result.best_commands
+    if use_dubins:
+        planner = DubinsPlanner(turning_radius=turning_radius)
+        result = planner.plan(start_x, start_y, start_theta, goal_x, goal_y, goal_theta)
+        
+        if result and result.best_path:
+            x_ref, y_ref, theta_ref, gears = result.best_path.generate_trajectory(
+                start_x, start_y, start_theta, step_size=target_ds
+            )
+            return np.array(x_ref), np.array(y_ref), np.unwrap(np.array(theta_ref)), np.array(gears), result.best_commands
 
-    # Fallback to straight line if planning fails
+    # Fallback to straight line if planning fails or if straight line is requested
     dist = np.hypot(goal_x - start_x, goal_y - start_y)
     steps = max(int(dist / target_ds), 1)
     x_ref = np.linspace(start_x, goal_x, steps + 1)
@@ -220,9 +222,9 @@ class NonlinearPathSmoother:
             gears_opt = np.sign(signed_ds)
             
             return (sol.value(x), sol.value(y), sol.value(theta), 
-                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt, solve_time)
+                    sol.value(kappa), signed_ds, sol.value(dkappa), gears_opt, solve_time, target_ds_mag)
         except Exception as e:
             solve_time = (time.time() - start_time) * 1000.0 # ms
             print(f"Optimization failed after {solve_time:.2f}ms: {e}")
             return (opti.debug.value(x), opti.debug.value(y), 
-                    opti.debug.value(theta), None, None, None, None, solve_time)
+                    opti.debug.value(theta), None, None, None, None, solve_time, target_ds_mag)

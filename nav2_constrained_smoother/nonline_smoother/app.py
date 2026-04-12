@@ -50,9 +50,12 @@ def run_smoother():
         else:
             params['kappa_start'] = None
             
+        # Handle initialization strategy
+        use_dubins = params.get('use_dubins', True)
+        
         x_ref, y_ref, theta_ref, gears, dubins_commands = generate_reference_path(
             start_x, start_y, start_theta, goal_x, goal_y, goal_theta, 
-            target_ds=ref_ds, turning_radius=turning_radius
+            target_ds=ref_ds, turning_radius=turning_radius, use_dubins=use_dubins
         )
         
         if x_ref is None:
@@ -60,7 +63,8 @@ def run_smoother():
             
         # Initialize smoother object and run NLP smoother
         smoother = NonlinearPathSmoother(params)
-        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt, solve_time = smoother.solve(x_ref, y_ref, theta_ref, gears)
+        res = smoother.solve(x_ref, y_ref, theta_ref, gears)
+        x_opt, y_opt, theta_opt, kappa_opt, ds_opt, dkappa_opt, gears_opt, solve_time, target_ds_mag = res
         
         formatted_commands = []
         if dubins_commands:
@@ -80,6 +84,7 @@ def run_smoother():
                 'success': False, 
                 'message': 'Optimization failed to converge.',
                 'solve_time_ms': float(solve_time),
+                'target_ds_mag': float(target_ds_mag),
                 'x_ref': x_ref.tolist(),
                 'y_ref': y_ref.tolist(),
                 'gears': gears.tolist(),
@@ -91,6 +96,7 @@ def run_smoother():
         return jsonify({
             'success': True,
             'solve_time_ms': float(solve_time),
+            'target_ds_mag': float(target_ds_mag),
             'x_ref': x_ref.tolist(),
             'y_ref': y_ref.tolist(),
             'gears': gears.tolist(),

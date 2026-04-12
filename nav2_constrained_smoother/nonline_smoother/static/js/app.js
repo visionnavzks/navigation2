@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'start_x', 'start_y', 'start_theta',
         'goal_x', 'goal_y', 'goal_theta',
         'max_kappa', 'target_ds', 'w_ref', 'w_dkappa', 'w_kappa', 'w_ds',
-        'start_kappa', 'ipopt_max_iter', 'ipopt_tol', 'ipopt_print_level'
+        'start_kappa', 'ipopt_max_iter', 'ipopt_print_level'
     ];
 
     const getSegmentTraces = (x, y, gears, namePrefix, isRef) => {
@@ -137,14 +137,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // 3. Step Size Plot
         if (data.ds_opt && data.ds_opt.length > 0) {
+            const ds_values = data.ds_opt.map(d => Math.abs(d));
+            const nonZeroDs = ds_values.filter(d => d > 1e-4);
+            const avgDs = nonZeroDs.length > 0 ? (nonZeroDs.reduce((a, b) => a + b, 0) / nonZeroDs.length) : 0;
+            
             const traceDs = {
-                y: data.ds_opt,
+                y: ds_values,
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: 'Step Size ds',
+                line: {color: '#8b5cf6', width: 2},
+                marker: {size: 4}
+            };
+
+            const traceAvg = {
+                y: Array(ds_values.length).fill(avgDs),
                 type: 'scatter',
                 mode: 'lines',
-                name: 'Step Size ds',
-                line: {color: '#8b5cf6', width: 2}
+                name: `Avg (${avgDs.toFixed(4)})`,
+                line: {color: '#ec4899', width: 2, dash: 'dash'}
             };
-            Plotly.newPlot('ds-chart', [traceDs], {
+
+            const traceTarget = {
+                y: Array(ds_values.length).fill(data.target_ds_mag),
+                type: 'scatter',
+                mode: 'lines',
+                name: `Target (${data.target_ds_mag.toFixed(4)})`,
+                line: {color: '#10b981', width: 2, dash: 'dot'}
+            };
+
+            Plotly.newPlot('ds-chart', [traceDs, traceAvg, traceTarget], {
                 ...chartLayout,
                 title: 'Step Size (ds)'
             });
@@ -217,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Add manual curvature flag
         payload.params['fix_start_kappa'] = document.getElementById('fix_start_kappa').checked;
+        payload.params['use_dubins'] = document.getElementById('use_dubins').checked;
 
         const currentMaxKappa = payload.params.max_kappa;
 
@@ -232,6 +255,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusMsg.textContent = 'Optimization solved successfully!';
                 statusMsg.className = 'status-msg success';
                 document.getElementById('display-solve-time').textContent = data.solve_time_ms.toFixed(1);
+                
+                // Calculate average ds (exclude zero-length virtual segments)
+                if (data.ds_opt && data.ds_opt.length > 0) {
+                    const nonZeroDs = data.ds_opt.map(d => Math.abs(d)).filter(d => d > 1e-4);
+                    const avgDs = nonZeroDs.length > 0 ? (nonZeroDs.reduce((a, b) => a + b, 0) / nonZeroDs.length) : 0;
+                    document.getElementById('display-avg-ds').textContent = avgDs.toFixed(3);
+                } else {
+                    document.getElementById('display-avg-ds').textContent = '--';
+                }
+                
+                document.getElementById('display-target-ds').textContent = data.target_ds_mag.toFixed(3);
                 plotCharts(data, payload.params);
                 renderDubinsCommands(data.dubins_commands, currentMaxKappa);
             } else {
@@ -239,6 +273,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusMsg.className = 'status-msg error';
                 if (data.solve_time_ms !== undefined) {
                     document.getElementById('display-solve-time').textContent = data.solve_time_ms.toFixed(1);
+                }
+                if (data.target_ds_mag !== undefined) {
+                    document.getElementById('display-target-ds').textContent = data.target_ds_mag.toFixed(3);
                 }
                 if (data.x_ref) {
                     plotCharts(data, payload.params);
@@ -283,7 +320,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const exponent = parseInt(tolLogInput.value);
             const tolValue = Math.pow(10, exponent);
             tolInput.value = tolValue;
-            tolSpan.textContent = `1.0e${exponent}`;
+            // Use scientific notation for display
+            tolSpan.textContent = tolValue.toExponential(1);
         };
         tolLogInput.addEventListener('input', updateTol);
         tolLogInput.addEventListener('change', runOptimization);
@@ -299,6 +337,9 @@ document.addEventListener('DOMContentLoaded', () => {
         kappaContainer.style.pointerEvents = fixKappaToggle.checked ? 'auto' : 'none';
         runOptimization();
     });
+    
+    const useDubinsToggle = document.getElementById('use_dubins');
+    useDubinsToggle.addEventListener('change', runOptimization);
     
     // Initial run
     runOptimization();

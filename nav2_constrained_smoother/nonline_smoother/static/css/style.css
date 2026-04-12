@@ -49,7 +49,7 @@ header p {
 
 .main-layout {
     display: grid;
-    grid-template-columns: 350px 1fr;
+    grid-template-columns: minmax(300px, 1fr) 3fr;
     gap: 2rem;
 }
 
@@ -58,7 +58,7 @@ header p {
     border: 1px solid var(--panel-border);
     backdrop-filter: blur(16px);
     border-radius: 1.5rem;
-    padding: 2rem;
+    padding: 1.5rem;
     box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
@@ -76,9 +76,11 @@ header p {
 .param-group label {
     display: flex;
     justify-content: space-between;
+    align-items: baseline;
     font-size: 0.9rem;
     margin-bottom: 0.5rem;
     color: #cbd5e1;
+    gap: 0.5rem;
 }
 
 .param-group label span {
