@@ -275,6 +275,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         document.getElementById('display-path-length').textContent = totalLength.toFixed(2);
                     }
                     
+                    if (data.dubins_commands) {
+                        const refLength = data.dubins_commands.reduce((acc, cmd) => acc + cmd.length, 0);
+                        const refEl = document.getElementById('display-ref-length');
+                        if (refEl) refEl.textContent = refLength.toFixed(2);
+                    }
+                    
                     // Calculate total rotation
                     if (data.theta_opt) {
                         let totalRot = 0;
@@ -307,6 +313,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('display-target-ds').textContent = data.target_ds_mag.toFixed(3);
                 }
                 if (data.x_ref) {
+                    if (data.dubins_commands) {
+                        const refLength = data.dubins_commands.reduce((acc, cmd) => acc + cmd.length, 0);
+                        const refEl = document.getElementById('display-ref-length');
+                        if (refEl) refEl.textContent = refLength.toFixed(2);
+                    }
                     plotCharts(data, payload.params);
                     renderDubinsCommands(data.dubins_commands, currentMaxKappa);
                 }
