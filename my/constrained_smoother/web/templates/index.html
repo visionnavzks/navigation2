@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>A* + Constrained Smoother Demo</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>A* + Constrained Smoother</h1>
+      <p class="subtitle">Click on the map to set <strong>Start</strong> (green) and <strong>Goal</strong> (red), then watch A* find a reference path and the Ceres-based constrained smoother optimize it.</p>
+    </header>
+
+    <div class="main-layout">
+      <!-- Sidebar -->
+      <aside class="sidebar panel">
+        <h2>Parameters</h2>
+
+        <details open>
+          <summary>Smoother Weights</summary>
+          <div class="param-group">
+            <label>Smooth Weight: <span id="val_smooth_weight">2000000</span></label>
+            <input type="range" id="smooth_weight" min="0" max="5000000" step="50000" value="2000000">
+          </div>
+          <div class="param-group">
+            <label>Costmap Weight: <span id="val_costmap_weight">0.015</span></label>
+            <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="0.015">
+          </div>
+          <div class="param-group">
+            <label>Distance Weight: <span id="val_distance_weight">0.0</span></label>
+            <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
+          </div>
+          <div class="param-group">
+            <label>Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
+            <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
+          </div>
+          <div class="param-group">
+            <label>Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
+            <input type="range" id="max_curvature" min="0.1" max="10.0" step="0.1" value="2.5">
+          </div>
+        </details>
+
+        <details>
+          <summary>Solver</summary>
+          <div class="param-group">
+            <label>Max Iterations: <span id="val_max_iterations">50</span></label>
+            <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
+          </div>
+          <div class="param-group">
+            <label>Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>
+            <input type="range" id="path_downsampling_factor" min="1" max="10" step="1" value="1">
+          </div>
+          <div class="param-group">
+            <label>Upsampling Factor: <span id="val_path_upsampling_factor">1</span></label>
+            <input type="range" id="path_upsampling_factor" min="1" max="10" step="1" value="1">
+          </div>
+        </details>
+
+        <button id="run-btn" class="action-btn" disabled>Run Planning</button>
+        <button id="clear-btn" class="ghost-btn">Clear Paths</button>
+
+        <div id="status-msg" class="status-msg"></div>
+
+        <!-- Info badges -->
+        <div class="info-section">
+          <div class="info-badge"><span class="label">A* Time:</span> <span id="info-astar-time" class="value">--</span> ms</div>
+          <div class="info-badge"><span class="label">Smooth Time:</span> <span id="info-smooth-time" class="value">--</span> ms</div>
+          <div class="info-badge"><span class="label">A* Points:</span> <span id="info-astar-pts" class="value">--</span></div>
+          <div class="info-badge"><span class="label">Ref Points:</span> <span id="info-ref-pts" class="value">--</span></div>
+          <div class="info-badge"><span class="label">Opt Points:</span> <span id="info-opt-pts" class="value">--</span></div>
+        </div>
+
+        <div class="legend">
+          <h3>Legend</h3>
+          <div class="legend-item"><span class="dot" style="background:#4caf50;"></span> Start</div>
+          <div class="legend-item"><span class="dot" style="background:#f44336;"></span> Goal</div>
+          <div class="legend-item"><span class="line" style="background:rgba(33,150,243,0.5);"></span> A* Raw Path</div>
+          <div class="legend-item"><span class="line" style="background:#ff9800;"></span> Reference (downsampled)</div>
+          <div class="legend-item"><span class="line" style="background:#e91e63;"></span> Smoothed Path</div>
+        </div>
+      </aside>
+
+      <!-- Map canvas -->
+      <section class="map-section panel">
+        <div class="canvas-wrap">
+          <canvas id="map-canvas" width="800" height="800"></canvas>
+        </div>
+        <p class="hint">Left-click: set Start → Goal. Scroll to zoom. Drag to pan.</p>
+      </section>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

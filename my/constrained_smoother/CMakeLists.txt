@@ -29,6 +29,16 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
 # ---- install ----
 install(DIRECTORY include/ DESTINATION include)
 
+# ---- pybind11 module ----
+option(BUILD_PYTHON "Build Python bindings" OFF)
+if(BUILD_PYTHON)
+  find_package(pybind11 REQUIRED)
+  pybind11_add_module(py_constrained_smoother pybind/py_constrained_smoother.cpp)
+  target_link_libraries(py_constrained_smoother PRIVATE ${PROJECT_NAME})
+  # Install to the project root so the web app can find it
+  install(TARGETS py_constrained_smoother DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
 # ---- tests ----
 option(BUILD_TESTS "Build tests" ON)
 if(BUILD_TESTS)

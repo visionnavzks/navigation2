@@ -1,0 +1,176 @@
+/* ---- Reset & Base ---- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  text-align: center;
+  padding: 1rem 0;
+}
+header h1 { font-size: 1.8rem; color: #ffffff; }
+header .subtitle { font-size: 0.9rem; color: #aaa; margin-top: 0.3rem; }
+
+/* ---- Layout ---- */
+.main-layout {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.panel {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 1rem;
+}
+
+/* ---- Sidebar ---- */
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.sidebar h2 { font-size: 1.1rem; margin-bottom: 0.3rem; }
+
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #90caf9;
+  padding: 0.3rem 0;
+}
+
+.param-group {
+  margin: 0.4rem 0;
+}
+.param-group label {
+  display: block;
+  font-size: 0.78rem;
+  color: #bbb;
+  margin-bottom: 2px;
+}
+.param-group input[type="range"] {
+  width: 100%;
+  accent-color: #42a5f5;
+}
+
+/* ---- Buttons ---- */
+.action-btn {
+  width: 100%;
+  padding: 0.6rem;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #42a5f5, #1e88e5);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.action-btn:hover:not(:disabled) { opacity: 0.85; }
+
+.ghost-btn {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  background: transparent;
+  color: #bbb;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.ghost-btn:hover { background: rgba(255,255,255,0.05); }
+
+/* ---- Status ---- */
+.status-msg {
+  font-size: 0.8rem;
+  min-height: 1.2rem;
+  color: #ffcc80;
+}
+.status-msg.error { color: #ef5350; }
+.status-msg.ok    { color: #66bb6a; }
+
+/* ---- Info badges ---- */
+.info-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.info-badge {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+.info-badge .label { color: #999; }
+.info-badge .value { color: #fff; font-weight: 600; }
+
+/* ---- Legend ---- */
+.legend {
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+.legend h3 { font-size: 0.85rem; margin-bottom: 0.3rem; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: #bbb;
+  margin: 0.15rem 0;
+}
+.dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.line {
+  width: 18px; height: 3px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ---- Map Section ---- */
+.map-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: #0d1117;
+}
+#map-canvas {
+  display: block;
+  cursor: crosshair;
+}
+.hint {
+  font-size: 0.75rem;
+  color: #777;
+  margin-top: 0.4rem;
+}
