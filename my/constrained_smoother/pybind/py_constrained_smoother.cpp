@@ -20,12 +20,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
 {
   m.doc() = "Python bindings for the constrained_smoother C++ library";
 
-  py::enum_<constrained_smoother::PlannerPenaltyType>(m, "PlannerPenaltyType")
-    .value("QUADRATIC_HINGE", constrained_smoother::PlannerPenaltyType::QuadraticHinge)
-    .value("EXPONENTIAL", constrained_smoother::PlannerPenaltyType::Exponential)
-    .value("RECIPROCAL", constrained_smoother::PlannerPenaltyType::Reciprocal)
-    .export_values();
-
   // --- Costmap2D ---
   py::class_<constrained_smoother::Costmap2D>(m, "Costmap2D")
     .def(py::init<>())
@@ -70,15 +64,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "obstacle_safe_distance",
     &constrained_smoother::SmootherParams::obstacle_safe_distance)
     .def_readwrite(
-    "obstacle_decay_distance",
-    &constrained_smoother::SmootherParams::obstacle_decay_distance)
-    .def_readwrite(
-    "obstacle_reciprocal_epsilon",
-    &constrained_smoother::SmootherParams::obstacle_reciprocal_epsilon)
-    .def_readwrite(
-    "obstacle_penalty_type",
-    &constrained_smoother::SmootherParams::obstacle_penalty_type)
-    .def_readwrite(
     "path_downsampling_factor",
     &constrained_smoother::SmootherParams::path_downsampling_factor)
     .def_readwrite(
@@ -111,12 +96,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def(py::init<>())
     .def_readwrite("lethal_cost", &constrained_smoother::AStarPlannerParams::lethal_cost)
     .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
-    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
-    .def_readwrite("decay_distance", &constrained_smoother::AStarPlannerParams::decay_distance)
-    .def_readwrite(
-      "reciprocal_epsilon",
-      &constrained_smoother::AStarPlannerParams::reciprocal_epsilon)
-    .def_readwrite("penalty_type", &constrained_smoother::AStarPlannerParams::penalty_type);
+    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight);
 
   py::class_<constrained_smoother::AStarPlanner>(m, "AStarPlanner")
     .def(py::init<>())

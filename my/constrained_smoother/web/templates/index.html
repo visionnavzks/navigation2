@@ -233,21 +233,12 @@
           <div class="param-group">
             <label>A* Penalty Weight: <span id="val_planner_penalty_weight">1.0</span></label>
             <input type="range" id="planner_penalty_weight" min="0.0" max="10.0" step="0.1" value="1.0">
-            <p class="param-hint">Scales how strongly A* detours away from low-clearance cells. This affects the planner only, not the smoother obstacle weight.</p>
+            <p class="param-hint">Scales how strongly A* detours away from low-clearance cells under the shared quadratic hinge loss. This affects the planner only, not the smoother obstacle weight.</p>
           </div>
           <div class="param-group">
-            <label for="planner_penalty">ESDF Penalty</label>
-            <select id="planner_penalty">
-              <option value="quadratic_hinge" selected>Quadratic Hinge</option>
-              <option value="exponential">Exponential</option>
-              <option value="reciprocal">Reciprocal</option>
-            </select>
-            <p class="param-hint">Shared by the C++ A* planner and the constrained smoother. This controls how ESDF clearance below the safe-distance band is converted into obstacle penalty.</p>
-          </div>
-          <div class="param-group">
-            <label>Clearance Threshold (m): <span id="val_penalty_safe_distance_m">0.50</span></label>
-            <input type="range" id="penalty_safe_distance_m" min="0.05" max="2.00" step="0.05" value="0.50">
-            <p class="param-hint">Shared clearance threshold used by the selected ESDF penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
+            <label>Hinge Loss Threshold (m): <span id="val_hinge_loss_threshold_m">0.50</span></label>
+            <input type="range" id="hinge_loss_threshold_m" min="0.05" max="2.00" step="0.05" value="0.50">
+            <p class="param-hint">Shared hinge margin used by the C++ A* planner and constrained smoother. ESDF distances beyond this threshold incur zero penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
           </div>
         </details>
 
@@ -264,7 +255,7 @@
           <div class="param-group">
             <label>Point Robot Radius (m): <span id="val_point_robot_radius_m">0.00</span></label>
             <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="0.00">
-            <p class="param-hint">Used only in point-robot mode. This inflates the shared clearance threshold around the robot centerline.</p>
+            <p class="param-hint">Used only in point-robot mode. This inflates the shared hinge threshold around the robot centerline.</p>
           </div>
           <div class="param-group">
             <label>Robot Length (m): <span id="val_robot_length_m">0.80</span></label>

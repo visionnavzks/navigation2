@@ -52,16 +52,7 @@ DEFAULT_OBSTACLE_RECTS = [
 CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in DEFAULT_OBSTACLE_RECTS]
 STATE_LOCK = Lock()
 ESDF_GRID = None
-PLANNER_PENALTY_ENUM = getattr(pcs, "PlannerPenaltyType", None)
 HAS_COMPUTE_ESDF = hasattr(pcs, "compute_esdf")
-if PLANNER_PENALTY_ENUM is not None:
-    PLANNER_PENALTY_MAP = {
-        "quadratic_hinge": PLANNER_PENALTY_ENUM.QUADRATIC_HINGE,
-        "exponential": PLANNER_PENALTY_ENUM.EXPONENTIAL,
-        "reciprocal": PLANNER_PENALTY_ENUM.RECIPROCAL,
-    }
-else:
-    PLANNER_PENALTY_MAP = {}
 
 
 def _build_costmap(obstacle_rects):
@@ -316,7 +307,7 @@ def plan_and_smooth():
         footprint_mode = str(req.get("footprint_mode", "point")).strip().lower()
         if footprint_mode not in {"point", "rectangle"}:
             footprint_mode = "point"
-        penalty_safe_distance_m = max(0.05, float(req.get("penalty_safe_distance_m", 0.5)))
+        hinge_loss_threshold_m = max(0.05, float(req.get("hinge_loss_threshold_m", 0.5)))
         point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 0.0)))
         robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
         robot_width_m = max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5)))
@@ -331,8 +322,6 @@ def plan_and_smooth():
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
         planner_penalty_weight = max(0.0, float(req.get("planner_penalty_weight", 1.0)))
-        planner_penalty = str(req.get("planner_penalty", "quadratic_hinge")).strip().lower()
-        planner_penalty_type = PLANNER_PENALTY_MAP.get(planner_penalty)
 
         with STATE_LOCK:
             planner_costmap = _grid_to_pcs_costmap(COSTMAP_GRID.copy())
@@ -340,13 +329,10 @@ def plan_and_smooth():
         # 1) A* path planning
         planner = pcs.AStarPlanner()
         planner_params = pcs.AStarPlannerParams()
-        planner_params.safe_distance = penalty_safe_distance_m + (
+        planner_params.safe_distance = hinge_loss_threshold_m + (
             point_robot_radius_m if footprint_mode == "point" else 0.0
         )
-        planner_params.decay_distance = max(DEFAULT_RESOLUTION, planner_params.safe_distance * 0.5)
         planner_params.cost_penalty_weight = planner_penalty_weight
-        if planner_penalty_type is not None:
-            planner_params.penalty_type = planner_penalty_type
         t0 = time.time()
         raw_path = planner.plan(
             planner_costmap,
@@ -382,9 +368,6 @@ def plan_and_smooth():
         smoother_params.cusp_costmap_weight_sqrt = smoother_params.costmap_weight_sqrt * math.sqrt(3.0)
         smoother_params.cusp_zone_length = 2.5
         smoother_params.obstacle_safe_distance = planner_params.safe_distance
-        smoother_params.obstacle_decay_distance = planner_params.decay_distance
-        smoother_params.obstacle_reciprocal_epsilon = planner_params.reciprocal_epsilon
-        smoother_params.obstacle_penalty_type = planner_params.penalty_type
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.max_curvature = max_curvature
@@ -450,13 +433,12 @@ def plan_and_smooth():
             "opt_path_length_m": round(opt_length, 3),
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
             "reference_spacing_target_m": round(ds_target, 3),
-            "planner_penalty": planner_penalty,
             "planner_penalty_weight": round(planner_penalty_weight, 3),
             "start_yaw_deg": round(start_yaw_deg, 2),
             "goal_yaw_deg": round(goal_yaw_deg, 2),
             "keep_start_orientation": keep_start_orientation,
             "keep_goal_orientation": keep_goal_orientation,
-            "penalty_safe_distance_m": round(penalty_safe_distance_m, 3),
+            "hinge_loss_threshold_m": round(hinge_loss_threshold_m, 3),
             "point_robot_radius_m": round(point_robot_radius_m, 3),
             "effective_safe_distance_m": round(planner_params.safe_distance, 3),
             "footprint_mode": footprint_mode,

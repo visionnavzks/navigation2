@@ -14,14 +14,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
-  const plannerPenaltySelect = document.getElementById('planner_penalty');
   const statusMsg = document.getElementById('status-msg');
 
   const sliderConfig = {
     start_yaw_deg: value => `${Math.round(value)} deg`,
     goal_yaw_deg: value => `${Math.round(value)} deg`,
     planner_penalty_weight: value => Number(value).toFixed(1),
-    penalty_safe_distance_m: value => Number(value).toFixed(2),
+    hinge_loss_threshold_m: value => Number(value).toFixed(2),
     point_robot_radius_m: value => Number(value).toFixed(2),
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
@@ -125,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSelectionInfo();
         draw();
       }
-      if (id === 'penalty_safe_distance_m' || id === 'point_robot_radius_m' ||
+      if (id === 'hinge_loss_threshold_m' || id === 'point_robot_radius_m' ||
         id === 'robot_length_m' || id === 'robot_width_m') {
         updateRobotConfigUi();
       }
@@ -135,10 +134,6 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('input', () => scheduleAutoPlan());
     sync();
   });
-
-  if (plannerPenaltySelect) {
-    plannerPenaltySelect.addEventListener('change', () => scheduleAutoPlan());
-  }
 
   if (mapDisplayModeSelect) {
     mapDisplayModeSelect.addEventListener('change', () => {
@@ -230,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pointRobotRadiusInput = document.getElementById('point_robot_radius_m');
     const robotLengthInput = document.getElementById('robot_length_m');
     const robotWidthInput = document.getElementById('robot_width_m');
-    const penaltySafeDistanceInput = document.getElementById('penalty_safe_distance_m');
+    const hingeLossThresholdInput = document.getElementById('hinge_loss_threshold_m');
     const rectangleEnabled = mode === 'rectangle';
     const pointEnabled = mode === 'point';
 
@@ -245,15 +240,15 @@ document.addEventListener('DOMContentLoaded', () => {
       robotWidthInput.disabled = !rectangleEnabled;
     }
 
-    const penaltyValue = penaltySafeDistanceInput ? Number(penaltySafeDistanceInput.value).toFixed(2) : '--';
+    const penaltyValue = hingeLossThresholdInput ? Number(hingeLossThresholdInput.value).toFixed(2) : '--';
     const radiusValue = pointRobotRadiusInput ? Number(pointRobotRadiusInput.value).toFixed(2) : '--';
     const lengthValue = robotLengthInput ? Number(robotLengthInput.value).toFixed(2) : '--';
     const widthValue = robotWidthInput ? Number(robotWidthInput.value).toFixed(2) : '--';
     setText(
       'robot-config-summary',
       rectangleEnabled
-        ? `Using a rectangular footprint with ${lengthValue} m length and ${widthValue} m width. Shared clearance threshold: ${penaltyValue} m.`
-        : `Using a point robot with ${radiusValue} m radius. Effective clearance threshold: ${(Number(penaltyValue) + Number(radiusValue)).toFixed(2)} m.`
+        ? `Using a rectangular footprint with ${lengthValue} m length and ${widthValue} m width. Hinge loss threshold: ${penaltyValue} m.`
+        : `Using a point robot with ${radiusValue} m radius. Effective hinge threshold: ${(Number(penaltyValue) + Number(radiusValue)).toFixed(2)} m.`
     );
   }
 
@@ -1750,9 +1745,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       params[id] = parseFloat(input.value);
     });
-    if (plannerPenaltySelect) {
-      params.planner_penalty = plannerPenaltySelect.value;
-    }
     if (footprintModeSelect) {
       params.footprint_mode = footprintModeSelect.value;
     }

@@ -229,40 +229,13 @@ protected:
   template<typename T>
   inline T evaluateObstaclePenalty(const T & distance) const
   {
-    switch (params_.obstacle_penalty_type) {
-      case PlannerPenaltyType::QuadraticHinge:
-      {
-        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
-        if (distance >= safe_distance) {
-          return (T)0.0;
-        }
-        const T normalized_gap = (safe_distance - distance) / safe_distance;
-        return normalized_gap * normalized_gap;
-      }
-      case PlannerPenaltyType::Exponential:
-      {
-        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
-        if (distance >= safe_distance) {
-          return (T)0.0;
-        }
-        const T decay = (T)std::max(params_.obstacle_decay_distance, 1e-6);
-        const T boundary = exp(-safe_distance / decay);
-        const T penalty = exp(-distance / decay) - boundary;
-        return penalty > (T)0.0 ? penalty : (T)0.0;
-      }
-      case PlannerPenaltyType::Reciprocal:
-      {
-        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
-        if (distance >= safe_distance) {
-          return (T)0.0;
-        }
-        const T eps = (T)std::max(params_.obstacle_reciprocal_epsilon, 1e-6);
-        const T boundary = safe_distance / (safe_distance + eps);
-        const T penalty = safe_distance / (distance + eps) - boundary;
-        return penalty > (T)0.0 ? penalty : (T)0.0;
-      }
+    const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
+    if (distance >= safe_distance) {
+      return (T)0.0;
     }
-    return (T)0.0;
+
+    const T normalized_gap = (safe_distance - distance) / safe_distance;
+    return normalized_gap * normalized_gap;
   }
 
   const Eigen::Vector2d original_pos_;

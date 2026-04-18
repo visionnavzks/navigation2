@@ -16,21 +16,11 @@
 namespace constrained_smoother
 {
 
-enum class PlannerPenaltyType
-{
-  QuadraticHinge = 0,
-  Exponential = 1,
-  Reciprocal = 2,
-};
-
 struct AStarPlannerParams
 {
   unsigned char lethal_cost{Costmap2D::LETHAL_OBSTACLE};
   double safe_distance{0.5};
   double cost_penalty_weight{1.0};
-  double decay_distance{0.25};
-  double reciprocal_epsilon{0.05};
-  PlannerPenaltyType penalty_type{PlannerPenaltyType::QuadraticHinge};
 };
 
 class AStarPlanner
@@ -97,37 +87,15 @@ public:
 
   static double EvaluatePenalty(
     double distance,
-    double safe_distance,
-    double decay_distance,
-    double reciprocal_epsilon,
-    PlannerPenaltyType penalty_type)
+    double safe_distance)
   {
     if (!std::isfinite(distance) || distance >= safe_distance) {
       return 0.0;
     }
 
     const double clamped_safe_distance = std::max(safe_distance, 1e-6);
-    switch (penalty_type) {
-      case PlannerPenaltyType::QuadraticHinge:
-      {
-        const double normalized_gap = (clamped_safe_distance - distance) / clamped_safe_distance;
-        return normalized_gap * normalized_gap;
-      }
-      case PlannerPenaltyType::Exponential:
-      {
-        const double decay = std::max(decay_distance, 1e-6);
-        const double boundary = std::exp(-clamped_safe_distance / decay);
-        return std::max(0.0, std::exp(-distance / decay) - boundary);
-      }
-      case PlannerPenaltyType::Reciprocal:
-      {
-        const double eps = std::max(reciprocal_epsilon, 1e-6);
-        const double boundary = clamped_safe_distance / (clamped_safe_distance + eps);
-        return std::max(0.0, clamped_safe_distance / (distance + eps) - boundary);
-      }
-    }
-
-    return 0.0;
+    const double normalized_gap = (clamped_safe_distance - distance) / clamped_safe_distance;
+    return normalized_gap * normalized_gap;
   }
 
   std::vector<Eigen::Vector2d> plan(
@@ -212,10 +180,7 @@ public:
         const double penalty = params.cost_penalty_weight *
           EvaluatePenalty(
           esdf_[next_index],
-          params.safe_distance,
-          params.decay_distance,
-          params.reciprocal_epsilon,
-          params.penalty_type);
+          params.safe_distance);
         const double tentative_g = current.g_score + step_cost + penalty * costmap->getResolution();
 
         if (tentative_g < g_score[next_index]) {
