@@ -7,87 +7,337 @@
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>A* + Constrained Smoother</h1>
-      <p class="subtitle">Click on the map to set <strong>Start</strong> (green) and <strong>Goal</strong> (red), then watch A* find a reference path and the Ceres-based constrained smoother optimize it.</p>
+  <div class="page-shell">
+    <header class="hero panel">
+      <div class="hero-copy">
+        <p class="eyebrow">Standalone Nav2 Constrained Smoother</p>
+        <h1>A* + Constrained Smoother Lab</h1>
+        <p class="subtitle">Inspect the synthetic costmap, compare raw and optimized paths, and understand what each solver parameter changes before touching the full Nav2 plugin.</p>
+      </div>
+      <div class="hero-summary">
+        <div class="summary-card">
+          <span class="summary-label">Map</span>
+          <strong id="hero-map-size">--</strong>
+          <span class="summary-copy">synthetic obstacle field</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Resolution</span>
+          <strong id="hero-resolution">--</strong>
+          <span class="summary-copy">meters per cell</span>
+        </div>
+        <div class="summary-card">
+          <span class="summary-label">Interaction</span>
+          <strong id="phase-indicator">Markers ready</strong>
+          <span id="hero-status" class="summary-copy">Left-drag endpoints or obstacle blocks to edit the scene, left-drag empty space to pan, and double-click to restore the full view.</span>
+        </div>
+      </div>
     </header>
 
     <div class="main-layout">
-      <!-- Sidebar -->
       <aside class="sidebar panel">
-        <h2>Parameters</h2>
+        <section class="stack-section">
+          <div class="section-heading">
+            <h2>Session</h2>
+            <span id="selection-pill" class="pill">Drag scene</span>
+          </div>
 
-        <details open>
+          <div id="status-msg" class="status-msg"></div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label">Start</span>
+              <strong id="start-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Goal</span>
+              <strong id="goal-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Cursor</span>
+              <strong id="cursor-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Zoom</span>
+              <strong id="zoom-level">1.00x</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Gesture</span>
+              <strong id="view-mode-label">Left-drag</strong>
+            </div>
+          </div>
+
+          <p class="section-note">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
+        </section>
+
+        <section class="stack-section">
+          <div class="section-heading">
+            <h2>Map Overview</h2>
+            <span id="map-kind" class="pill">Synthetic field</span>
+          </div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label">Grid</span>
+              <strong id="map-grid">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">World</span>
+              <strong id="map-world-size">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Resolution</span>
+              <strong id="map-resolution">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Origin</span>
+              <strong id="map-origin">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Obstacle Blocks</span>
+              <strong id="map-obstacles">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Inflation Radius</span>
+              <strong id="map-inflation">--</strong>
+            </div>
+          </div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label">Free Cells</span>
+              <strong id="map-free-cells">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Inflated Cells</span>
+              <strong id="map-inflated-cells">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Lethal Cells</span>
+              <strong id="map-lethal-cells">--</strong>
+            </div>
+          </div>
+
+          <p id="map-description" class="section-note">--</p>
+        </section>
+
+        <section class="stack-section">
+          <div class="section-heading">
+            <h2>Cursor Inspector</h2>
+            <span class="pill">live hover</span>
+          </div>
+
+          <div id="costmap-loupe" class="costmap-loupe" aria-live="polite">
+            <div class="costmap-loupe__header">
+              <span class="costmap-loupe__title">Cursor Inspector</span>
+              <strong id="loupe-cost-value">Cell --</strong>
+            </div>
+            <canvas id="loupe-canvas" width="132" height="132"></canvas>
+            <div class="costmap-loupe__stats">
+              <div class="costmap-loupe__stat">
+                <span>Cell Cost</span>
+                <strong id="loupe-cell-cost">--</strong>
+              </div>
+              <div class="costmap-loupe__stat">
+                <span>Interpolated</span>
+                <strong id="loupe-interp-cost">--</strong>
+              </div>
+            </div>
+            <div class="costmap-loupe__meta">
+              <span id="loupe-world">World: --</span>
+              <span id="loupe-cell">Cell: --</span>
+            </div>
+            <div class="costmap-loupe__footer">
+              <span id="loupe-kind" class="costmap-loupe__badge">Outside map</span>
+            </div>
+          </div>
+        </section>
+
+        <details open class="details-card">
           <summary>Smoother Weights</summary>
           <div class="param-group">
-            <label>Smooth Weight: <span id="val_smooth_weight">2000000</span></label>
-            <input type="range" id="smooth_weight" min="0" max="5000000" step="50000" value="2000000">
+            <label>Smooth Weight: <span id="val_smooth_weight">5000</span></label>
+            <input type="range" id="smooth_weight" min="0" max="10000" step="100" value="5000">
+            <p class="param-hint">Penalizes local jaggedness. Raise it to make the optimized curve more globally smooth.</p>
           </div>
           <div class="param-group">
             <label>Costmap Weight: <span id="val_costmap_weight">0.015</span></label>
             <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="0.015">
+            <p class="param-hint">Pushes the path away from inflated and lethal costmap cells.</p>
           </div>
           <div class="param-group">
             <label>Distance Weight: <span id="val_distance_weight">0.0</span></label>
             <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
+            <p class="param-hint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
           </div>
           <div class="param-group">
             <label>Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
             <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
+            <p class="param-hint">Discourages high-curvature turns, especially around obstacle corners.</p>
           </div>
           <div class="param-group">
             <label>Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
             <input type="range" id="max_curvature" min="0.1" max="10.0" step="0.1" value="2.5">
+            <p id="val_min_turn_radius" class="param-hint">Minimum turning radius: 0.40 m</p>
+            <p class="param-hint">Caps the turning curvature. Lower values enforce a larger minimum turning radius.</p>
           </div>
         </details>
 
-        <details>
+        <details class="details-card">
           <summary>Solver</summary>
           <div class="param-group">
             <label>Max Iterations: <span id="val_max_iterations">50</span></label>
             <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
+            <p class="param-hint">Upper bound on Ceres iterations before the optimizer stops.</p>
           </div>
           <div class="param-group">
             <label>Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>
             <input type="range" id="path_downsampling_factor" min="1" max="10" step="1" value="1">
+            <p class="param-hint">Drops intermediate reference points before optimization to reduce problem size.</p>
           </div>
           <div class="param-group">
             <label>Upsampling Factor: <span id="val_path_upsampling_factor">1</span></label>
             <input type="range" id="path_upsampling_factor" min="1" max="10" step="1" value="1">
+            <p class="param-hint">Reinserts points after optimization to recover path density for inspection.</p>
           </div>
         </details>
 
-        <button id="run-btn" class="action-btn" disabled>Run Planning</button>
-        <button id="clear-btn" class="ghost-btn">Clear Paths</button>
+        <section class="stack-section">
+          <div class="section-heading">
+            <h2>Layers</h2>
+            <span class="pill">toggle visibility</span>
+          </div>
+          <div class="layer-list">
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_costmap" checked>
+              <span class="swatch swatch-costmap"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Costmap</span>
+                <span class="layer-copy">free, inflated, and lethal cells</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_axes" checked>
+              <span class="swatch swatch-axes"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Map Axes</span>
+                <span class="layer-copy">world-frame coordinate overlay</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_markers" checked>
+              <span class="swatch swatch-markers"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Start / Goal</span>
+                <span class="layer-copy">selected endpoints</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_astar" checked>
+              <span class="swatch swatch-astar"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">A* Raw Path</span>
+                <span class="layer-copy">dense grid-connected plan</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_reference" checked>
+              <span class="swatch swatch-reference"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Reference Path</span>
+                <span class="layer-copy">downsampled optimizer input</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_smoothed" checked>
+              <span class="swatch swatch-smoothed"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Smoothed Path</span>
+                <span class="layer-copy">Ceres optimized output</span>
+              </span>
+            </label>
+          </div>
+        </section>
 
-        <div id="status-msg" class="status-msg"></div>
+        <section class="stack-section">
+          <div class="section-heading">
+            <h2>Run Statistics</h2>
+            <span id="smooth-state" class="pill">idle</span>
+          </div>
 
-        <!-- Info badges -->
-        <div class="info-section">
-          <div class="info-badge"><span class="label">A* Time:</span> <span id="info-astar-time" class="value">--</span> ms</div>
-          <div class="info-badge"><span class="label">Smooth Time:</span> <span id="info-smooth-time" class="value">--</span> ms</div>
-          <div class="info-badge"><span class="label">A* Points:</span> <span id="info-astar-pts" class="value">--</span></div>
-          <div class="info-badge"><span class="label">Ref Points:</span> <span id="info-ref-pts" class="value">--</span></div>
-          <div class="info-badge"><span class="label">Opt Points:</span> <span id="info-opt-pts" class="value">--</span></div>
-        </div>
+          <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label">A* Time</span>
+              <strong id="info-astar-time">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Smooth Time</span>
+              <strong id="info-smooth-time">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">A* Points</span>
+              <strong id="info-astar-pts">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Reference Points</span>
+              <strong id="info-ref-pts">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Optimized Points</span>
+              <strong id="info-opt-pts">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Ref Spacing Target</span>
+              <strong id="info-ref-spacing">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Raw Length</span>
+              <strong id="info-raw-length">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Reference Length</span>
+              <strong id="info-ref-length">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Optimized Length</span>
+              <strong id="info-opt-length">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Opt - Ref</span>
+              <strong id="info-length-delta">--</strong>
+            </div>
+          </div>
 
-        <div class="legend">
-          <h3>Legend</h3>
-          <div class="legend-item"><span class="dot" style="background:#4caf50;"></span> Start</div>
-          <div class="legend-item"><span class="dot" style="background:#f44336;"></span> Goal</div>
-          <div class="legend-item"><span class="line" style="background:rgba(33,150,243,0.5);"></span> A* Raw Path</div>
-          <div class="legend-item"><span class="line" style="background:#ff9800;"></span> Reference (downsampled)</div>
-          <div class="legend-item"><span class="line" style="background:#e91e63;"></span> Smoothed Path</div>
-        </div>
+          <p id="run-note" class="section-note">Set a start and goal to generate path metrics.</p>
+        </section>
       </aside>
 
-      <!-- Map canvas -->
       <section class="map-section panel">
+        <div class="map-toolbar">
+          <div class="toolbar-group">
+            <button id="run-btn" class="action-btn" disabled>Run Planning</button>
+            <button id="clear-btn" class="ghost-btn">Reset Scene</button>
+            <button id="reset-view-btn" class="ghost-btn">Reset View</button>
+          </div>
+          <div class="toolbar-meta">
+            <div class="toolbar-pill">
+              <span>World</span>
+              <strong id="map-world-size-toolbar">--</strong>
+            </div>
+            <div class="toolbar-pill">
+              <span>Inflation</span>
+              <strong id="map-inflation-toolbar">--</strong>
+            </div>
+          </div>
+        </div>
+
         <div class="canvas-wrap">
           <canvas id="map-canvas" width="800" height="800"></canvas>
         </div>
-        <p class="hint">Left-click: set Start → Goal. Scroll to zoom. Drag to pan.</p>
+
+        <div class="map-footer">
+          <p class="hint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, or final optimized trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
+          <p class="hint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
+        </div>
       </section>
     </div>
   </div>

@@ -6,8 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)  # significant Ceres optimization speedup
 
 # ---- dependencies ----
+find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
-find_package(Eigen3 REQUIRED)
 
 # Check Ceres version for API compatibility
 if(${CERES_VERSION} VERSION_LESS_EQUAL 2.0.0)

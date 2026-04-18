@@ -45,8 +45,8 @@ public:
   /**
    * @brief A constructor for nav2_constrained_smoother::SmootherCostFunction
    * @param original_path Original position of the path node
-   * @param next_to_last_length_ratio Ratio of next path segment compared to previous.
-   *  Negative if one of them represents reversing motion.
+    * @param last_to_current_length_ratio Ratio of the previous segment length to the
+    * current segment length. Negative if the previous/current transition crosses a cusp.
    * @param reversing Whether the path segment after this node represents reversing motion.
    * @param costmap A costmap to get values for collision and obstacle avoidance
    * @param params Optimization weights and parameters
@@ -54,7 +54,7 @@ public:
    */
   SmootherCostFunction(
     const Eigen::Vector2d & original_pos,
-    double next_to_last_length_ratio,
+    double last_to_current_length_ratio,
     bool reversing,
     const nav2_costmap_2d::Costmap2D * costmap,
     const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>> &
@@ -62,7 +62,7 @@ public:
     const SmootherParams & params,
     double costmap_weight_sqrt)
   : original_pos_(original_pos),
-    next_to_last_length_ratio_(next_to_last_length_ratio),
+    last_to_current_length_ratio_(last_to_current_length_ratio),
     reversing_(reversing),
     params_(params),
     costmap_weight_sqrt_(costmap_weight_sqrt),
@@ -138,7 +138,7 @@ protected:
   {
     Eigen::Matrix<T, 2, 1> d_next = pt_next - pt;
     Eigen::Matrix<T, 2, 1> d_prev = pt - pt_prev;
-    Eigen::Matrix<T, 2, 1> d_diff = next_to_last_length_ratio_ * d_next - d_prev;
+    Eigen::Matrix<T, 2, 1> d_diff = last_to_current_length_ratio_ * d_next - d_prev;
     r1 += (T)weight_sqrt * d_diff(0, 0);    // objective function value
     r2 += (T)weight_sqrt * d_diff(1, 0);
   }
@@ -162,7 +162,7 @@ protected:
   {
     Eigen::Matrix<T, 2, 1> center = arcCenter(
       pt_prev, pt, pt_next,
-      next_to_last_length_ratio_ < 0);
+      last_to_current_length_ratio_ < 0);
     if (CERES_ISINF(center[0])) {
       return;
     }
@@ -219,7 +219,7 @@ protected:
     } else {
       Eigen::Matrix<T, 2, 1> dir = tangentDir(
         pt_prev, pt, pt_next,
-        next_to_last_length_ratio_ < 0);
+        last_to_current_length_ratio_ < 0);
       dir.normalize();
       if (((pt_next - pt).dot(dir) < (T)0) != reversing_) {
         dir = -dir;
@@ -244,7 +244,7 @@ protected:
   }
 
   const Eigen::Vector2d original_pos_;
-  double next_to_last_length_ratio_;
+  double last_to_current_length_ratio_;
   bool reversing_;
   SmootherParams params_;
   double costmap_weight_sqrt_;
