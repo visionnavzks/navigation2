@@ -96,7 +96,7 @@ public:
     ceres::Problem problem;
     std::vector<Eigen::Vector3d> path_optim;
     std::vector<bool> optimized;
-    if (buildProblem(path, costmap, params, problem, path_optim, optimized)) {
+    if (buildProblem(path, start_dir, end_dir, costmap, params, problem, path_optim, optimized)) {
       // solve the problem
       ceres::Solver::Summary summary;
       ceres::Solve(options_, &problem, &summary);
@@ -123,22 +123,25 @@ private:
    */
   bool buildProblem(
     const std::vector<Eigen::Vector3d> & path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
     const Costmap2D * costmap,
     const SmootherParams & params,
     ceres::Problem & problem,
     std::vector<Eigen::Vector3d> & path_optim,
     std::vector<bool> & optimized)
   {
-    // Create costmap grid
-    costmap_grid_ = std::make_shared<ceres::Grid2D<unsigned char>>(
-      costmap->getCharMap(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
-    auto costmap_interpolator =
-      std::make_shared<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>>(*costmap_grid_);
+    esdf_values_ = AStarPlanner::ComputeESDF(costmap, Costmap2D::LETHAL_OBSTACLE);
+    esdf_grid_ = std::make_shared<ceres::Grid2D<double>>(
+      esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
+    auto esdf_interpolator =
+      std::make_shared<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(*esdf_grid_);
 
     // Create residual blocks
     const double cusp_half_length = params.cusp_zone_length / 2;
     ceres::LossFunction * loss_function = NULL;
     path_optim = path;
+    applyEndpointOrientationAnchors(path_optim, start_dir, end_dir, params);
     optimized = std::vector<bool>(path.size());
     optimized[0] = true;
     int prelast_i = -1;
@@ -214,7 +217,7 @@ private:
           (last_was_cusp ? -1 : 1) * last_segment_len / current_segment_len,
           last_is_reversing,
           costmap,
-          costmap_interpolator,
+          esdf_interpolator,
           params,
           costmap_weight_sqrt
         );
@@ -254,6 +257,48 @@ private:
     }
     problem.SetParameterBlockConstant(path_optim.back().data());
     return true;
+  }
+
+  void applyEndpointOrientationAnchors(
+    std::vector<Eigen::Vector3d> & path_optim,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const SmootherParams & params) const
+  {
+    if (path_optim.size() < 3) {
+      return;
+    }
+
+    const auto normalized_dir = [](const Eigen::Vector2d & dir) -> Eigen::Vector2d {
+        const double norm = dir.norm();
+        if (norm <= EPSILON) {
+          return Eigen::Vector2d(1.0, 0.0);
+        }
+        return Eigen::Vector2d(dir / norm);
+      };
+
+    if (params.keep_start_orientation) {
+      const double start_segment_len =
+        (path_optim[1] - path_optim[0]).template block<2, 1>(0, 0).norm();
+      path_optim[1].template block<2, 1>(0, 0) =
+        path_optim[0].template block<2, 1>(0, 0) + normalized_dir(start_dir) * start_segment_len;
+    }
+
+    if (params.keep_goal_orientation) {
+      const size_t goal_index = path_optim.size() - 1;
+      const size_t pregoal_index = goal_index - 1;
+      const double goal_segment_len =
+        (path_optim[goal_index] - path_optim[pregoal_index]).template block<2, 1>(0, 0).norm();
+      Eigen::Vector2d anchored_pregoal =
+        path_optim[goal_index].template block<2, 1>(0, 0) - normalized_dir(end_dir) * goal_segment_len;
+
+      if (params.keep_start_orientation && pregoal_index == 1) {
+        path_optim[pregoal_index].template block<2, 1>(0, 0) =
+          0.5 * (path_optim[pregoal_index].template block<2, 1>(0, 0) + anchored_pregoal);
+      } else {
+        path_optim[pregoal_index].template block<2, 1>(0, 0) = anchored_pregoal;
+      }
+    }
   }
 
   /**
@@ -376,7 +421,8 @@ private:
 
   bool debug_;
   ceres::Solver::Options options_;
-  std::shared_ptr<ceres::Grid2D<unsigned char>> costmap_grid_;
+  std::vector<double> esdf_values_;
+  std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;
 };
 
 }  // namespace constrained_smoother

@@ -29,7 +29,7 @@ if os.path.isdir(_build_dir):
     sys.path.insert(0, _build_dir)
 
 import py_constrained_smoother as pcs  # noqa: E402
-from astar import AStarPlanner, downsample_path  # noqa: E402
+from astar import downsample_path  # noqa: E402
 
 app = Flask(__name__)
 
@@ -51,6 +51,17 @@ DEFAULT_OBSTACLE_RECTS = [
 ]
 CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in DEFAULT_OBSTACLE_RECTS]
 STATE_LOCK = Lock()
+ESDF_GRID = None
+PLANNER_PENALTY_ENUM = getattr(pcs, "PlannerPenaltyType", None)
+HAS_COMPUTE_ESDF = hasattr(pcs, "compute_esdf")
+if PLANNER_PENALTY_ENUM is not None:
+    PLANNER_PENALTY_MAP = {
+        "quadratic_hinge": PLANNER_PENALTY_ENUM.QUADRATIC_HINGE,
+        "exponential": PLANNER_PENALTY_ENUM.EXPONENTIAL,
+        "reciprocal": PLANNER_PENALTY_ENUM.RECIPROCAL,
+    }
+else:
+    PLANNER_PENALTY_MAP = {}
 
 
 def _build_costmap(obstacle_rects):
@@ -85,8 +96,9 @@ def _summarize_costmap(grid, obstacle_rects):
     return {
         "name": "Synthetic obstacle field",
         "description": (
-            "A draggable 20m x 20m costmap with rectangular lethal obstacles and "
-            f"a {INFLATION_RADIUS_CELLS}-cell inflated safety buffer rendered around them."
+            "A draggable 20m x 20m obstacle map with rectangular lethal obstacles and "
+            f"a {INFLATION_RADIUS_CELLS}-cell inflated safety buffer for visualization. "
+            "The C++ A* planner and constrained smoother both optimize ESDF-derived obstacle penalties."
         ),
         "world_width_m": DEFAULT_SIZE_X * DEFAULT_RESOLUTION,
         "world_height_m": DEFAULT_SIZE_Y * DEFAULT_RESOLUTION,
@@ -130,8 +142,29 @@ def _path_length(points):
     return total
 
 
+def _build_robot_cost_check_points(footprint_mode, robot_length_m, robot_width_m):
+    """Build local-frame footprint samples for the smoother obstacle term."""
+    if footprint_mode != "rectangle":
+        return []
+
+    half_length = max(robot_length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
+    half_width = max(robot_width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
+    return [
+        0.0, 0.0, 0.6,
+        half_length, half_width, 1.0,
+        half_length, -half_width, 1.0,
+        -half_length, half_width, 1.0,
+        -half_length, -half_width, 1.0,
+        half_length, 0.0, 0.8,
+        -half_length, 0.0, 0.8,
+        0.0, half_width, 0.8,
+        0.0, -half_width, 0.8,
+    ]
+
+
 COSTMAP_GRID = None
 COSTMAP_METADATA = None
+ESDF_GRID = None
 
 
 def _grid_to_pcs_costmap(grid):
@@ -142,6 +175,44 @@ def _grid_to_pcs_costmap(grid):
         for mx in range(size_x):
             costmap.setCost(mx, my, int(grid[my, mx]))
     return costmap
+
+
+def _compute_esdf_grid(costmap):
+    """Compute an ESDF grid in meters from the obstacle map."""
+    if not HAS_COMPUTE_ESDF:
+        return None
+
+    outside_esdf = np.asarray(
+        pcs.compute_esdf(costmap, pcs.Costmap2D.LETHAL_OBSTACLE),
+        dtype=np.float64,
+    ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
+
+    # Build an inverted occupancy map so occupied cells measure distance to the nearest free cell.
+    inside_costmap = pcs.Costmap2D(
+        DEFAULT_SIZE_X,
+        DEFAULT_SIZE_Y,
+        DEFAULT_RESOLUTION,
+        DEFAULT_ORIGIN_X,
+        DEFAULT_ORIGIN_Y,
+    )
+    for my in range(DEFAULT_SIZE_Y):
+        for mx in range(DEFAULT_SIZE_X):
+            is_obstacle = costmap.getCost(mx, my) >= pcs.Costmap2D.LETHAL_OBSTACLE
+            inside_costmap.setCost(
+                mx,
+                my,
+                pcs.Costmap2D.FREE_SPACE if is_obstacle else pcs.Costmap2D.LETHAL_OBSTACLE,
+            )
+
+    inside_esdf = np.asarray(
+        pcs.compute_esdf(inside_costmap, pcs.Costmap2D.LETHAL_OBSTACLE),
+        dtype=np.float64,
+    ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
+
+    signed_esdf = outside_esdf.copy()
+    obstacle_mask = np.asarray(COSTMAP_GRID >= pcs.Costmap2D.LETHAL_OBSTACLE)
+    signed_esdf[obstacle_mask] = -inside_esdf[obstacle_mask]
+    return signed_esdf
 
 
 PCS_COSTMAP = None
@@ -169,12 +240,13 @@ def _normalize_obstacle_rects(rect_payloads):
 
 def _rebuild_costmap_state(obstacle_rects):
     """Regenerate all costmap-derived globals from the obstacle list."""
-    global CURRENT_OBSTACLE_RECTS, COSTMAP_GRID, COSTMAP_METADATA, PCS_COSTMAP
+    global CURRENT_OBSTACLE_RECTS, COSTMAP_GRID, COSTMAP_METADATA, PCS_COSTMAP, ESDF_GRID
 
     CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in obstacle_rects]
     COSTMAP_GRID = _build_costmap(CURRENT_OBSTACLE_RECTS)
     COSTMAP_METADATA = _summarize_costmap(COSTMAP_GRID, CURRENT_OBSTACLE_RECTS)
     PCS_COSTMAP = _grid_to_pcs_costmap(COSTMAP_GRID)
+    ESDF_GRID = _compute_esdf_grid(PCS_COSTMAP)
 
 
 def _serialize_costmap_state():
@@ -186,6 +258,7 @@ def _serialize_costmap_state():
         "origin_x": DEFAULT_ORIGIN_X,
         "origin_y": DEFAULT_ORIGIN_Y,
         "data": COSTMAP_GRID.flatten().tolist(),
+        "esdf": ESDF_GRID.flatten().tolist() if ESDF_GRID is not None else None,
         "metadata": COSTMAP_METADATA,
     }
 
@@ -236,32 +309,59 @@ def plan_and_smooth():
         start_y = float(req.get("start_y", 1.0))
         goal_x = float(req.get("goal_x", 18.0))
         goal_y = float(req.get("goal_y", 18.0))
+        start_yaw_deg = float(req.get("start_yaw_deg", 45.0))
+        goal_yaw_deg = float(req.get("goal_yaw_deg", 45.0))
+        keep_start_orientation = bool(req.get("keep_start_orientation", True))
+        keep_goal_orientation = bool(req.get("keep_goal_orientation", True))
+        footprint_mode = str(req.get("footprint_mode", "point")).strip().lower()
+        if footprint_mode not in {"point", "rectangle"}:
+            footprint_mode = "point"
+        penalty_safe_distance_m = max(0.05, float(req.get("penalty_safe_distance_m", 0.5)))
+        point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 0.0)))
+        robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
+        robot_width_m = max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5)))
 
         # Smoother tuning knobs from the frontend
-        smooth_weight = float(req.get("smooth_weight", 2000000.0))
-        costmap_weight = float(req.get("costmap_weight", 0.015))
+        smooth_weight = float(req.get("smooth_weight", 20.0))
+        costmap_weight = float(req.get("costmap_weight", 1.0))
         distance_weight = float(req.get("distance_weight", 0.0))
         curvature_weight = float(req.get("curvature_weight", 30.0))
         max_curvature = float(req.get("max_curvature", 2.5))
         path_downsample = max(1, int(req.get("path_downsampling_factor", 1)))
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
+        planner_penalty_weight = max(0.0, float(req.get("planner_penalty_weight", 1.0)))
+        planner_penalty = str(req.get("planner_penalty", "quadratic_hinge")).strip().lower()
+        planner_penalty_type = PLANNER_PENALTY_MAP.get(planner_penalty)
 
         with STATE_LOCK:
-            planner_grid = COSTMAP_GRID.copy()
-            planner_costmap = _grid_to_pcs_costmap(planner_grid)
+            planner_costmap = _grid_to_pcs_costmap(COSTMAP_GRID.copy())
 
         # 1) A* path planning
-        planner = AStarPlanner(
-            planner_grid, DEFAULT_SIZE_X, DEFAULT_SIZE_Y,
-            DEFAULT_RESOLUTION, DEFAULT_ORIGIN_X, DEFAULT_ORIGIN_Y,
+        planner = pcs.AStarPlanner()
+        planner_params = pcs.AStarPlannerParams()
+        planner_params.safe_distance = penalty_safe_distance_m + (
+            point_robot_radius_m if footprint_mode == "point" else 0.0
         )
+        planner_params.decay_distance = max(DEFAULT_RESOLUTION, planner_params.safe_distance * 0.5)
+        planner_params.cost_penalty_weight = planner_penalty_weight
+        if planner_penalty_type is not None:
+            planner_params.penalty_type = planner_penalty_type
         t0 = time.time()
-        raw_path = planner.plan(start_x, start_y, goal_x, goal_y)
+        raw_path = planner.plan(
+            planner_costmap,
+            start_x,
+            start_y,
+            goal_x,
+            goal_y,
+            planner_params,
+        )
         astar_time = (time.time() - t0) * 1000.0
 
-        if raw_path is None:
+        if not raw_path:
             return jsonify({"success": False, "message": "A* could not find a path."})
+
+        raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
 
         # Downsample dense grid path
         ds_target = DEFAULT_RESOLUTION * 3
@@ -270,26 +370,10 @@ def plan_and_smooth():
         # Build Eigen-compatible path: (x, y, direction_sign=1.0)
         eigen_path = [np.array([p[0], p[1], 1.0]) for p in sparse_path]
 
-        # Direction vectors for start/end
-        if len(eigen_path) >= 2:
-            s_dir = np.array([eigen_path[1][0] - eigen_path[0][0],
-                              eigen_path[1][1] - eigen_path[0][1]])
-            norm = np.linalg.norm(s_dir)
-            if norm > 1e-9:
-                s_dir /= norm
-            else:
-                s_dir = np.array([1.0, 0.0])
-
-            e_dir = np.array([eigen_path[-1][0] - eigen_path[-2][0],
-                              eigen_path[-1][1] - eigen_path[-2][1]])
-            norm = np.linalg.norm(e_dir)
-            if norm > 1e-9:
-                e_dir /= norm
-            else:
-                e_dir = np.array([1.0, 0.0])
-        else:
-            s_dir = np.array([1.0, 0.0])
-            e_dir = np.array([1.0, 0.0])
+        start_yaw_rad = math.radians(start_yaw_deg)
+        goal_yaw_rad = math.radians(goal_yaw_deg)
+        s_dir = np.array([math.cos(start_yaw_rad), math.sin(start_yaw_rad)])
+        e_dir = np.array([math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)])
 
         # 2) Constrained smoother
         smoother_params = pcs.SmootherParams()
@@ -297,10 +381,21 @@ def plan_and_smooth():
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
         smoother_params.cusp_costmap_weight_sqrt = smoother_params.costmap_weight_sqrt * math.sqrt(3.0)
         smoother_params.cusp_zone_length = 2.5
+        smoother_params.obstacle_safe_distance = planner_params.safe_distance
+        smoother_params.obstacle_decay_distance = planner_params.decay_distance
+        smoother_params.obstacle_reciprocal_epsilon = planner_params.reciprocal_epsilon
+        smoother_params.obstacle_penalty_type = planner_params.penalty_type
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.max_curvature = max_curvature
         smoother_params.max_time = 10.0
+        smoother_params.keep_start_orientation = keep_start_orientation
+        smoother_params.keep_goal_orientation = keep_goal_orientation
+        smoother_params.cost_check_points = _build_robot_cost_check_points(
+            footprint_mode,
+            robot_length_m,
+            robot_width_m,
+        )
         smoother_params.path_downsampling_factor = path_downsample
         smoother_params.path_upsampling_factor = path_upsample
 
@@ -355,6 +450,19 @@ def plan_and_smooth():
             "opt_path_length_m": round(opt_length, 3),
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
             "reference_spacing_target_m": round(ds_target, 3),
+            "planner_penalty": planner_penalty,
+            "planner_penalty_weight": round(planner_penalty_weight, 3),
+            "start_yaw_deg": round(start_yaw_deg, 2),
+            "goal_yaw_deg": round(goal_yaw_deg, 2),
+            "keep_start_orientation": keep_start_orientation,
+            "keep_goal_orientation": keep_goal_orientation,
+            "penalty_safe_distance_m": round(penalty_safe_distance_m, 3),
+            "point_robot_radius_m": round(point_robot_radius_m, 3),
+            "effective_safe_distance_m": round(planner_params.safe_distance, 3),
+            "footprint_mode": footprint_mode,
+            "robot_length_m": round(robot_length_m, 3),
+            "robot_width_m": round(robot_width_m, 3),
+            "robot_check_points": len(smoother_params.cost_check_points) // 3,
         })
 
     except Exception as e:

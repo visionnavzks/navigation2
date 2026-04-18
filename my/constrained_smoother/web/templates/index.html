@@ -66,6 +66,52 @@
             </div>
           </div>
 
+          <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label">Start Heading</span>
+              <strong id="start-heading-readout">45 deg</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Goal Heading</span>
+              <strong id="goal-heading-readout">45 deg</strong>
+            </div>
+          </div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label">Start Constraint</span>
+              <strong id="start-constraint-readout">Enabled</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Goal Constraint</span>
+              <strong id="goal-constraint-readout">Enabled</strong>
+            </div>
+          </div>
+
+          <div class="constraint-toggle-row">
+            <label class="constraint-toggle" for="keep_start_orientation">
+              <input type="checkbox" id="keep_start_orientation" checked>
+              <span>Enable start orientation constraint</span>
+            </label>
+            <label class="constraint-toggle" for="keep_goal_orientation">
+              <input type="checkbox" id="keep_goal_orientation" checked>
+              <span>Enable goal orientation constraint</span>
+            </label>
+          </div>
+
+          <div class="param-group">
+            <label>Start Heading: <span id="val_start_yaw_deg">45 deg</span></label>
+            <input type="range" id="start_yaw_deg" min="-180" max="180" step="1" value="45">
+            <p class="param-hint">Sets the world-frame heading constraint used for the start pose during smoothing.</p>
+          </div>
+          <div class="param-group">
+            <label>Goal Heading: <span id="val_goal_yaw_deg">45 deg</span></label>
+            <input type="range" id="goal_yaw_deg" min="-180" max="180" step="1" value="45">
+            <p class="param-hint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
+          </div>
+
+          <p class="param-hint">Other boolean switches are not exposed here. The standalone build still defines <strong>reversing_enabled</strong>, but this implementation does not currently read it, so it is intentionally not shown as a UI toggle.</p>
+
           <p class="section-note">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
         </section>
 
@@ -129,7 +175,7 @@
           <div id="costmap-loupe" class="costmap-loupe" aria-live="polite">
             <div class="costmap-loupe__header">
               <span class="costmap-loupe__title">Cursor Inspector</span>
-              <strong id="loupe-cost-value">Cell --</strong>
+              <strong id="loupe-cost-value">ESDF --</strong>
             </div>
             <canvas id="loupe-canvas" width="132" height="132"></canvas>
             <div class="costmap-loupe__stats">
@@ -138,8 +184,8 @@
                 <strong id="loupe-cell-cost">--</strong>
               </div>
               <div class="costmap-loupe__stat">
-                <span>Interpolated</span>
-                <strong id="loupe-interp-cost">--</strong>
+                <span>ESDF Distance</span>
+                <strong id="loupe-esdf-distance">--</strong>
               </div>
             </div>
             <div class="costmap-loupe__meta">
@@ -155,14 +201,14 @@
         <details open class="details-card">
           <summary>Smoother Weights</summary>
           <div class="param-group">
-            <label>Smooth Weight: <span id="val_smooth_weight">5000</span></label>
-            <input type="range" id="smooth_weight" min="0" max="10000" step="100" value="5000">
+            <label>Smooth Weight: <span id="val_smooth_weight">20</span></label>
+            <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
             <p class="param-hint">Penalizes local jaggedness. Raise it to make the optimized curve more globally smooth.</p>
           </div>
           <div class="param-group">
-            <label>Costmap Weight: <span id="val_costmap_weight">0.015</span></label>
-            <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="0.015">
-            <p class="param-hint">Pushes the path away from inflated and lethal costmap cells.</p>
+            <label>Obstacle Weight: <span id="val_costmap_weight">1.000</span></label>
+            <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="1.0">
+            <p class="param-hint">Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.</p>
           </div>
           <div class="param-group">
             <label>Distance Weight: <span id="val_distance_weight">0.0</span></label>
@@ -180,6 +226,57 @@
             <p id="val_min_turn_radius" class="param-hint">Minimum turning radius: 0.40 m</p>
             <p class="param-hint">Caps the turning curvature. Lower values enforce a larger minimum turning radius.</p>
           </div>
+        </details>
+
+        <details class="details-card">
+          <summary>Planner</summary>
+          <div class="param-group">
+            <label>A* Penalty Weight: <span id="val_planner_penalty_weight">1.0</span></label>
+            <input type="range" id="planner_penalty_weight" min="0.0" max="10.0" step="0.1" value="1.0">
+            <p class="param-hint">Scales how strongly A* detours away from low-clearance cells. This affects the planner only, not the smoother obstacle weight.</p>
+          </div>
+          <div class="param-group">
+            <label for="planner_penalty">ESDF Penalty</label>
+            <select id="planner_penalty">
+              <option value="quadratic_hinge" selected>Quadratic Hinge</option>
+              <option value="exponential">Exponential</option>
+              <option value="reciprocal">Reciprocal</option>
+            </select>
+            <p class="param-hint">Shared by the C++ A* planner and the constrained smoother. This controls how ESDF clearance below the safe-distance band is converted into obstacle penalty.</p>
+          </div>
+          <div class="param-group">
+            <label>Clearance Threshold (m): <span id="val_penalty_safe_distance_m">0.50</span></label>
+            <input type="range" id="penalty_safe_distance_m" min="0.05" max="2.00" step="0.05" value="0.50">
+            <p class="param-hint">Shared clearance threshold used by the selected ESDF penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
+          </div>
+        </details>
+
+        <details class="details-card">
+          <summary>Robot</summary>
+          <div class="param-group">
+            <label for="footprint_mode">Footprint Model</label>
+            <select id="footprint_mode">
+              <option value="point" selected>Point Robot</option>
+              <option value="rectangle">Rectangular Footprint</option>
+            </select>
+            <p class="param-hint">Choose whether obstacle avoidance samples only the path centerline or a simple rectangular robot footprint.</p>
+          </div>
+          <div class="param-group">
+            <label>Point Robot Radius (m): <span id="val_point_robot_radius_m">0.00</span></label>
+            <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="0.00">
+            <p class="param-hint">Used only in point-robot mode. This inflates the shared clearance threshold around the robot centerline.</p>
+          </div>
+          <div class="param-group">
+            <label>Robot Length (m): <span id="val_robot_length_m">0.80</span></label>
+            <input type="range" id="robot_length_m" min="0.2" max="2.0" step="0.05" value="0.8">
+            <p class="param-hint">Front-to-back extent used when the rectangular footprint model is enabled.</p>
+          </div>
+          <div class="param-group">
+            <label>Robot Width (m): <span id="val_robot_width_m">0.50</span></label>
+            <input type="range" id="robot_width_m" min="0.2" max="1.5" step="0.05" value="0.5">
+            <p class="param-hint">Left-to-right extent used for the rectangular footprint model.</p>
+          </div>
+          <p id="robot-config-summary" class="param-hint">Currently sampling the path centerline only.</p>
         </details>
 
         <details class="details-card">
@@ -252,7 +349,7 @@
               <span class="swatch swatch-smoothed"></span>
               <span class="layer-copy-wrap">
                 <span class="layer-name">Smoothed Path</span>
-                <span class="layer-copy">Ceres optimized output</span>
+                <span class="layer-copy">Ceres output, colored by forward vs reverse motion</span>
               </span>
             </label>
           </div>
@@ -317,6 +414,22 @@
             <button id="run-btn" class="action-btn" disabled>Run Planning</button>
             <button id="clear-btn" class="ghost-btn">Reset Scene</button>
             <button id="reset-view-btn" class="ghost-btn">Reset View</button>
+            <label class="toolbar-select" for="map-display-mode">
+              <span>Display</span>
+              <select id="map-display-mode">
+                <option value="costmap" selected>Original Costmap</option>
+                <option value="esdf">ESDF</option>
+              </select>
+            </label>
+            <label class="toolbar-select" for="esdf-colormap">
+              <span>ESDF Colormap</span>
+              <select id="esdf-colormap">
+                <option value="diverging" selected>Diverging</option>
+                <option value="viridis">Viridis</option>
+                <option value="inferno">Inferno</option>
+                <option value="turbo">Turbo</option>
+              </select>
+            </label>
           </div>
           <div class="toolbar-meta">
             <div class="toolbar-pill">
@@ -332,6 +445,63 @@
 
         <div class="canvas-wrap">
           <canvas id="map-canvas" width="800" height="800"></canvas>
+          <div id="opt-point-popup" class="opt-point-popup" hidden>
+            <div class="opt-point-popup__header">
+              <span class="opt-point-popup__title">Optimized Point</span>
+              <strong id="opt-point-index">--</strong>
+            </div>
+            <div class="opt-point-popup__grid">
+              <div class="opt-point-popup__item">
+                <span>Role</span>
+                <strong id="opt-point-role">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>World</span>
+                <strong id="opt-point-world">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Pose Heading</span>
+                <strong id="opt-point-heading">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Path Tangent</span>
+                <strong id="opt-point-tangent">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Arc Length</span>
+                <strong id="opt-point-arc">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Prev Segment</span>
+                <strong id="opt-point-prev-segment">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Next Segment</span>
+                <strong id="opt-point-next-segment">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Turn Angle</span>
+                <strong id="opt-point-turn">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Approx Curvature</span>
+                <strong id="opt-point-curvature">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>ESDF</span>
+                <strong id="opt-point-esdf">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Cell Cost</span>
+                <strong id="opt-point-cost">--</strong>
+              </div>
+              <div class="opt-point-popup__item">
+                <span>Cursor Offset</span>
+                <strong id="opt-point-cursor-offset">--</strong>
+              </div>
+            </div>
+            <p id="opt-point-note" class="opt-point-popup__note">Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.</p>
+          </div>
         </div>
 
         <div class="map-footer">

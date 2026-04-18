@@ -119,6 +119,11 @@ body {
   line-height: 1.35;
 }
 
+#hero-status {
+  display: block;
+  min-height: calc(2 * 1.35em);
+}
+
 .main-layout {
   margin-top: 1rem;
   display: grid;
@@ -131,7 +136,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.95rem;
-  max-height: calc(100vh - 3.6rem);
+  max-height: calc(150vh - 5.4rem);
   overflow-y: auto;
 }
 
@@ -168,7 +173,7 @@ body {
 }
 
 .status-msg {
-  min-height: 1.4rem;
+  min-height: calc(2 * 1.45em + 1.3rem);
   padding: 0.65rem 0.8rem;
   border-radius: 14px;
   background: rgba(20, 122, 106, 0.08);
@@ -255,10 +260,47 @@ body {
   accent-color: var(--accent);
 }
 
+.param-group select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(100, 85, 60, 0.14);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--ink);
+  padding: 0.65rem 0.75rem;
+  font: inherit;
+}
+
 .param-hint {
   margin-top: 0.25rem;
   font-size: 0.76rem;
   line-height: 1.45;
+}
+
+.constraint-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.2rem;
+}
+
+.constraint-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(100, 85, 60, 0.10);
+  cursor: pointer;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.constraint-toggle input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex: 0 0 auto;
 }
 
 .layer-list {
@@ -328,7 +370,7 @@ body {
 }
 
 .swatch-smoothed {
-  background: var(--rose);
+  background: linear-gradient(90deg, #bf3657 50%, #2b71ba 50%);
 }
 
 .map-section {
@@ -350,6 +392,33 @@ body {
   display: flex;
   gap: 0.65rem;
   flex-wrap: wrap;
+}
+
+.toolbar-select {
+  min-width: 190px;
+  border-radius: 16px;
+  padding: 0.55rem 0.75rem;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(100, 85, 60, 0.11);
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.toolbar-select span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.2;
+}
+
+.toolbar-select select {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  outline: none;
 }
 
 .action-btn,
@@ -410,6 +479,83 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 251, 242, 0.85), rgba(242, 232, 211, 0.95));
   min-height: 0;
+}
+
+.opt-point-popup {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: min(320px, calc(100% - 24px));
+  padding: 0.8rem;
+  border-radius: 18px;
+  border: 1px solid rgba(35, 48, 40, 0.16);
+  background: rgba(255, 250, 240, 0.96);
+  box-shadow: 0 18px 34px rgba(60, 47, 28, 0.24);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: 0.55rem;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.opt-point-popup[hidden] {
+  display: none;
+}
+
+.opt-point-popup__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.opt-point-popup__title {
+  color: var(--muted);
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.opt-point-popup__header strong {
+  color: var(--ink);
+  font-size: 0.96rem;
+}
+
+.opt-point-popup__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.opt-point-popup__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.16rem;
+  padding: 0.42rem 0.52rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.66);
+  border: 1px solid rgba(100, 85, 60, 0.10);
+}
+
+.opt-point-popup__item span {
+  color: var(--muted);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+.opt-point-popup__item strong {
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.25;
+}
+
+.opt-point-popup__note {
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.45;
 }
 
 .costmap-loupe {
@@ -611,7 +757,8 @@ body {
   .hero-summary,
   .mini-grid,
   .mini-grid.compact,
-  .map-footer {
+  .map-footer,
+  .constraint-toggle-row {
     grid-template-columns: 1fr;
   }
 
@@ -626,7 +773,8 @@ body {
 
   .action-btn,
   .ghost-btn,
-  .toolbar-pill {
+  .toolbar-pill,
+  .toolbar-select {
     width: 100%;
   }
 

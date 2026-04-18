@@ -5,6 +5,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/eigen.h>
 
+#include "constrained_smoother/astar_esdf.hpp"
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/options.hpp"
 #include "constrained_smoother/smoother.hpp"
@@ -18,6 +19,12 @@ namespace py = pybind11;
 PYBIND11_MODULE(py_constrained_smoother, m)
 {
   m.doc() = "Python bindings for the constrained_smoother C++ library";
+
+  py::enum_<constrained_smoother::PlannerPenaltyType>(m, "PlannerPenaltyType")
+    .value("QUADRATIC_HINGE", constrained_smoother::PlannerPenaltyType::QuadraticHinge)
+    .value("EXPONENTIAL", constrained_smoother::PlannerPenaltyType::Exponential)
+    .value("RECIPROCAL", constrained_smoother::PlannerPenaltyType::Reciprocal)
+    .export_values();
 
   // --- Costmap2D ---
   py::class_<constrained_smoother::Costmap2D>(m, "Costmap2D")
@@ -60,6 +67,18 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
     .def_readwrite(
+    "obstacle_safe_distance",
+    &constrained_smoother::SmootherParams::obstacle_safe_distance)
+    .def_readwrite(
+    "obstacle_decay_distance",
+    &constrained_smoother::SmootherParams::obstacle_decay_distance)
+    .def_readwrite(
+    "obstacle_reciprocal_epsilon",
+    &constrained_smoother::SmootherParams::obstacle_reciprocal_epsilon)
+    .def_readwrite(
+    "obstacle_penalty_type",
+    &constrained_smoother::SmootherParams::obstacle_penalty_type)
+    .def_readwrite(
     "path_downsampling_factor",
     &constrained_smoother::SmootherParams::path_downsampling_factor)
     .def_readwrite(
@@ -87,6 +106,42 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite("param_tol", &constrained_smoother::OptimizerParams::param_tol)
     .def_readwrite("fn_tol", &constrained_smoother::OptimizerParams::fn_tol)
     .def_readwrite("gradient_tol", &constrained_smoother::OptimizerParams::gradient_tol);
+
+  py::class_<constrained_smoother::AStarPlannerParams>(m, "AStarPlannerParams")
+    .def(py::init<>())
+    .def_readwrite("lethal_cost", &constrained_smoother::AStarPlannerParams::lethal_cost)
+    .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
+    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
+    .def_readwrite("decay_distance", &constrained_smoother::AStarPlannerParams::decay_distance)
+    .def_readwrite(
+      "reciprocal_epsilon",
+      &constrained_smoother::AStarPlannerParams::reciprocal_epsilon)
+    .def_readwrite("penalty_type", &constrained_smoother::AStarPlannerParams::penalty_type);
+
+  py::class_<constrained_smoother::AStarPlanner>(m, "AStarPlanner")
+    .def(py::init<>())
+    .def(
+      "plan",
+      [](constrained_smoother::AStarPlanner & self,
+      const constrained_smoother::Costmap2D & costmap,
+      double start_x, double start_y,
+      double goal_x, double goal_y,
+      const constrained_smoother::AStarPlannerParams & params)
+      {
+        return self.plan(&costmap, start_x, start_y, goal_x, goal_y, params);
+      },
+      py::arg("costmap"), py::arg("start_x"), py::arg("start_y"),
+      py::arg("goal_x"), py::arg("goal_y"), py::arg("params"))
+    .def("get_esdf", &constrained_smoother::AStarPlanner::getESDF);
+
+  m.def(
+    "compute_esdf",
+    [](const constrained_smoother::Costmap2D & costmap, unsigned char lethal_cost)
+    {
+      return constrained_smoother::AStarPlanner::ComputeESDF(&costmap, lethal_cost);
+    },
+    py::arg("costmap"),
+    py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
 
   // --- Smoother ---
   py::class_<constrained_smoother::Smoother>(m, "Smoother")

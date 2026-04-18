@@ -128,6 +128,10 @@ def downsample_path(path, target_ds):
     """Reduce a dense grid path to roughly uniform spacing *target_ds* metres."""
     if not path or len(path) < 2:
         return path
+
+    def points_equal(lhs, rhs, tol=1e-9):
+        return abs(float(lhs[0]) - float(rhs[0])) <= tol and abs(float(lhs[1]) - float(rhs[1])) <= tol
+
     result = [path[0]]
     acc = 0.0
     for i in range(1, len(path)):
@@ -139,6 +143,6 @@ def downsample_path(path, target_ds):
             result.append(path[i])
             acc = 0.0
     # Always include the last point
-    if result[-1] != path[-1]:
+    if not points_equal(result[-1], path[-1]):
         result.append(path[-1])
     return result

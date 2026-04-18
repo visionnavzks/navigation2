@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include "ceres/ceres.h"
+#include "constrained_smoother/astar_esdf.hpp"
 
 namespace constrained_smoother
 {
@@ -40,6 +41,10 @@ struct SmootherParams
   double curvature_weight_sqrt{0.0};
   double max_curvature{0.0};
   double max_time{10.0};
+  double obstacle_safe_distance{0.5};
+  double obstacle_decay_distance{0.25};
+  double obstacle_reciprocal_epsilon{0.05};
+  PlannerPenaltyType obstacle_penalty_type{PlannerPenaltyType::QuadraticHinge};
   int path_downsampling_factor{1};
   int path_upsampling_factor{1};
   bool reversing_enabled{true};

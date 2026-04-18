@@ -6,12 +6,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const loupe = document.getElementById('costmap-loupe');
   const loupeCanvas = document.getElementById('loupe-canvas');
   const loupeCtx = loupeCanvas.getContext('2d');
+  const mapDisplayModeSelect = document.getElementById('map-display-mode');
+  const esdfColormapSelect = document.getElementById('esdf-colormap');
+  const footprintModeSelect = document.getElementById('footprint_mode');
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
+  const plannerPenaltySelect = document.getElementById('planner_penalty');
   const statusMsg = document.getElementById('status-msg');
 
   const sliderConfig = {
+    start_yaw_deg: value => `${Math.round(value)} deg`,
+    goal_yaw_deg: value => `${Math.round(value)} deg`,
+    planner_penalty_weight: value => Number(value).toFixed(1),
+    penalty_safe_distance_m: value => Number(value).toFixed(2),
+    point_robot_radius_m: value => Number(value).toFixed(2),
+    robot_length_m: value => Number(value).toFixed(2),
+    robot_width_m: value => Number(value).toFixed(2),
     smooth_weight: value => Math.round(value).toLocaleString(),
     costmap_weight: value => Number(value).toFixed(3),
     distance_weight: value => Number(value).toFixed(1),
@@ -37,11 +48,18 @@ document.addEventListener('DOMContentLoaded', () => {
     'info-ref-spacing', 'info-raw-length', 'info-ref-length', 'info-opt-length', 'info-length-delta',
   ];
   const AUTO_REPLAN_DELAY_MS = 220;
+  const OPTIMIZED_POINT_HOVER_RADIUS_PX = 11;
+  const SMOOTHED_FORWARD_COLOR = 'rgba(191, 54, 87, 0.5)';
+  const SMOOTHED_REVERSE_COLOR = 'rgba(43, 113, 186, 0.5)';
   const LOUPE_RADIUS_CELLS = 5;
   const LOUPE_CELL_SIZE = Math.floor(loupeCanvas.width / (LOUPE_RADIUS_CELLS * 2 + 1));
   const DEFAULT_ENDPOINTS = {
     start: {x: 1.0, y: 1.0},
     goal: {x: 18.0, y: 18.0},
+  };
+  const DEFAULT_HEADINGS_DEG = {
+    start: 45,
+    goal: 45,
   };
 
   const state = {
@@ -51,7 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
     obstacles: [],
     defaultObstacles: [],
     hover: null,
+    hoverCanvasPoint: null,
     hoverSample: null,
+    hoverOptimizedPoint: null,
     paths: null,
     viewScale: 1,
     viewOffsetX: 0,
@@ -69,6 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dragOffsetX: 0,
     dragOffsetY: 0,
     pendingAutoPlanTimer: null,
+    mapDisplayMode: 'costmap',
+    esdfColormap: 'diverging',
     layers: {
       costmap: true,
       axes: true,
@@ -81,6 +103,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let costmapImageData = null;
   let costmapImageCanvas = null;
+  let esdfImageData = null;
+  let esdfImageCanvas = null;
   let activePlanAbortController = null;
   let activePlanRequestId = 0;
   let activeObstacleUpdateRequestId = 0;
@@ -94,11 +118,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const sync = () => {
       label.textContent = sliderConfig[id](parseFloat(input.value));
+      if (id === 'start_yaw_deg' || id === 'goal_yaw_deg') {
+        updateSelectionInfo();
+        draw();
+      }
+      if (id === 'penalty_safe_distance_m' || id === 'point_robot_radius_m' ||
+        id === 'robot_length_m' || id === 'robot_width_m') {
+        updateRobotConfigUi();
+      }
     };
 
     input.addEventListener('input', sync);
     input.addEventListener('input', () => scheduleAutoPlan());
     sync();
+  });
+
+  if (plannerPenaltySelect) {
+    plannerPenaltySelect.addEventListener('change', () => scheduleAutoPlan());
+  }
+
+  if (mapDisplayModeSelect) {
+    mapDisplayModeSelect.addEventListener('change', () => {
+      state.mapDisplayMode = mapDisplayModeSelect.value;
+      draw();
+    });
+  }
+
+  if (esdfColormapSelect) {
+    esdfColormapSelect.addEventListener('change', () => {
+      state.esdfColormap = esdfColormapSelect.value;
+      buildCostmapImage();
+      draw();
+    });
+  }
+
+  if (footprintModeSelect) {
+    footprintModeSelect.addEventListener('change', () => {
+      updateRobotConfigUi();
+      scheduleAutoPlan();
+    });
+  }
+
+  ['keep_start_orientation', 'keep_goal_orientation'].forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) {
+      return;
+    }
+
+    input.addEventListener('change', () => {
+      updateSelectionInfo();
+      draw();
+      scheduleAutoPlan();
+    });
   });
 
   function syncDerivedParameterInfo() {
@@ -118,6 +189,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   syncDerivedParameterInfo();
+  updateRobotConfigUi();
+  clearOptimizedPointInspector();
 
   const maxCurvatureInput = document.getElementById('max_curvature');
   if (maxCurvatureInput) {
@@ -143,6 +216,38 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function updateRobotConfigUi() {
+    const mode = footprintModeSelect ? footprintModeSelect.value : 'point';
+    const pointRobotRadiusInput = document.getElementById('point_robot_radius_m');
+    const robotLengthInput = document.getElementById('robot_length_m');
+    const robotWidthInput = document.getElementById('robot_width_m');
+    const penaltySafeDistanceInput = document.getElementById('penalty_safe_distance_m');
+    const rectangleEnabled = mode === 'rectangle';
+    const pointEnabled = mode === 'point';
+
+    if (pointRobotRadiusInput) {
+      pointRobotRadiusInput.disabled = !pointEnabled;
+    }
+
+    if (robotLengthInput) {
+      robotLengthInput.disabled = !rectangleEnabled;
+    }
+    if (robotWidthInput) {
+      robotWidthInput.disabled = !rectangleEnabled;
+    }
+
+    const penaltyValue = penaltySafeDistanceInput ? Number(penaltySafeDistanceInput.value).toFixed(2) : '--';
+    const radiusValue = pointRobotRadiusInput ? Number(pointRobotRadiusInput.value).toFixed(2) : '--';
+    const lengthValue = robotLengthInput ? Number(robotLengthInput.value).toFixed(2) : '--';
+    const widthValue = robotWidthInput ? Number(robotWidthInput.value).toFixed(2) : '--';
+    setText(
+      'robot-config-summary',
+      rectangleEnabled
+        ? `Using a rectangular footprint with ${lengthValue} m length and ${widthValue} m width. Shared clearance threshold: ${penaltyValue} m.`
+        : `Using a point robot with ${radiusValue} m radius. Effective clearance threshold: ${(Number(penaltyValue) + Number(radiusValue)).toFixed(2)} m.`
+    );
+  }
+
   function formatMeters(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
@@ -150,11 +255,69 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${Number(value).toFixed(digits)} m`;
   }
 
+  function formatDegrees(value, digits = 1) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return '--';
+    }
+    return `${Number(value).toFixed(digits)} deg`;
+  }
+
+  function formatRadians(value, digits = 2) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return '--';
+    }
+    return `${Number(value).toFixed(digits)} rad`;
+  }
+
   function formatCoord(point) {
     if (!point) {
       return '--';
     }
     return `${point.x.toFixed(2)}, ${point.y.toFixed(2)} m`;
+  }
+
+  function normalizeAngleDeg(angleDeg) {
+    let normalized = Number(angleDeg);
+    if (!Number.isFinite(normalized)) {
+      return 0;
+    }
+    while (normalized > 180) {
+      normalized -= 360;
+    }
+    while (normalized < -180) {
+      normalized += 360;
+    }
+    return normalized;
+  }
+
+  function normalizeAngleRad(angleRad) {
+    let normalized = Number(angleRad);
+    if (!Number.isFinite(normalized)) {
+      return 0;
+    }
+    while (normalized > Math.PI) {
+      normalized -= Math.PI * 2;
+    }
+    while (normalized < -Math.PI) {
+      normalized += Math.PI * 2;
+    }
+    return normalized;
+  }
+
+  function getHeadingValue(id, fallbackDeg) {
+    const input = document.getElementById(id);
+    if (!input) {
+      return fallbackDeg;
+    }
+    return normalizeAngleDeg(parseFloat(input.value));
+  }
+
+  function getConstraintEnabled(id, fallback = true) {
+    const input = document.getElementById(id);
+    if (!input) {
+      return fallback;
+    }
+    return input.checked;
   }
 
   function setStatus(message, className = '') {
@@ -186,6 +349,71 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     return [247, 240, 224];
+  }
+
+  function interpolatePalette(stops, t) {
+    if (t <= stops[0][0]) {
+      return stops[0][1];
+    }
+    if (t >= stops[stops.length - 1][0]) {
+      return stops[stops.length - 1][1];
+    }
+
+    for (let index = 1; index < stops.length; index += 1) {
+      const [stopT, stopColor] = stops[index];
+      const [prevT, prevColor] = stops[index - 1];
+      if (t <= stopT) {
+        const local = (t - prevT) / Math.max(stopT - prevT, 1e-6);
+        return [
+          Math.round(prevColor[0] + (stopColor[0] - prevColor[0]) * local),
+          Math.round(prevColor[1] + (stopColor[1] - prevColor[1]) * local),
+          Math.round(prevColor[2] + (stopColor[2] - prevColor[2]) * local),
+        ];
+      }
+    }
+
+    return stops[stops.length - 1][1];
+  }
+
+  function getEsdfColor(distance, minDistance, maxDistance, colormapName) {
+    if (distance === null || distance === undefined || !Number.isFinite(distance)) {
+      return [228, 219, 198];
+    }
+
+    const symmetricExtent = Math.max(Math.abs(minDistance), Math.abs(maxDistance), 1e-6);
+    const t = Math.max(0, Math.min(1, (distance + symmetricExtent) / (2 * symmetricExtent)));
+    const palettes = {
+      diverging: [
+        [0.0, [70, 32, 107]],
+        [0.25, [195, 74, 110]],
+        [0.5, [247, 240, 224]],
+        [0.75, [91, 170, 161]],
+        [1.0, [26, 97, 122]],
+      ],
+      viridis: [
+        [0.0, [68, 1, 84]],
+        [0.25, [59, 82, 139]],
+        [0.5, [33, 145, 140]],
+        [0.75, [94, 201, 98]],
+        [1.0, [253, 231, 37]],
+      ],
+      inferno: [
+        [0.0, [0, 0, 4]],
+        [0.25, [87, 15, 109]],
+        [0.5, [187, 55, 84]],
+        [0.75, [249, 142, 8]],
+        [1.0, [252, 255, 164]],
+      ],
+      turbo: [
+        [0.0, [48, 18, 59]],
+        [0.25, [50, 92, 177]],
+        [0.5, [36, 200, 157]],
+        [0.75, [240, 190, 45]],
+        [1.0, [180, 4, 38]],
+      ],
+    };
+
+    return interpolatePalette(palettes[colormapName] || palettes.diverging, t);
   }
 
   function describeCost(cost) {
@@ -223,6 +451,24 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetEndpoints() {
     state.start = clonePoint(DEFAULT_ENDPOINTS.start);
     state.goal = clonePoint(DEFAULT_ENDPOINTS.goal);
+    const startYawInput = document.getElementById('start_yaw_deg');
+    const goalYawInput = document.getElementById('goal_yaw_deg');
+    if (startYawInput) {
+      startYawInput.value = String(DEFAULT_HEADINGS_DEG.start);
+      document.getElementById('val_start_yaw_deg').textContent = sliderConfig.start_yaw_deg(DEFAULT_HEADINGS_DEG.start);
+    }
+    if (goalYawInput) {
+      goalYawInput.value = String(DEFAULT_HEADINGS_DEG.goal);
+      document.getElementById('val_goal_yaw_deg').textContent = sliderConfig.goal_yaw_deg(DEFAULT_HEADINGS_DEG.goal);
+    }
+    const keepStartInput = document.getElementById('keep_start_orientation');
+    const keepGoalInput = document.getElementById('keep_goal_orientation');
+    if (keepStartInput) {
+      keepStartInput.checked = true;
+    }
+    if (keepGoalInput) {
+      keepGoalInput.checked = true;
+    }
   }
 
   function syncObstaclesFromCostmap(costmap) {
@@ -276,8 +522,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateSelectionInfo() {
-    setText('start-coord', formatCoord(state.start));
-    setText('goal-coord', formatCoord(state.goal));
+    const startHeading = getHeadingValue('start_yaw_deg', DEFAULT_HEADINGS_DEG.start);
+    const goalHeading = getHeadingValue('goal_yaw_deg', DEFAULT_HEADINGS_DEG.goal);
+    const keepStartOrientation = getConstraintEnabled('keep_start_orientation', true);
+    const keepGoalOrientation = getConstraintEnabled('keep_goal_orientation', true);
+    setText('start-coord', `${formatCoord(state.start)} | ${Math.round(startHeading)} deg`);
+    setText('goal-coord', `${formatCoord(state.goal)} | ${Math.round(goalHeading)} deg`);
+    setText('start-heading-readout', `${Math.round(startHeading)} deg`);
+    setText('goal-heading-readout', `${Math.round(goalHeading)} deg`);
+    setText('start-constraint-readout', keepStartOrientation ? 'Enabled' : 'Disabled');
+    setText('goal-constraint-readout', keepGoalOrientation ? 'Enabled' : 'Disabled');
     setText('cursor-coord', formatCoord(state.hover));
     setText('zoom-level', `${state.viewScale.toFixed(2)}x`);
     const gestureText = state.draggingMarker
@@ -292,9 +546,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function hideLoupe() {
-    setText('loupe-cost-value', 'Cell --');
+    setText('loupe-cost-value', 'ESDF --');
     setText('loupe-cell-cost', '--');
-    setText('loupe-interp-cost', '--');
+    setText('loupe-esdf-distance', '--');
     setText('loupe-world', 'World: --');
     setText('loupe-cell', 'Cell: --');
     setText('loupe-kind', 'Outside map');
@@ -314,7 +568,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return null;
     }
 
-    const interpolate = (x, y) => {
+    const interpolate = (grid, x, y) => {
       const shiftedX = x - 0.5;
       const shiftedY = y - 0.5;
       const x0 = Math.floor(shiftedX);
@@ -324,7 +578,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const sampleAt = (sx, sy) => {
         const clampedX = Math.max(0, Math.min(state.costmap.size_x - 1, sx));
         const clampedY = Math.max(0, Math.min(state.costmap.size_y - 1, sy));
-        return state.costmap.data[clampedY * state.costmap.size_x + clampedX];
+        return grid[clampedY * state.costmap.size_x + clampedX];
       };
 
       const c00 = sampleAt(x0, y0);
@@ -342,7 +596,9 @@ document.addEventListener('DOMContentLoaded', () => {
       cellX,
       cellY,
       cost: state.costmap.data[my * state.costmap.size_x + mx],
-      interpolatedCost: interpolate(cellX, cellY),
+      esdfDistance: state.costmap.esdf
+        ? interpolate(state.costmap.esdf, cellX, cellY)
+        : null,
       worldX: worldPoint.x,
       worldY: worldPoint.y,
     };
@@ -403,13 +659,225 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const descriptor = describeCost(sample.cost);
     drawLoupe(sample);
-    setText('loupe-cost-value', `Cell ${sample.cost}`);
+    setText(
+      'loupe-cost-value',
+      sample.esdfDistance === null ? 'ESDF --' : `ESDF ${sample.esdfDistance.toFixed(2)} m`
+    );
     setText('loupe-cell-cost', String(sample.cost));
-    setText('loupe-interp-cost', sample.interpolatedCost.toFixed(2));
+    setText(
+      'loupe-esdf-distance',
+      sample.esdfDistance === null ? '--' : `${sample.esdfDistance.toFixed(2)} m`
+    );
     setText('loupe-world', `World: ${sample.worldX.toFixed(2)}, ${sample.worldY.toFixed(2)} m`);
     setText('loupe-cell', `Cell: (${sample.mx}, ${sample.my})`);
     setText('loupe-kind', descriptor.text);
     document.getElementById('loupe-kind')?.setAttribute('data-kind', descriptor.kind);
+  }
+
+  function clearOptimizedPointInspector() {
+    const popup = document.getElementById('opt-point-popup');
+    if (popup) {
+      popup.hidden = true;
+    }
+    [
+      'opt-point-role', 'opt-point-index', 'opt-point-world', 'opt-point-heading', 'opt-point-tangent',
+      'opt-point-arc', 'opt-point-prev-segment', 'opt-point-next-segment', 'opt-point-turn',
+      'opt-point-curvature', 'opt-point-esdf', 'opt-point-cost', 'opt-point-cursor-offset',
+    ].forEach(id => setText(id, '--'));
+    setText(
+      'opt-point-note',
+      'Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.'
+    );
+  }
+
+  function positionOptimizedPointPopup() {
+    const popup = document.getElementById('opt-point-popup');
+    const wrap = document.querySelector('.canvas-wrap');
+    if (!popup || !wrap || popup.hidden || !state.hoverCanvasPoint) {
+      return;
+    }
+
+    const margin = 14;
+    const offsetX = 18;
+    const offsetY = 18;
+    const wrapRect = wrap.getBoundingClientRect();
+    const popupRect = popup.getBoundingClientRect();
+    const maxLeft = Math.max(margin, wrapRect.width - popupRect.width - margin);
+    const maxTop = Math.max(margin, wrapRect.height - popupRect.height - margin);
+
+    let left = state.hoverCanvasPoint.x + offsetX;
+    let top = state.hoverCanvasPoint.y + offsetY;
+    if (left > maxLeft) {
+      left = Math.max(margin, state.hoverCanvasPoint.x - popupRect.width - offsetX);
+    }
+    if (top > maxTop) {
+      top = Math.max(margin, state.hoverCanvasPoint.y - popupRect.height - offsetY);
+    }
+
+    popup.style.left = `${Math.min(Math.max(left, margin), maxLeft)}px`;
+    popup.style.top = `${Math.min(Math.max(top, margin), maxTop)}px`;
+  }
+
+  function getPointRole(index, pointCount) {
+    const keepStartOrientation = getConstraintEnabled('keep_start_orientation', true);
+    const keepGoalOrientation = getConstraintEnabled('keep_goal_orientation', true);
+    if (index === 0) {
+      return 'Start endpoint';
+    }
+    if (index === pointCount - 1) {
+      return 'Goal endpoint';
+    }
+    if (keepStartOrientation && index === 1) {
+      return 'Start anchor';
+    }
+    if (keepGoalOrientation && index === pointCount - 2) {
+      return 'Goal anchor';
+    }
+    return 'Interior point';
+  }
+
+  function buildOptimizedPointHoverInfo(index, distancePx) {
+    if (!state.paths || !state.hover) {
+      return null;
+    }
+
+    const xs = state.paths.opt_x || [];
+    const ys = state.paths.opt_y || [];
+    const thetas = state.paths.opt_theta || [];
+    if (index < 0 || index >= xs.length || index >= ys.length) {
+      return null;
+    }
+
+    const worldX = xs[index];
+    const worldY = ys[index];
+    const thetaRad = Number.isFinite(thetas[index]) ? thetas[index] : null;
+    const prevLen = index > 0 ? Math.hypot(worldX - xs[index - 1], worldY - ys[index - 1]) : null;
+    const nextLen = index < xs.length - 1 ? Math.hypot(xs[index + 1] - worldX, ys[index + 1] - worldY) : null;
+
+    let arcLength = 0;
+    for (let idx = 1; idx <= index; idx += 1) {
+      arcLength += Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+    }
+
+    let tangentHeadingRad = null;
+    if (index < xs.length - 1) {
+      tangentHeadingRad = Math.atan2(ys[index + 1] - worldY, xs[index + 1] - worldX);
+    } else if (index > 0) {
+      tangentHeadingRad = Math.atan2(worldY - ys[index - 1], worldX - xs[index - 1]);
+    }
+
+    let turnAngleRad = null;
+    let approxCurvature = null;
+    if (index > 0 && index < xs.length - 1 && prevLen && nextLen) {
+      const prevVecX = worldX - xs[index - 1];
+      const prevVecY = worldY - ys[index - 1];
+      const nextVecX = xs[index + 1] - worldX;
+      const nextVecY = ys[index + 1] - worldY;
+      const cross = prevVecX * nextVecY - prevVecY * nextVecX;
+      const dot = prevVecX * nextVecX + prevVecY * nextVecY;
+      turnAngleRad = Math.atan2(cross, dot);
+      const avgSegment = Math.max((prevLen + nextLen) * 0.5, 1e-6);
+      approxCurvature = Math.abs(turnAngleRad) / avgSegment;
+    }
+
+    const sample = sampleCostmap({x: worldX, y: worldY});
+    const cursorOffset = Math.hypot(state.hover.x - worldX, state.hover.y - worldY);
+    return {
+      role: getPointRole(index, xs.length),
+      index,
+      pointCount: xs.length,
+      worldX,
+      worldY,
+      thetaRad,
+      tangentHeadingRad,
+      arcLength,
+      prevLen,
+      nextLen,
+      turnAngleRad,
+      approxCurvature,
+      esdfDistance: sample?.esdfDistance ?? null,
+      cost: sample?.cost ?? null,
+      cursorOffset,
+      distancePx,
+    };
+  }
+
+  function findHoveredOptimizedPoint(canvasX, canvasY) {
+    if (!state.paths || !state.layers.smoothed) {
+      return null;
+    }
+
+    const xs = state.paths.opt_x || [];
+    const ys = state.paths.opt_y || [];
+    let bestIndex = -1;
+    let bestDistanceSq = OPTIMIZED_POINT_HOVER_RADIUS_PX * OPTIMIZED_POINT_HOVER_RADIUS_PX;
+
+    for (let idx = 0; idx < xs.length; idx += 1) {
+      const point = worldToCanvas(xs[idx], ys[idx]);
+      const dx = point.x - canvasX;
+      const dy = point.y - canvasY;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq <= bestDistanceSq) {
+        bestDistanceSq = distanceSq;
+        bestIndex = idx;
+      }
+    }
+
+    if (bestIndex < 0) {
+      return null;
+    }
+
+    return buildOptimizedPointHoverInfo(bestIndex, Math.sqrt(bestDistanceSq));
+  }
+
+  function updateOptimizedPointInspector() {
+    const info = state.hoverOptimizedPoint;
+    if (!info) {
+      clearOptimizedPointInspector();
+      return;
+    }
+
+    const popup = document.getElementById('opt-point-popup');
+    if (popup) {
+      popup.hidden = false;
+    }
+
+    setText('opt-point-role', info.role);
+    setText('opt-point-index', `${info.index + 1} / ${info.pointCount}`);
+    setText('opt-point-world', `${info.worldX.toFixed(2)}, ${info.worldY.toFixed(2)} m`);
+    setText(
+      'opt-point-heading',
+      info.thetaRad === null
+        ? '--'
+        : `${formatDegrees(normalizeAngleDeg(info.thetaRad * 180 / Math.PI))} / ${formatRadians(info.thetaRad)}`
+    );
+    setText(
+      'opt-point-tangent',
+      info.tangentHeadingRad === null
+        ? '--'
+        : `${formatDegrees(normalizeAngleDeg(info.tangentHeadingRad * 180 / Math.PI))} / ${formatRadians(info.tangentHeadingRad)}`
+    );
+    setText('opt-point-arc', formatMeters(info.arcLength));
+    setText('opt-point-prev-segment', formatMeters(info.prevLen));
+    setText('opt-point-next-segment', formatMeters(info.nextLen));
+    setText(
+      'opt-point-turn',
+      info.turnAngleRad === null ? '--' : formatDegrees(normalizeAngleDeg(info.turnAngleRad * 180 / Math.PI))
+    );
+    setText(
+      'opt-point-curvature',
+      info.approxCurvature === null || Number.isNaN(info.approxCurvature)
+        ? '--'
+        : `${info.approxCurvature.toFixed(2)} 1/m`
+    );
+    setText('opt-point-esdf', formatMeters(info.esdfDistance));
+    setText('opt-point-cost', info.cost === null || info.cost === undefined ? '--' : String(info.cost));
+    setText('opt-point-cursor-offset', `${formatMeters(info.cursorOffset)} / ${info.distancePx.toFixed(1)} px`);
+    setText(
+      'opt-point-note',
+      `Point ${info.index + 1} is ${info.role.toLowerCase()}. Turn angle and curvature are estimated from the local three-point geometry around this optimized pose.`
+    );
+    positionOptimizedPointPopup();
   }
 
   function updateCanvasCursor() {
@@ -516,7 +984,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('map-free-cells', `${meta.free_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
     setText('map-inflated-cells', `${meta.inflated_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
     setText('map-lethal-cells', `${meta.lethal_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
-    setText('map-description', meta.description || 'Fixed synthetic costmap used to inspect optimizer behavior.');
+    setText('map-description', meta.description || 'Fixed synthetic obstacle map used to inspect ESDF-based planner and smoother behavior.');
     setText('map-kind', meta.name || 'Synthetic field');
   }
 
@@ -637,6 +1105,43 @@ document.addEventListener('DOMContentLoaded', () => {
     costmapImageCanvas.width = costmap.size_x;
     costmapImageCanvas.height = costmap.size_y;
     costmapImageCanvas.getContext('2d').putImageData(costmapImageData, 0, 0);
+
+    const esdfValues = Array.isArray(costmap.esdf) ? costmap.esdf : null;
+    if (!esdfValues) {
+      esdfImageData = null;
+      esdfImageCanvas = null;
+      return;
+    }
+
+    const finiteEsdfValues = esdfValues.filter(value => Number.isFinite(value));
+    const maxDistance = finiteEsdfValues.length ? Math.max(...finiteEsdfValues) : 1.0;
+    const minDistance = finiteEsdfValues.length ? Math.min(...finiteEsdfValues) : -1.0;
+    const esdfImage = ctx.createImageData(costmap.size_x, costmap.size_y);
+
+    for (let my = 0; my < costmap.size_y; my += 1) {
+      for (let mx = 0; mx < costmap.size_x; mx += 1) {
+        const distance = esdfValues[my * costmap.size_x + mx];
+        const canvasRow = costmap.size_y - 1 - my;
+        const idx = (canvasRow * costmap.size_x + mx) * 4;
+
+        const [red, green, blue] = getEsdfColor(
+          distance,
+          minDistance,
+          maxDistance,
+          state.esdfColormap,
+        );
+        esdfImage.data[idx] = red;
+        esdfImage.data[idx + 1] = green;
+        esdfImage.data[idx + 2] = blue;
+        esdfImage.data[idx + 3] = 255;
+      }
+    }
+
+    esdfImageData = esdfImage;
+    esdfImageCanvas = document.createElement('canvas');
+    esdfImageCanvas.width = costmap.size_x;
+    esdfImageCanvas.height = costmap.size_y;
+    esdfImageCanvas.getContext('2d').putImageData(esdfImageData, 0, 0);
   }
 
   function drawMapFrame() {
@@ -772,7 +1277,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function drawCostmap() {
-    if (!costmapImageCanvas || !state.costmap) {
+    if (!state.costmap) {
+      return;
+    }
+
+    const imageCanvas = state.mapDisplayMode === 'esdf' ? esdfImageCanvas : costmapImageCanvas;
+    if (!imageCanvas) {
       return;
     }
 
@@ -784,7 +1294,7 @@ document.addEventListener('DOMContentLoaded', () => {
       0, state.viewScale * (canvas.height / costmap.size_y),
       state.viewOffsetX, state.viewOffsetY
     );
-    ctx.drawImage(costmapImageCanvas, 0, 0);
+    ctx.drawImage(imageCanvas, 0, 0);
     ctx.restore();
   }
 
@@ -847,6 +1357,65 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.restore();
   }
 
+  function getSegmentMotionDirection(thetaRad, dx, dy) {
+    if (!Number.isFinite(thetaRad)) {
+      return 'forward';
+    }
+
+    const segmentNorm = Math.hypot(dx, dy);
+    if (segmentNorm <= 1e-6) {
+      return 'forward';
+    }
+
+    const headingX = Math.cos(thetaRad);
+    const headingY = Math.sin(thetaRad);
+    const dot = dx * headingX + dy * headingY;
+    return dot >= 0 ? 'forward' : 'reverse';
+  }
+
+  function drawDirectionalSmoothedPath(xs, ys, thetas, width, drawDots = false) {
+    if (!xs || xs.length < 2 || !thetas || thetas.length < 2) {
+      drawPath(xs, ys, SMOOTHED_FORWARD_COLOR, width, drawDots);
+      return;
+    }
+
+    ctx.save();
+    ctx.lineWidth = width;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    for (let idx = 0; idx < xs.length - 1; idx += 1) {
+      const startPoint = worldToCanvas(xs[idx], ys[idx]);
+      const endPoint = worldToCanvas(xs[idx + 1], ys[idx + 1]);
+      const dx = xs[idx + 1] - xs[idx];
+      const dy = ys[idx + 1] - ys[idx];
+      const motionDirection = getSegmentMotionDirection(thetas[idx], dx, dy);
+      ctx.beginPath();
+      ctx.moveTo(startPoint.x, startPoint.y);
+      ctx.lineTo(endPoint.x, endPoint.y);
+      ctx.strokeStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+      ctx.stroke();
+    }
+
+    if (drawDots) {
+      for (let idx = 0; idx < xs.length; idx += 1) {
+        const point = worldToCanvas(xs[idx], ys[idx]);
+        let motionDirection = 'forward';
+        if (idx < xs.length - 1) {
+          motionDirection = getSegmentMotionDirection(thetas[idx], xs[idx + 1] - xs[idx], ys[idx + 1] - ys[idx]);
+        } else if (idx > 0) {
+          motionDirection = getSegmentMotionDirection(thetas[idx], xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+        }
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, Math.max(width + 0.4, 2.2), 0, Math.PI * 2);
+        ctx.fillStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+
   function drawMarker(point, fillColor, text) {
     if (!point) {
       return;
@@ -867,6 +1436,29 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.textBaseline = 'middle';
     ctx.fillText(text, pixel.x, pixel.y + 0.5);
 
+    const headingDeg = text === 'S'
+      ? getHeadingValue('start_yaw_deg', DEFAULT_HEADINGS_DEG.start)
+      : getHeadingValue('goal_yaw_deg', DEFAULT_HEADINGS_DEG.goal);
+    const orientationConstraintEnabled = text === 'S'
+      ? getConstraintEnabled('keep_start_orientation', true)
+      : getConstraintEnabled('keep_goal_orientation', true);
+    const headingRad = headingDeg * Math.PI / 180;
+    const arrowTail = {
+      x: pixel.x + Math.cos(headingRad) * 12,
+      y: pixel.y - Math.sin(headingRad) * 12,
+    };
+    const arrowTip = {
+      x: pixel.x + Math.cos(headingRad) * 24,
+      y: pixel.y - Math.sin(headingRad) * 24,
+    };
+    ctx.strokeStyle = orientationConstraintEnabled ? '#2b71ba' : 'rgba(43, 113, 186, 0.38)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(arrowTail.x, arrowTail.y);
+    ctx.lineTo(arrowTip.x, arrowTip.y);
+    ctx.stroke();
+    drawArrowHead(arrowTail, arrowTip, orientationConstraintEnabled ? '#2b71ba' : 'rgba(43, 113, 186, 0.38)');
+
     if (state.hoverMarker === (text === 'S' ? 'start' : 'goal') || state.draggingMarker === (text === 'S' ? 'start' : 'goal')) {
       ctx.strokeStyle = 'rgba(15, 92, 80, 0.95)';
       ctx.lineWidth = 2.5;
@@ -874,6 +1466,28 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.arc(pixel.x, pixel.y, 14, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.restore();
+  }
+
+  function drawHoveredOptimizedPoint() {
+    if (!state.hoverOptimizedPoint) {
+      return;
+    }
+
+    const point = worldToCanvas(state.hoverOptimizedPoint.worldX, state.hoverOptimizedPoint.worldY);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 7.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 250, 240, 0.92)';
+    ctx.fill();
+    ctx.lineWidth = 2.4;
+    ctx.strokeStyle = 'rgba(191, 54, 87, 0.98)';
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 12.5, 0, Math.PI * 2);
+    ctx.lineWidth = 1.8;
+    ctx.strokeStyle = 'rgba(15, 92, 80, 0.88)';
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -900,19 +1514,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (state.paths) {
       if (state.layers.astar) {
-        drawPath(state.paths.astar_x, state.paths.astar_y, 'rgba(43, 113, 186, 0.72)', 1.6);
+        drawPath(state.paths.astar_x, state.paths.astar_y, 'rgba(43, 113, 186, 0.5)', 1.6);
       }
       if (state.layers.reference) {
-        drawPath(state.paths.ref_x, state.paths.ref_y, '#d97a2b', 2.2, true);
+        drawPath(state.paths.ref_x, state.paths.ref_y, 'rgba(217, 122, 43, 0.5)', 2.2, true);
       }
       if (state.layers.smoothed) {
-        drawPath(state.paths.opt_x, state.paths.opt_y, '#bf3657', 2.8, true);
+        drawDirectionalSmoothedPath(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta, 2.8, true);
       }
     }
 
+    drawHoveredOptimizedPoint();
+
     if (state.layers.markers) {
-      drawMarker(state.start, '#208d76', 'S');
-      drawMarker(state.goal, '#d94f34', 'G');
+      drawMarker(state.start, 'rgba(32, 141, 118, 0.5)', 'S');
+      drawMarker(state.goal, 'rgba(217, 79, 52, 0.5)', 'G');
     }
   }
 
@@ -925,6 +1541,15 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       params[id] = parseFloat(input.value);
     });
+    if (plannerPenaltySelect) {
+      params.planner_penalty = plannerPenaltySelect.value;
+    }
+    if (footprintModeSelect) {
+      params.footprint_mode = footprintModeSelect.value;
+    }
+    params.keep_start_orientation = getConstraintEnabled('keep_start_orientation', true);
+    params.keep_goal_orientation = getConstraintEnabled('keep_goal_orientation', true);
+    updateRobotConfigUi();
     return params;
   }
 
@@ -977,6 +1602,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (!data.success) {
         state.paths = null;
+        state.hoverOptimizedPoint = null;
+        updateOptimizedPointInspector();
         clearRunInfo();
         setStatus(data.message || 'Planning failed.', 'error');
         draw();
@@ -984,6 +1611,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       state.paths = data;
+      state.hoverOptimizedPoint = null;
+      if (state.hover) {
+        const hoverCanvas = worldToCanvas(state.hover.x, state.hover.y);
+        state.hoverOptimizedPoint = findHoveredOptimizedPoint(hoverCanvas.x, hoverCanvas.y);
+      }
+      updateOptimizedPointInspector();
       updateRunInfo(data);
       setStatus(
         data.smooth_success
@@ -997,6 +1630,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       state.paths = null;
+      state.hoverOptimizedPoint = null;
+      updateOptimizedPointInspector();
       clearRunInfo();
       setStatus(`Network error: ${error.message}`, 'error');
       draw();
@@ -1100,8 +1735,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvasPoint = clientToCanvasPoint(event.clientX, event.clientY);
     const cx = canvasPoint.x;
     const cy = canvasPoint.y;
+    state.hoverCanvasPoint = {x: cx, y: cy};
     state.hover = canvasToWorld(cx, cy);
     state.hoverSample = sampleCostmap(state.hover);
+    state.hoverOptimizedPoint = findHoveredOptimizedPoint(cx, cy);
     state.hoverMarker = state.draggingMarker ? state.draggingMarker : getMarkerAtCanvasPoint(cx, cy);
     state.hoverObstacleIndex = state.draggingObstacleIndex !== null || state.hoverMarker
       ? state.draggingObstacleIndex
@@ -1109,6 +1746,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSelectionInfo();
     updateCanvasCursor();
     updateLoupe();
+    updateOptimizedPointInspector();
 
     if (state.draggingMarker) {
       state[state.draggingMarker] = clampWorldPoint(state.hover);
@@ -1149,7 +1787,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   canvas.addEventListener('mouseleave', () => {
     state.hover = null;
+    state.hoverCanvasPoint = null;
     state.hoverSample = null;
+    state.hoverOptimizedPoint = null;
     if (!state.draggingMarker) {
       state.hoverMarker = null;
     }
@@ -1159,6 +1799,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSelectionInfo();
     updateCanvasCursor();
     hideLoupe();
+    updateOptimizedPointInspector();
   });
 
   window.addEventListener('mouseup', async () => {
@@ -1221,7 +1862,9 @@ document.addEventListener('DOMContentLoaded', () => {
     resetEndpoints();
     state.obstacles = cloneObstacleRects(state.defaultObstacles);
     state.hover = null;
+    state.hoverCanvasPoint = null;
     state.hoverSample = null;
+    state.hoverOptimizedPoint = null;
     state.hoverMarker = null;
     state.hoverObstacleIndex = null;
     runBtn.disabled = false;
@@ -1231,6 +1874,7 @@ document.addEventListener('DOMContentLoaded', () => {
     resetView();
     draw();
     hideLoupe();
+    updateOptimizedPointInspector();
     updateObstacleLayout();
   });
 

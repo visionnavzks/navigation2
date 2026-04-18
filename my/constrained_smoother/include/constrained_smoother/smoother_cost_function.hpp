@@ -27,6 +27,7 @@
 #include "ceres/ceres.h"
 #include "ceres/cubic_interpolation.h"
 #include "Eigen/Core"
+#include "constrained_smoother/astar_esdf.hpp"
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/options.hpp"
 #include "constrained_smoother/utils.hpp"
@@ -49,7 +50,7 @@ public:
     * current segment length. Negative if the previous/current transition crosses a cusp.
    * @param reversing Whether the path segment after this node represents reversing motion.
    * @param costmap A costmap to get values for collision and obstacle avoidance
-   * @param costmap_interpolator Bicubic interpolator over costmap grid
+   * @param esdf_interpolator Bicubic interpolator over ESDF grid
    * @param params Optimization weights and parameters
    * @param costmap_weight_sqrt Costmap cost weight (sqrt)
    */
@@ -58,8 +59,7 @@ public:
     double last_to_current_length_ratio,
     bool reversing,
     const Costmap2D * costmap,
-    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>> &
-    costmap_interpolator,
+    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator,
     const SmootherParams & params,
     double costmap_weight_sqrt)
   : original_pos_(original_pos),
@@ -69,7 +69,7 @@ public:
     costmap_weight_sqrt_(costmap_weight_sqrt),
     costmap_origin_(costmap->getOriginX(), costmap->getOriginY()),
     costmap_resolution_(costmap->getResolution()),
-    costmap_interpolator_(costmap_interpolator)
+    esdf_interpolator_(esdf_interpolator)
   {
   }
 
@@ -195,9 +195,10 @@ protected:
     if (params_.cost_check_points.empty()) {
       Eigen::Matrix<T, 2, 1> interp_pos =
         (pt - costmap_origin_.template cast<T>()) / (T)costmap_resolution_;
-      T value;
-      costmap_interpolator_->Evaluate(interp_pos[1] - (T)0.5, interp_pos[0] - (T)0.5, &value);
-      r += (T)weight_sqrt * value;
+      T distance;
+      esdf_interpolator_->Evaluate(interp_pos[1] - (T)0.5, interp_pos[0] - (T)0.5, &distance);
+      const T penalty = evaluateObstaclePenalty(distance);
+      r += (T)weight_sqrt * penalty;
     } else {
       Eigen::Matrix<T, 2, 1> dir = tangentDir(
         pt_prev, pt, pt_next,
@@ -217,12 +218,51 @@ protected:
         Eigen::Matrix<T, 2,
           1> interp_pos = (ccpt_world - costmap_origin_.template cast<T>()) /
           (T)costmap_resolution_;
-        T value;
-        costmap_interpolator_->Evaluate(interp_pos[1] - (T)0.5, interp_pos[0] - (T)0.5, &value);
-
-        r += (T)weight_sqrt * (T)params_.cost_check_points[i + 2] * value;
+        T distance;
+        esdf_interpolator_->Evaluate(interp_pos[1] - (T)0.5, interp_pos[0] - (T)0.5, &distance);
+        const T penalty = evaluateObstaclePenalty(distance);
+        r += (T)weight_sqrt * (T)params_.cost_check_points[i + 2] * penalty;
       }
     }
+  }
+
+  template<typename T>
+  inline T evaluateObstaclePenalty(const T & distance) const
+  {
+    switch (params_.obstacle_penalty_type) {
+      case PlannerPenaltyType::QuadraticHinge:
+      {
+        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
+        if (distance >= safe_distance) {
+          return (T)0.0;
+        }
+        const T normalized_gap = (safe_distance - distance) / safe_distance;
+        return normalized_gap * normalized_gap;
+      }
+      case PlannerPenaltyType::Exponential:
+      {
+        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
+        if (distance >= safe_distance) {
+          return (T)0.0;
+        }
+        const T decay = (T)std::max(params_.obstacle_decay_distance, 1e-6);
+        const T boundary = exp(-safe_distance / decay);
+        const T penalty = exp(-distance / decay) - boundary;
+        return penalty > (T)0.0 ? penalty : (T)0.0;
+      }
+      case PlannerPenaltyType::Reciprocal:
+      {
+        const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
+        if (distance >= safe_distance) {
+          return (T)0.0;
+        }
+        const T eps = (T)std::max(params_.obstacle_reciprocal_epsilon, 1e-6);
+        const T boundary = safe_distance / (safe_distance + eps);
+        const T penalty = safe_distance / (distance + eps) - boundary;
+        return penalty > (T)0.0 ? penalty : (T)0.0;
+      }
+    }
+    return (T)0.0;
   }
 
   const Eigen::Vector2d original_pos_;
@@ -232,7 +272,7 @@ protected:
   double costmap_weight_sqrt_;
   Eigen::Vector2d costmap_origin_;
   double costmap_resolution_;
-  std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>> costmap_interpolator_;
+  std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_;
 };
 
 }  // namespace constrained_smoother
