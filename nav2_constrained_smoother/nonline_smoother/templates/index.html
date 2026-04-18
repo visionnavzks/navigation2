@@ -129,6 +129,21 @@
             </aside>
             
             <section class="charts glass-panel">
+                <div class="reference-editor-panel glass-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Reference Path Editor</h2>
+                            <p class="panel-subtitle">Drag any reference point to perturb the initial path. Each point's heading is shown as a short ray.</p>
+                        </div>
+                        <div class="panel-actions">
+                            <span id="reference-editor-state" class="panel-pill">Generated Reference</span>
+                            <button type="button" id="reset-reference-btn" class="ghost-btn" disabled>Reset Edited Path</button>
+                        </div>
+                    </div>
+                    <div id="reference-editor-chart" class="chart-container editor-chart"></div>
+                    <p class="editor-hint">Zoom, pan, box-select, and double-click reset are disabled in this panel so point dragging stays predictable.</p>
+                </div>
+
                 <div class="top-info-bar">
                     <div class="info-row">
                         <div class="info-badge">

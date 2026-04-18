@@ -183,11 +183,91 @@ input[type=range]::-webkit-slider-runnable-track {
     gap: 1.5rem;
 }
 
+.reference-editor-panel {
+    padding: 1.25rem;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.panel-header h2 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.panel-subtitle {
+    margin: 0.35rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    max-width: 48rem;
+}
+
+.panel-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.panel-pill {
+    border: 1px solid rgba(96, 165, 250, 0.22);
+    background: rgba(96, 165, 250, 0.14);
+    color: #dbeafe;
+    border-radius: 999px;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.ghost-btn {
+    border: 1px solid var(--panel-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-color);
+    border-radius: 0.85rem;
+    padding: 0.7rem 1rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.ghost-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.ghost-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
 .chart-container {
     background: transparent;
     border-radius: 1rem;
     overflow: hidden;
     height: 350px;
+}
+
+.editor-chart {
+    height: 320px;
+    touch-action: none;
+}
+
+#reference-editor-chart.is-dragging {
+    cursor: grabbing;
+}
+
+.editor-hint {
+    margin: 0.9rem 0 0;
+    color: var(--text-muted);
+    font-size: 0.82rem;
 }
 
 details {
@@ -347,4 +427,20 @@ details[open] summary::after {
 .command-pill .dist {
     font-family: monospace;
     font-weight: 600;
+}
+
+@media (max-width: 1080px) {
+    .panel-header {
+        flex-direction: column;
+    }
+
+    .panel-actions {
+        justify-content: flex-start;
+    }
+}
+
+@media (max-width: 960px) {
+    .main-layout {
+        grid-template-columns: 1fr;
+    }
 }
