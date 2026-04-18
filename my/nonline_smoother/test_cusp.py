@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from nonlinear_smoother import NonlinearPathSmoother
+from my.nonline_smoother.nonlinear_smoother import NonlinearPathSmoother
 
 def test_cusp_smoother():
     # Construct a reference path with a cusp at (10, 0)

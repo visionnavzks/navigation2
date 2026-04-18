@@ -2,7 +2,7 @@ import casadi as ca
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from dubins_curve import DubinsPlanner, Command
+from my.nonline_smoother.dubins_curve import DubinsPlanner, Command
 
 def generate_reference_path(start_x=0.0, start_y=0.0, start_theta=0.0, 
                             goal_x=20.0, goal_y=0.0, goal_theta=0.0, target_ds=0.3, turning_radius=5.0, use_dubins=True):

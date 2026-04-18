@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify, render_template
 
 # Add current directory to path to import nonlinear_smoother
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-from nonlinear_smoother import generate_reference_path, NonlinearPathSmoother
+from my.nonline_smoother.nonlinear_smoother import generate_reference_path, NonlinearPathSmoother
 
 app = Flask(__name__)
 
