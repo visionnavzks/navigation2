@@ -3,6 +3,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
   const ctx = canvas.getContext('2d');
+  const curvatureCanvas = document.getElementById('curvature-chart');
+  const curvatureCtx = curvatureCanvas ? curvatureCanvas.getContext('2d') : null;
   const loupe = document.getElementById('costmap-loupe');
   const loupeCanvas = document.getElementById('loupe-canvas');
   const loupeCtx = loupeCanvas.getContext('2d');
@@ -72,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
     hoverCanvasPoint: null,
     hoverSample: null,
     hoverOptimizedPoint: null,
+    curvatureProfile: null,
     paths: null,
     viewScale: 1,
     viewOffsetX: 0,
@@ -191,11 +194,17 @@ document.addEventListener('DOMContentLoaded', () => {
   syncDerivedParameterInfo();
   updateRobotConfigUi();
   clearOptimizedPointInspector();
+  clearCurvatureChart();
 
   const maxCurvatureInput = document.getElementById('max_curvature');
   if (maxCurvatureInput) {
-    maxCurvatureInput.addEventListener('input', syncDerivedParameterInfo);
+    maxCurvatureInput.addEventListener('input', () => {
+      syncDerivedParameterInfo();
+      drawCurvatureChart();
+    });
   }
+
+  window.addEventListener('resize', () => drawCurvatureChart());
 
   Object.entries(layerBindings).forEach(([id, key]) => {
     const checkbox = document.getElementById(id);
@@ -267,6 +276,13 @@ document.addEventListener('DOMContentLoaded', () => {
       return '--';
     }
     return `${Number(value).toFixed(digits)} rad`;
+  }
+
+  function formatCurvature(value, digits = 2) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return '--';
+    }
+    return `${Number(value).toFixed(digits)} 1/m`;
   }
 
   function formatCoord(point) {
@@ -988,7 +1004,198 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('map-kind', meta.name || 'Synthetic field');
   }
 
+  function computeCurvatureProfile(pathData) {
+    if (!pathData?.opt_x || pathData.opt_x.length < 2) {
+      return null;
+    }
+
+    const xs = pathData.opt_x;
+    const ys = pathData.opt_y;
+    const pointCount = Math.min(xs.length, ys.length);
+    const arcLengths = new Array(pointCount).fill(0);
+    const curvatures = new Array(pointCount).fill(0);
+
+    for (let idx = 1; idx < pointCount; idx += 1) {
+      arcLengths[idx] = arcLengths[idx - 1] + Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+    }
+
+    for (let idx = 1; idx < pointCount - 1; idx += 1) {
+      const prevVecX = xs[idx] - xs[idx - 1];
+      const prevVecY = ys[idx] - ys[idx - 1];
+      const nextVecX = xs[idx + 1] - xs[idx];
+      const nextVecY = ys[idx + 1] - ys[idx];
+      const prevLen = Math.hypot(prevVecX, prevVecY);
+      const nextLen = Math.hypot(nextVecX, nextVecY);
+      if (prevLen <= 1e-6 || nextLen <= 1e-6) {
+        curvatures[idx] = 0;
+        continue;
+      }
+      const cross = prevVecX * nextVecY - prevVecY * nextVecX;
+      const dot = prevVecX * nextVecX + prevVecY * nextVecY;
+      const turnAngle = Math.atan2(cross, dot);
+      const avgSegment = Math.max((prevLen + nextLen) * 0.5, 1e-6);
+      curvatures[idx] = turnAngle / avgSegment;
+    }
+
+    const signedMin = Math.min(...curvatures);
+    const signedMax = Math.max(...curvatures);
+    const absValues = curvatures.map(value => Math.abs(value));
+    const peakAbs = Math.max(...absValues);
+    const meanAbs = absValues.reduce((sum, value) => sum + value, 0) / absValues.length;
+    return {
+      arcLengths,
+      curvatures,
+      signedMin,
+      signedMax,
+      peakAbs,
+      meanAbs,
+      totalLength: arcLengths[arcLengths.length - 1],
+    };
+  }
+
+  function clearCurvatureChart() {
+    state.curvatureProfile = null;
+    setText('curvature-state', 'idle');
+    setText('curvature-peak', '--');
+    setText('curvature-mean', '--');
+    setText('curvature-min', '--');
+    setText('curvature-max', '--');
+    setText('curvature-note', 'Run planning to plot the signed curvature of the optimized path against arc length.');
+
+    if (!curvatureCanvas || !curvatureCtx) {
+      return;
+    }
+
+    const rect = curvatureCanvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.round(rect.width * dpr));
+    const height = Math.max(1, Math.round(rect.height * dpr));
+    curvatureCanvas.width = width;
+    curvatureCanvas.height = height;
+    curvatureCtx.setTransform(1, 0, 0, 1, 0, 0);
+    curvatureCtx.clearRect(0, 0, width, height);
+    curvatureCtx.fillStyle = 'rgba(255, 250, 240, 0.96)';
+    curvatureCtx.fillRect(0, 0, width, height);
+    curvatureCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    curvatureCtx.fillStyle = 'rgba(108, 111, 97, 0.8)';
+    curvatureCtx.font = '600 13px "Avenir Next", sans-serif';
+    curvatureCtx.textAlign = 'center';
+    curvatureCtx.textBaseline = 'middle';
+    curvatureCtx.fillText('Curvature chart will appear after a successful plan.', rect.width / 2, rect.height / 2);
+  }
+
+  function drawCurvatureChart() {
+    if (!curvatureCanvas || !curvatureCtx) {
+      return;
+    }
+
+    const profile = state.curvatureProfile;
+    if (!profile || profile.arcLengths.length < 2) {
+      clearCurvatureChart();
+      return;
+    }
+
+    const rect = curvatureCanvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, Math.round(rect.width * dpr));
+    const height = Math.max(1, Math.round(rect.height * dpr));
+    curvatureCanvas.width = width;
+    curvatureCanvas.height = height;
+
+    curvatureCtx.setTransform(1, 0, 0, 1, 0, 0);
+    curvatureCtx.clearRect(0, 0, width, height);
+    curvatureCtx.fillStyle = 'rgba(255, 250, 240, 0.96)';
+    curvatureCtx.fillRect(0, 0, width, height);
+    curvatureCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const plotWidth = rect.width;
+    const plotHeight = rect.height;
+    const padding = {left: 52, right: 16, top: 18, bottom: 30};
+    const innerWidth = Math.max(1, plotWidth - padding.left - padding.right);
+    const innerHeight = Math.max(1, plotHeight - padding.top - padding.bottom);
+    const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
+    const extent = Math.max(profile.peakAbs, maxCurvatureLimit, 0.1);
+
+    const xToCanvas = value => padding.left + (value / Math.max(profile.totalLength, 1e-6)) * innerWidth;
+    const yToCanvas = value => padding.top + innerHeight * (0.5 - value / (2 * extent));
+
+    curvatureCtx.strokeStyle = 'rgba(100, 85, 60, 0.16)';
+    curvatureCtx.lineWidth = 1;
+    [0.25, 0.5, 0.75].forEach(t => {
+      const y = padding.top + innerHeight * t;
+      curvatureCtx.beginPath();
+      curvatureCtx.moveTo(padding.left, y);
+      curvatureCtx.lineTo(padding.left + innerWidth, y);
+      curvatureCtx.stroke();
+    });
+
+    const zeroY = yToCanvas(0);
+    curvatureCtx.strokeStyle = 'rgba(35, 48, 40, 0.35)';
+    curvatureCtx.lineWidth = 1.2;
+    curvatureCtx.beginPath();
+    curvatureCtx.moveTo(padding.left, zeroY);
+    curvatureCtx.lineTo(padding.left + innerWidth, zeroY);
+    curvatureCtx.stroke();
+
+    if (maxCurvatureLimit > 0) {
+      [maxCurvatureLimit, -maxCurvatureLimit].forEach(limit => {
+        const y = yToCanvas(limit);
+        curvatureCtx.save();
+        curvatureCtx.setLineDash([6, 6]);
+        curvatureCtx.strokeStyle = 'rgba(217, 122, 43, 0.8)';
+        curvatureCtx.lineWidth = 1.2;
+        curvatureCtx.beginPath();
+        curvatureCtx.moveTo(padding.left, y);
+        curvatureCtx.lineTo(padding.left + innerWidth, y);
+        curvatureCtx.stroke();
+        curvatureCtx.restore();
+      });
+    }
+
+    for (let idx = 0; idx < profile.arcLengths.length - 1; idx += 1) {
+      const x0 = xToCanvas(profile.arcLengths[idx]);
+      const y0 = yToCanvas(profile.curvatures[idx]);
+      const x1 = xToCanvas(profile.arcLengths[idx + 1]);
+      const y1 = yToCanvas(profile.curvatures[idx + 1]);
+      curvatureCtx.strokeStyle = profile.curvatures[idx] >= 0 ? 'rgba(191, 54, 87, 0.9)' : 'rgba(43, 113, 186, 0.9)';
+      curvatureCtx.lineWidth = 2.1;
+      curvatureCtx.beginPath();
+      curvatureCtx.moveTo(x0, y0);
+      curvatureCtx.lineTo(x1, y1);
+      curvatureCtx.stroke();
+    }
+
+    curvatureCtx.strokeStyle = 'rgba(35, 48, 40, 0.55)';
+    curvatureCtx.lineWidth = 1.4;
+    curvatureCtx.strokeRect(padding.left, padding.top, innerWidth, innerHeight);
+
+    curvatureCtx.fillStyle = 'rgba(35, 48, 40, 0.82)';
+    curvatureCtx.font = '600 12px "Avenir Next", sans-serif';
+    curvatureCtx.textAlign = 'left';
+    curvatureCtx.textBaseline = 'top';
+    curvatureCtx.fillText('curvature (1/m)', padding.left, 2);
+    curvatureCtx.textAlign = 'right';
+    curvatureCtx.textBaseline = 'bottom';
+    curvatureCtx.fillText(`arc length 0 -> ${profile.totalLength.toFixed(2)} m`, padding.left + innerWidth, plotHeight - 4);
+    curvatureCtx.textAlign = 'left';
+    curvatureCtx.textBaseline = 'middle';
+    curvatureCtx.fillText(`${extent.toFixed(2)}`, 8, yToCanvas(extent));
+    curvatureCtx.fillText('0', 8, zeroY);
+    curvatureCtx.fillText(`${(-extent).toFixed(2)}`, 8, yToCanvas(-extent));
+
+    setText('curvature-state', 'chart ready');
+    setText('curvature-peak', formatCurvature(profile.peakAbs));
+    setText('curvature-mean', formatCurvature(profile.meanAbs));
+    setText('curvature-min', formatCurvature(profile.signedMin));
+    setText('curvature-max', formatCurvature(profile.signedMax));
+    setText(
+      'curvature-note',
+      `Signed curvature is estimated from local tangent change per metre along the optimized path. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} 1/m).`
+    );
+  }
+
   function updateRunInfo(data) {
+    state.curvatureProfile = computeCurvatureProfile(data);
     setText('info-astar-time', `${data.astar_time_ms} ms`);
     setText('info-smooth-time', `${data.smooth_time_ms} ms`);
     setText('info-astar-pts', String(data.num_astar_pts));
@@ -1012,12 +1219,14 @@ document.addEventListener('DOMContentLoaded', () => {
         ? 'Compare the raw, reference, and smoothed path lengths while toggling layers to inspect how the optimizer changed geometry.'
         : `Smoothing failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
     );
+    drawCurvatureChart();
   }
 
   function clearRunInfo() {
     planInfoIds.forEach(id => setText(id, '--'));
     setText('smooth-state', 'idle');
     setText('run-note', 'Set a start and goal to generate path metrics.');
+    clearCurvatureChart();
   }
 
   function worldToCanvas(wx, wy) {

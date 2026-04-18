@@ -504,6 +504,33 @@
           </div>
         </div>
 
+        <section class="curvature-panel">
+          <div class="section-heading">
+            <h2>Optimized Curvature</h2>
+            <span id="curvature-state" class="pill">idle</span>
+          </div>
+          <canvas id="curvature-chart" width="800" height="220" aria-label="Optimized path curvature chart"></canvas>
+          <div class="mini-grid compact curvature-grid">
+            <div class="metric-card subtle">
+              <span class="metric-label">Peak |curvature|</span>
+              <strong id="curvature-peak">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Mean |curvature|</span>
+              <strong id="curvature-mean">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Signed Min</span>
+              <strong id="curvature-min">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Signed Max</span>
+              <strong id="curvature-max">--</strong>
+            </div>
+          </div>
+          <p id="curvature-note" class="hint">Run planning to plot the signed curvature of the optimized path against arc length.</p>
+        </section>
+
         <div class="map-footer">
           <p class="hint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, or final optimized trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
           <p class="hint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
