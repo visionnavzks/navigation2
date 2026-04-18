@@ -28,7 +28,7 @@ class AStarPlanner:
         """
         Parameters
         ----------
-        costmap_data : 2-D numpy uint8 array (size_y, size_x) – row-major grid.
+        costmap_data : 2-D numpy uint8 array (size_y, size_x) - row-major grid.
         size_x, size_y : grid dimensions in cells.
         resolution : metres per cell.
         origin_x, origin_y : world origin of cell (0, 0).
