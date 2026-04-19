@@ -29,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     distance_weight: value => Number(value).toFixed(1),
     curvature_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
+    reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),
     path_downsampling_factor: value => String(Math.round(value)),
     path_upsampling_factor: value => String(Math.round(value)),
@@ -45,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const planInfoIds = [
-    'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-pts',
+    'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-knots', 'info-opt-pts',
     'info-ref-spacing', 'info-raw-length', 'info-ref-length', 'info-opt-length', 'info-length-delta',
   ];
   const AUTO_REPLAN_DELAY_MS = 220;
@@ -1195,7 +1196,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('info-smooth-time', `${data.smooth_time_ms} ms`);
     setText('info-astar-pts', String(data.num_astar_pts));
     setText('info-ref-pts', String(data.num_ref_pts));
-    setText('info-opt-pts', String(data.num_opt_pts));
+    setText('info-opt-knots', String(data.num_opt_knots));
+    setText('info-opt-pts', String(data.num_returned_pts ?? data.num_opt_pts));
     setText('info-ref-spacing', formatMeters(data.reference_spacing_target_m));
     setText('info-raw-length', formatMeters(data.raw_path_length_m));
     setText('info-ref-length', formatMeters(data.ref_path_length_m));

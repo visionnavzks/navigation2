@@ -273,6 +273,11 @@
         <details class="details-card">
           <summary>Solver</summary>
           <div class="param-group">
+            <label>Reference Spacing Target (m): <span id="val_reference_spacing_target_m">0.30</span></label>
+            <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
+            <p class="param-hint">Controls how aggressively the dense A* path is downsampled before it becomes the Reference Path / optimizer input. Larger spacing usually means fewer reference points.</p>
+          </div>
+          <div class="param-group">
             <label>Max Iterations: <span id="val_max_iterations">50</span></label>
             <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
             <p class="param-hint">Upper bound on Ceres iterations before the optimizer stops.</p>
@@ -370,7 +375,11 @@
               <strong id="info-ref-pts">--</strong>
             </div>
             <div class="metric-card subtle">
-              <span class="metric-label">Optimized Points</span>
+              <span class="metric-label">Optimization Knots</span>
+              <strong id="info-opt-knots">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label">Returned Path Points</span>
               <strong id="info-opt-pts">--</strong>
             </div>
             <div class="metric-card subtle">

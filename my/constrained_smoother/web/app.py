@@ -41,6 +41,7 @@ DEFAULT_SIZE_Y = 200
 DEFAULT_RESOLUTION = 0.1
 DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
+DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
 INFLATION_RADIUS_CELLS = 5
 DEFAULT_OBSTACLE_RECTS = [
     # (x_start, y_start, x_end, y_end) in cell coordinates
@@ -318,6 +319,10 @@ def plan_and_smooth():
         distance_weight = float(req.get("distance_weight", 0.0))
         curvature_weight = float(req.get("curvature_weight", 30.0))
         max_curvature = float(req.get("max_curvature", 2.5))
+        reference_spacing_target_m = min(
+            2.0,
+            max(DEFAULT_RESOLUTION, float(req.get("reference_spacing_target_m", DEFAULT_REFERENCE_SPACING_TARGET_M))),
+        )
         path_downsample = max(1, int(req.get("path_downsampling_factor", 1)))
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
@@ -350,8 +355,7 @@ def plan_and_smooth():
         raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
 
         # Downsample dense grid path
-        ds_target = DEFAULT_RESOLUTION * 3
-        sparse_path = downsample_path(raw_path, ds_target)
+        sparse_path = downsample_path(raw_path, reference_spacing_target_m)
 
         # Build Eigen-compatible path: (x, y, direction_sign=1.0)
         eigen_path = [np.array([p[0], p[1], 1.0]) for p in sparse_path]
@@ -390,6 +394,7 @@ def plan_and_smooth():
 
         t1 = time.time()
         smooth_message = ""
+        optimized_knot_count = 0
         try:
             smoothed = smoother.smooth(eigen_path, s_dir, e_dir, planner_costmap, smoother_params)
             smooth_time = (time.time() - t1) * 1000.0
@@ -399,6 +404,7 @@ def plan_and_smooth():
             smoothed = eigen_path  # fall back to unsmoothed
             smooth_success = False
             smooth_message = str(e)
+        optimized_knot_count = int(smoother.get_last_optimized_knot_count())
 
         # Format response
         astar_x = [p[0] for p in raw_path]
@@ -427,12 +433,14 @@ def plan_and_smooth():
             "opt_theta": opt_theta,
             "num_astar_pts": len(raw_path),
             "num_ref_pts": len(sparse_path),
+            "num_opt_knots": optimized_knot_count,
             "num_opt_pts": len(smoothed),
+            "num_returned_pts": len(smoothed),
             "raw_path_length_m": round(raw_length, 3),
             "ref_path_length_m": round(ref_length, 3),
             "opt_path_length_m": round(opt_length, 3),
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
-            "reference_spacing_target_m": round(ds_target, 3),
+            "reference_spacing_target_m": round(reference_spacing_target_m, 3),
             "planner_penalty_weight": round(planner_penalty_weight, 3),
             "start_yaw_deg": round(start_yaw_deg, 2),
             "goal_yaw_deg": round(goal_yaw_deg, 2),

@@ -46,6 +46,11 @@ public:
   Smoother() {}
   ~Smoother() {}
 
+  size_t getLastOptimizedKnotCount() const
+  {
+    return last_optimized_knot_count_;
+  }
+
   /**
    * @brief Initialization of the smoother
    * @param params OptimizerParam struct
@@ -97,6 +102,7 @@ public:
     std::vector<Eigen::Vector3d> path_optim;
     std::vector<bool> optimized;
     if (buildProblem(path, start_dir, end_dir, costmap, params, problem, path_optim, optimized)) {
+      last_optimized_knot_count_ = std::count(optimized.begin(), optimized.end(), true);
       // solve the problem
       ceres::Solver::Summary summary;
       ceres::Solve(options_, &problem, &summary);
@@ -107,6 +113,7 @@ public:
         throw FailedToSmoothPath("Solution is not usable");
       }
     } else {
+      last_optimized_knot_count_ = std::count(optimized.begin(), optimized.end(), true);
       if (debug_) {
         std::cout << "[smoother] Path too short to optimize" << std::endl;
       }
@@ -423,6 +430,7 @@ private:
   ceres::Solver::Options options_;
   std::vector<double> esdf_values_;
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;
+  size_t last_optimized_knot_count_{0};
 };
 
 }  // namespace constrained_smoother

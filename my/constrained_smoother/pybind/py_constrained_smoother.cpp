@@ -127,6 +127,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   py::class_<constrained_smoother::Smoother>(m, "Smoother")
     .def(py::init<>())
     .def("initialize", &constrained_smoother::Smoother::initialize)
+    .def("get_last_optimized_knot_count", &constrained_smoother::Smoother::getLastOptimizedKnotCount)
     .def(
     "smooth",
     [](constrained_smoother::Smoother & self,
