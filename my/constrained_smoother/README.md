@@ -23,6 +23,10 @@ These are the most important behavior contracts in the current standalone implem
 	 - Pass triples of `(x_local, y_local, weight)` in the robot local frame.
 5. `reversing_enabled` is kept for compatibility but is not currently read by the standalone smoother.
 6. `max_curvature` is curvature in `1 / m`, not minimum turning radius.
+7. Steering is not an explicit optimization state.
+	 - The smoother optimizes 2D path geometry and reconstructs `yaw` afterward from local tangents.
+	 - This means the standalone build can penalize curvature, but it cannot represent stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.
+	 - As a result, cusp-like features in this demo should be read as geometric direction-switch transitions, not as true in-place steering actions.
 
 ## Dependencies
 

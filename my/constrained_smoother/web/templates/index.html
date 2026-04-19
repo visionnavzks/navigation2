@@ -112,6 +112,8 @@
 
           <p class="param-hint">Other boolean switches are not exposed here. The standalone build still defines <strong>reversing_enabled</strong>, but this implementation does not currently read it, so it is intentionally not shown as a UI toggle.</p>
 
+          <p class="param-hint">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
+
           <p class="section-note">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
         </section>
 
