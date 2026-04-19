@@ -191,6 +191,7 @@ When launched from `my/constrained_smoother`, `web/app.py` adds both the package
 	- Returns raw A* points, downsampled reference points, smoothed points, `opt_theta`, timing, lengths, and optimized knot counts.
 
 The smoother route currently derives its planner safe distance from the shared hinge-loss threshold, and in point-robot mode it adds the point-robot radius on top of that shared threshold.
+The standalone A* now also performs hard footprint feasibility checks: point-robot mode rejects cells whose ESDF clearance is smaller than the configured radius, and rectangle mode rejects any axis-aligned pose whose box footprint overlaps lethal cells. Rectangle A* checking intentionally ignores yaw.
 
 ## Original Source
 

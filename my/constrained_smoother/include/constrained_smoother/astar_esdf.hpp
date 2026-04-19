@@ -21,6 +21,10 @@ struct AStarPlannerParams
   unsigned char lethal_cost{Costmap2D::LETHAL_OBSTACLE};
   double safe_distance{0.5};
   double cost_penalty_weight{1.0};
+  double point_radius{0.0};
+  bool use_rectangular_footprint{false};
+  double rectangular_length{0.0};
+  double rectangular_width{0.0};
 };
 
 class AStarPlanner
@@ -246,12 +250,100 @@ private:
       costmap->getOriginY() + (static_cast<double>(my) + 0.5) * costmap->getResolution()};
   }
 
-  static bool isTraversable(
+  bool isTraversable(
     const Costmap2D * costmap,
     int mx, int my,
-    const AStarPlannerParams & params)
+    const AStarPlannerParams & params) const
   {
-    return costmap->getCost(mx, my) < params.lethal_cost;
+    if (costmap->getCost(mx, my) >= params.lethal_cost) {
+      return false;
+    }
+
+    if (params.use_rectangular_footprint) {
+      return isAxisAlignedRectangleTraversable(costmap, mx, my, params);
+    }
+
+    return isPointRobotTraversable(costmap, mx, my, params);
+  }
+
+  bool isPointRobotTraversable(
+    const Costmap2D * costmap,
+    int mx, int my,
+    const AStarPlannerParams & params) const
+  {
+    const double point_radius = std::max(params.point_radius, 0.0);
+    if (point_radius <= 1e-9) {
+      return true;
+    }
+
+    const auto center = gridToWorld(costmap, mx, my);
+    if (!isFootprintInsideMapBounds(costmap, center.x(), center.y(), point_radius, point_radius)) {
+      return false;
+    }
+
+    const int index = toIndex(mx, my, static_cast<int>(costmap->getSizeInCellsX()));
+    return index >= 0 && index < static_cast<int>(esdf_.size()) && esdf_[index] >= point_radius;
+  }
+
+  bool isAxisAlignedRectangleTraversable(
+    const Costmap2D * costmap,
+    int mx, int my,
+    const AStarPlannerParams & params) const
+  {
+    const double half_length = std::max(params.rectangular_length, 0.0) * 0.5;
+    const double half_width = std::max(params.rectangular_width, 0.0) * 0.5;
+    if (half_length <= 1e-9 && half_width <= 1e-9) {
+      return true;
+    }
+
+    const auto center = gridToWorld(costmap, mx, my);
+    if (!isFootprintInsideMapBounds(costmap, center.x(), center.y(), half_length, half_width)) {
+      return false;
+    }
+
+    const double resolution = costmap->getResolution();
+    const double origin_x = costmap->getOriginX();
+    const double origin_y = costmap->getOriginY();
+    const int min_mx = static_cast<int>(std::floor((center.x() - half_length - origin_x) / resolution));
+    const int max_mx = static_cast<int>(std::ceil((center.x() + half_length - origin_x) / resolution)) - 1;
+    const int min_my = static_cast<int>(std::floor((center.y() - half_width - origin_y) / resolution));
+    const int max_my = static_cast<int>(std::ceil((center.y() + half_width - origin_y) / resolution)) - 1;
+
+    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
+    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
+    if (min_mx < 0 || min_my < 0 || max_mx >= size_x || max_my >= size_y) {
+      return false;
+    }
+
+    for (int check_my = min_my; check_my <= max_my; ++check_my) {
+      for (int check_mx = min_mx; check_mx <= max_mx; ++check_mx) {
+        if (costmap->getCost(check_mx, check_my) >= params.lethal_cost) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  static bool isFootprintInsideMapBounds(
+    const Costmap2D * costmap,
+    double center_wx,
+    double center_wy,
+    double half_extent_x,
+    double half_extent_y)
+  {
+    const double min_wx = center_wx - half_extent_x;
+    const double max_wx = center_wx + half_extent_x;
+    const double min_wy = center_wy - half_extent_y;
+    const double max_wy = center_wy + half_extent_y;
+    const double map_min_x = costmap->getOriginX();
+    const double map_min_y = costmap->getOriginY();
+    const double map_max_x = map_min_x + costmap->getSizeInCellsX() * costmap->getResolution();
+    const double map_max_y = map_min_y + costmap->getSizeInCellsY() * costmap->getResolution();
+
+    return min_wx >= map_min_x && min_wy >= map_min_y &&
+      max_wx <= map_max_x && max_wy <= map_max_y;
   }
 
   static double heuristic(int ax, int ay, int bx, int by)

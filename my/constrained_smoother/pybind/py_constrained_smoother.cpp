@@ -99,7 +99,13 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def(py::init<>())
     .def_readwrite("lethal_cost", &constrained_smoother::AStarPlannerParams::lethal_cost)
     .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
-    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight);
+    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
+    .def_readwrite("point_radius", &constrained_smoother::AStarPlannerParams::point_radius)
+    .def_readwrite(
+    "use_rectangular_footprint",
+    &constrained_smoother::AStarPlannerParams::use_rectangular_footprint)
+    .def_readwrite("rectangular_length", &constrained_smoother::AStarPlannerParams::rectangular_length)
+    .def_readwrite("rectangular_width", &constrained_smoother::AStarPlannerParams::rectangular_width);
 
   py::class_<constrained_smoother::AStarPlanner>(m, "AStarPlanner")
     .def(py::init<>())

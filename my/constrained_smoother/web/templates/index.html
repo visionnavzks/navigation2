@@ -258,8 +258,8 @@
             <p class="param-hint">Choose whether obstacle avoidance samples only the path centerline or a simple rectangular robot footprint.</p>
           </div>
           <div class="param-group">
-            <label>Point Robot Radius (m): <span id="val_point_robot_radius_m">0.00</span></label>
-            <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="0.00">
+            <label>Point Robot Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
+            <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="1.00">
             <p class="param-hint">Used only in point-robot mode. This inflates the shared hinge threshold around the robot centerline.</p>
           </div>
           <div class="param-group">
@@ -351,6 +351,14 @@
               <span class="layer-copy-wrap">
                 <span class="layer-name">Smoothed Path</span>
                 <span class="layer-copy">Ceres output, colored by forward vs reverse motion</span>
+              </span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer_robot_projection">
+              <span class="swatch swatch-robot-projection"></span>
+              <span class="layer-copy-wrap">
+                <span class="layer-name">Robot Projection</span>
+                <span class="layer-copy">sampled robot poses swept along the smoothed path</span>
               </span>
             </label>
           </div>
@@ -511,10 +519,32 @@
 
         <section class="curvature-panel">
           <div class="section-heading">
-            <h2>Optimized Curvature</h2>
+            <h2>Optimized Path Profiles</h2>
             <span id="curvature-state" class="pill">idle</span>
           </div>
-          <canvas id="curvature-chart" width="800" height="220" aria-label="Optimized path curvature chart"></canvas>
+          <div class="profile-chart-stack">
+            <div class="profile-chart-block">
+              <div class="profile-chart-title-row">
+                <h3>Curvature k(s)</h3>
+                <span class="profile-chart-tag">Plotly</span>
+              </div>
+              <div id="curvature-chart" class="profile-chart profile-chart--primary" aria-label="Optimized path curvature chart"></div>
+            </div>
+            <div class="profile-chart-grid">
+              <div class="profile-chart-block">
+                <div class="profile-chart-title-row">
+                  <h3>Segment Spacing ds</h3>
+                </div>
+                <div id="ds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path segment spacing chart"></div>
+              </div>
+              <div class="profile-chart-block">
+                <div class="profile-chart-title-row">
+                  <h3>Curvature Rate dk/ds</h3>
+                </div>
+                <div id="dkds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path curvature rate chart"></div>
+              </div>
+            </div>
+          </div>
           <div class="mini-grid compact curvature-grid">
             <div class="metric-card subtle">
               <span class="metric-label">Peak |curvature|</span>
@@ -533,17 +563,18 @@
               <strong id="curvature-max">--</strong>
             </div>
           </div>
-          <p id="curvature-note" class="hint">Run planning to plot the signed curvature of the optimized path against arc length.</p>
+          <p id="curvature-note" class="hint">Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.</p>
         </section>
 
         <div class="map-footer">
-          <p class="hint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, or final optimized trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
+          <p class="hint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, final optimized trajectory, or sampled robot projection along that trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
           <p class="hint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
         </div>
       </section>
     </div>
   </div>
 
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -373,6 +373,10 @@ body {
   background: linear-gradient(90deg, #bf3657 50%, #2b71ba 50%);
 }
 
+.swatch-robot-projection {
+  background: linear-gradient(90deg, rgba(191, 54, 87, 0.22), rgba(191, 54, 87, 0.85) 50%, rgba(43, 113, 186, 0.85) 50%, rgba(43, 113, 186, 0.22));
+}
+
 .map-section {
   padding: 1rem;
   display: flex;
@@ -725,13 +729,60 @@ body {
   border: 1px solid rgba(100, 85, 60, 0.10);
 }
 
-#curvature-chart {
-  display: block;
+.profile-chart-stack {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.profile-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.profile-chart-block {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.profile-chart-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.profile-chart-title-row h3 {
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.profile-chart-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.22rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: rgba(20, 122, 106, 0.10);
+  border: 1px solid rgba(20, 122, 106, 0.14);
+}
+
+.profile-chart {
   width: 100%;
-  height: 220px;
   border-radius: 16px;
   border: 1px solid rgba(35, 48, 40, 0.14);
   background: rgba(255, 250, 240, 0.94);
+  overflow: hidden;
+}
+
+.profile-chart--primary {
+  min-height: 260px;
+}
+
+.profile-chart--secondary {
+  min-height: 220px;
 }
 
 .curvature-grid .metric-card {
@@ -774,6 +825,10 @@ body {
 @media (max-width: 760px) {
   .page-shell {
     padding: 0.85rem;
+  }
+
+  .profile-chart-grid {
+    grid-template-columns: 1fr;
   }
 
   .hero-summary,

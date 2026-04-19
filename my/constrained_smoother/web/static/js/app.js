@@ -3,8 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
   const ctx = canvas.getContext('2d');
-  const curvatureCanvas = document.getElementById('curvature-chart');
-  const curvatureCtx = curvatureCanvas ? curvatureCanvas.getContext('2d') : null;
+  const curvatureChart = document.getElementById('curvature-chart');
+  const dsChart = document.getElementById('ds-chart');
+  const dkdsChart = document.getElementById('dkds-chart');
   const loupe = document.getElementById('costmap-loupe');
   const loupeCanvas = document.getElementById('loupe-canvas');
   const loupeCtx = loupeCanvas.getContext('2d');
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     layer_astar: 'astar',
     layer_reference: 'reference',
     layer_smoothed: 'smoothed',
+    layer_robot_projection: 'robotProjection',
   };
 
   const planInfoIds = [
@@ -54,6 +56,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const OPTIMIZED_POINT_HOVER_RADIUS_PX = 11;
   const SMOOTHED_FORWARD_COLOR = 'rgba(191, 54, 87, 0.5)';
   const SMOOTHED_REVERSE_COLOR = 'rgba(43, 113, 186, 0.5)';
+  const ROBOT_PROJECTION_FORWARD_STROKE = 'rgba(191, 54, 87, 0.74)';
+  const ROBOT_PROJECTION_FORWARD_FILL = 'rgba(191, 54, 87, 0.12)';
+  const ROBOT_PROJECTION_REVERSE_STROKE = 'rgba(43, 113, 186, 0.74)';
+  const ROBOT_PROJECTION_REVERSE_FILL = 'rgba(43, 113, 186, 0.12)';
   const LOUPE_RADIUS_CELLS = 5;
   const LOUPE_CELL_SIZE = Math.floor(loupeCanvas.width / (LOUPE_RADIUS_CELLS * 2 + 1));
   const DEFAULT_ENDPOINTS = {
@@ -102,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
       astar: true,
       reference: true,
       smoothed: true,
+      robotProjection: false,
     },
   };
 
@@ -129,6 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'hinge_loss_threshold_m' || id === 'point_robot_radius_m' ||
         id === 'robot_length_m' || id === 'robot_width_m') {
         updateRobotConfigUi();
+        draw();
       }
     };
 
@@ -155,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (footprintModeSelect) {
     footprintModeSelect.addEventListener('change', () => {
       updateRobotConfigUi();
+      draw();
       scheduleAutoPlan();
     });
   }
@@ -280,6 +289,32 @@ document.addEventListener('DOMContentLoaded', () => {
       return '--';
     }
     return `${Number(value).toFixed(digits)} 1/m`;
+  }
+
+  function getRobotFootprintConfig() {
+    const readValue = (id, fallback) => {
+      const input = document.getElementById(id);
+      const value = input ? parseFloat(input.value) : fallback;
+      return Number.isFinite(value) ? value : fallback;
+    };
+
+    const resolution = state.costmap?.resolution || 0.1;
+    const mode = footprintModeSelect ? footprintModeSelect.value : 'point';
+    return {
+      mode,
+      pointRadiusM: Math.max(0, readValue('point_robot_radius_m', 1.0)),
+      lengthM: Math.max(resolution, readValue('robot_length_m', 0.8)),
+      widthM: Math.max(resolution, readValue('robot_width_m', 0.5)),
+    };
+  }
+
+  function metersToCanvas(distanceM) {
+    if (!state.costmap) {
+      return 0;
+    }
+
+    const pixelsPerMeter = canvas.width / (state.costmap.size_x * state.costmap.resolution);
+    return distanceM * pixelsPerMeter * state.viewScale;
   }
 
   function formatCoord(point) {
@@ -1010,10 +1045,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const ys = pathData.opt_y;
     const pointCount = Math.min(xs.length, ys.length);
     const arcLengths = new Array(pointCount).fill(0);
+    const segmentArcLengths = [];
+    const segmentLengths = [];
     const curvatures = new Array(pointCount).fill(0);
+    const dkDs = new Array(pointCount).fill(0);
 
     for (let idx = 1; idx < pointCount; idx += 1) {
-      arcLengths[idx] = arcLengths[idx - 1] + Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+      const segmentLength = Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+      segmentLengths.push(segmentLength);
+      arcLengths[idx] = arcLengths[idx - 1] + segmentLength;
+      segmentArcLengths.push(arcLengths[idx - 1] + segmentLength * 0.5);
     }
 
     for (let idx = 1; idx < pointCount - 1; idx += 1) {
@@ -1034,18 +1075,87 @@ document.addEventListener('DOMContentLoaded', () => {
       curvatures[idx] = turnAngle / avgSegment;
     }
 
-    const signedMin = Math.min(...curvatures);
-    const signedMax = Math.max(...curvatures);
-    const absValues = curvatures.map(value => Math.abs(value));
-    const peakAbs = Math.max(...absValues);
-    const meanAbs = absValues.reduce((sum, value) => sum + value, 0) / absValues.length;
+    for (let idx = 0; idx < pointCount; idx += 1) {
+      const prevIndex = Math.max(0, idx - 1);
+      const nextIndex = Math.min(pointCount - 1, idx + 1);
+      const deltaS = arcLengths[nextIndex] - arcLengths[prevIndex];
+      if (nextIndex === prevIndex || deltaS <= 1e-6) {
+        dkDs[idx] = 0;
+        continue;
+      }
+      dkDs[idx] = (curvatures[nextIndex] - curvatures[prevIndex]) / deltaS;
+    }
+
+    const computeSignedStats = values => {
+      if (!values.length) {
+        return {
+          signedMin: 0,
+          signedMax: 0,
+          peakAbs: 0,
+          meanAbs: 0,
+        };
+      }
+
+      let signedMin = Number.POSITIVE_INFINITY;
+      let signedMax = Number.NEGATIVE_INFINITY;
+      let peakAbs = 0;
+      let absSum = 0;
+
+      values.forEach(value => {
+        signedMin = Math.min(signedMin, value);
+        signedMax = Math.max(signedMax, value);
+        const absValue = Math.abs(value);
+        peakAbs = Math.max(peakAbs, absValue);
+        absSum += absValue;
+      });
+
+      return {
+        signedMin,
+        signedMax,
+        peakAbs,
+        meanAbs: absSum / values.length,
+      };
+    };
+
+    const computeRangeStats = values => {
+      if (!values.length) {
+        return {
+          min: 0,
+          max: 0,
+          mean: 0,
+        };
+      }
+
+      let min = Number.POSITIVE_INFINITY;
+      let max = Number.NEGATIVE_INFINITY;
+      let sum = 0;
+
+      values.forEach(value => {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+        sum += value;
+      });
+
+      return {
+        min,
+        max,
+        mean: sum / values.length,
+      };
+    };
+
+    const curvatureStats = computeSignedStats(curvatures);
+    const dkDsStats = computeSignedStats(dkDs);
+    const dsStats = computeRangeStats(segmentLengths);
+
     return {
       arcLengths,
+      segmentArcLengths,
+      segmentLengths,
       curvatures,
-      signedMin,
-      signedMax,
-      peakAbs,
-      meanAbs,
+      dkDs,
+      curvatureStats,
+      dkDsStats,
+      dsStats,
       totalLength: arcLengths[arcLengths.length - 1],
     };
   }
@@ -1057,32 +1167,77 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('curvature-mean', '--');
     setText('curvature-min', '--');
     setText('curvature-max', '--');
-    setText('curvature-note', 'Run planning to plot the signed curvature of the optimized path against arc length.');
+    setText('curvature-note', 'Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.');
 
-    if (!curvatureCanvas || !curvatureCtx) {
+    const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
+    if (!chartElements.length) {
       return;
     }
 
-    const rect = curvatureCanvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(rect.width * dpr));
-    const height = Math.max(1, Math.round(rect.height * dpr));
-    curvatureCanvas.width = width;
-    curvatureCanvas.height = height;
-    curvatureCtx.setTransform(1, 0, 0, 1, 0, 0);
-    curvatureCtx.clearRect(0, 0, width, height);
-    curvatureCtx.fillStyle = 'rgba(255, 250, 240, 0.96)';
-    curvatureCtx.fillRect(0, 0, width, height);
-    curvatureCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    curvatureCtx.fillStyle = 'rgba(108, 111, 97, 0.8)';
-    curvatureCtx.font = '600 13px "Avenir Next", sans-serif';
-    curvatureCtx.textAlign = 'center';
-    curvatureCtx.textBaseline = 'middle';
-    curvatureCtx.fillText('Curvature chart will appear after a successful plan.', rect.width / 2, rect.height / 2);
+    if (!window.Plotly) {
+      chartElements.forEach(element => {
+        element.textContent = 'Plotly failed to load. Reload the page to render path profiles.';
+      });
+      return;
+    }
+
+    const createEmptyLayout = (height, title) => ({
+      height,
+      margin: {l: 56, r: 18, t: 16, b: 46},
+      paper_bgcolor: 'rgba(255, 250, 240, 0.96)',
+      plot_bgcolor: 'rgba(255, 250, 240, 0.96)',
+      font: {
+        family: '"Avenir Next", "Helvetica Neue", sans-serif',
+        color: 'rgba(35, 48, 40, 0.82)',
+      },
+      title: undefined,
+      xaxis: {
+        visible: false,
+      },
+      yaxis: {
+        visible: false,
+      },
+      annotations: [{
+        text: title,
+        x: 0.5,
+        y: 0.5,
+        xref: 'paper',
+        yref: 'paper',
+        showarrow: false,
+        font: {
+          size: 13,
+          color: 'rgba(108, 111, 97, 0.85)',
+        },
+      }],
+    });
+
+    const config = {
+      displayModeBar: false,
+      responsive: true,
+    };
+
+    window.Plotly.react(
+      curvatureChart,
+      [],
+      createEmptyLayout(260, 'Curvature chart will appear after a successful plan.'),
+      config
+    );
+    window.Plotly.react(
+      dsChart,
+      [],
+      createEmptyLayout(220, 'Segment spacing ds will appear after a successful plan.'),
+      config
+    );
+    window.Plotly.react(
+      dkdsChart,
+      [],
+      createEmptyLayout(220, 'Curvature rate dk/ds will appear after a successful plan.'),
+      config
+    );
   }
 
   function drawCurvatureChart() {
-    if (!curvatureCanvas || !curvatureCtx) {
+    if (!curvatureChart || !dsChart || !dkdsChart) {
       return;
     }
 
@@ -1092,102 +1247,117 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const rect = curvatureCanvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(rect.width * dpr));
-    const height = Math.max(1, Math.round(rect.height * dpr));
-    curvatureCanvas.width = width;
-    curvatureCanvas.height = height;
+    if (!window.Plotly) {
+      setText('curvature-state', 'plotly missing');
+      setText('curvature-note', 'Plotly failed to load, so the profile charts could not be rendered.');
+      [curvatureChart, dsChart, dkdsChart].forEach(element => {
+        element.textContent = 'Plotly failed to load. Reload the page to render path profiles.';
+      });
+      return;
+    }
 
-    curvatureCtx.setTransform(1, 0, 0, 1, 0, 0);
-    curvatureCtx.clearRect(0, 0, width, height);
-    curvatureCtx.fillStyle = 'rgba(255, 250, 240, 0.96)';
-    curvatureCtx.fillRect(0, 0, width, height);
-    curvatureCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const plotWidth = rect.width;
-    const plotHeight = rect.height;
-    const padding = {left: 52, right: 16, top: 18, bottom: 30};
-    const innerWidth = Math.max(1, plotWidth - padding.left - padding.right);
-    const innerHeight = Math.max(1, plotHeight - padding.top - padding.bottom);
-    const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
-    const extent = Math.max(profile.peakAbs, maxCurvatureLimit, 0.1);
-
-    const xToCanvas = value => padding.left + (value / Math.max(profile.totalLength, 1e-6)) * innerWidth;
-    const yToCanvas = value => padding.top + innerHeight * (0.5 - value / (2 * extent));
-
-    curvatureCtx.strokeStyle = 'rgba(100, 85, 60, 0.16)';
-    curvatureCtx.lineWidth = 1;
-    [0.25, 0.5, 0.75].forEach(t => {
-      const y = padding.top + innerHeight * t;
-      curvatureCtx.beginPath();
-      curvatureCtx.moveTo(padding.left, y);
-      curvatureCtx.lineTo(padding.left + innerWidth, y);
-      curvatureCtx.stroke();
+    const plotBackground = 'rgba(255, 250, 240, 0.96)';
+    const gridColor = 'rgba(100, 85, 60, 0.16)';
+    const axisColor = 'rgba(35, 48, 40, 0.55)';
+    const config = {
+      displayModeBar: false,
+      responsive: true,
+    };
+    const makeLayout = (height, xTitle, yTitle) => ({
+      height,
+      margin: {l: 64, r: 18, t: 18, b: 52},
+      paper_bgcolor: plotBackground,
+      plot_bgcolor: plotBackground,
+      font: {
+        family: '"Avenir Next", "Helvetica Neue", sans-serif',
+        color: 'rgba(35, 48, 40, 0.82)',
+      },
+      xaxis: {
+        title: xTitle,
+        gridcolor: gridColor,
+        linecolor: axisColor,
+        mirror: true,
+        zeroline: false,
+      },
+      yaxis: {
+        title: yTitle,
+        gridcolor: gridColor,
+        linecolor: axisColor,
+        mirror: true,
+        zerolinecolor: 'rgba(35, 48, 40, 0.35)',
+        zerolinewidth: 1,
+      },
+      showlegend: false,
     });
 
-    const zeroY = yToCanvas(0);
-    curvatureCtx.strokeStyle = 'rgba(35, 48, 40, 0.35)';
-    curvatureCtx.lineWidth = 1.2;
-    curvatureCtx.beginPath();
-    curvatureCtx.moveTo(padding.left, zeroY);
-    curvatureCtx.lineTo(padding.left + innerWidth, zeroY);
-    curvatureCtx.stroke();
-
+    const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
+    const curvatureLayout = makeLayout(260, 'Arc length s (m)', 'Curvature k (1/m)');
     if (maxCurvatureLimit > 0) {
-      [maxCurvatureLimit, -maxCurvatureLimit].forEach(limit => {
-        const y = yToCanvas(limit);
-        curvatureCtx.save();
-        curvatureCtx.setLineDash([6, 6]);
-        curvatureCtx.strokeStyle = 'rgba(217, 122, 43, 0.8)';
-        curvatureCtx.lineWidth = 1.2;
-        curvatureCtx.beginPath();
-        curvatureCtx.moveTo(padding.left, y);
-        curvatureCtx.lineTo(padding.left + innerWidth, y);
-        curvatureCtx.stroke();
-        curvatureCtx.restore();
-      });
+      curvatureLayout.shapes = [maxCurvatureLimit, -maxCurvatureLimit].map(limit => ({
+        type: 'line',
+        x0: 0,
+        x1: Math.max(profile.totalLength, 1e-6),
+        y0: limit,
+        y1: limit,
+        line: {
+          color: 'rgba(217, 122, 43, 0.8)',
+          dash: 'dash',
+          width: 1.5,
+        },
+      }));
     }
 
-    for (let idx = 0; idx < profile.arcLengths.length - 1; idx += 1) {
-      const x0 = xToCanvas(profile.arcLengths[idx]);
-      const y0 = yToCanvas(profile.curvatures[idx]);
-      const x1 = xToCanvas(profile.arcLengths[idx + 1]);
-      const y1 = yToCanvas(profile.curvatures[idx + 1]);
-      curvatureCtx.strokeStyle = profile.curvatures[idx] >= 0 ? 'rgba(191, 54, 87, 0.9)' : 'rgba(43, 113, 186, 0.9)';
-      curvatureCtx.lineWidth = 2.1;
-      curvatureCtx.beginPath();
-      curvatureCtx.moveTo(x0, y0);
-      curvatureCtx.lineTo(x1, y1);
-      curvatureCtx.stroke();
-    }
+    window.Plotly.react(
+      curvatureChart,
+      [{
+        x: profile.arcLengths,
+        y: profile.curvatures,
+        type: 'scatter',
+        mode: 'lines',
+        line: {color: 'rgba(191, 54, 87, 0.95)', width: 2.5},
+        hovertemplate: 's=%{x:.2f} m<br>k=%{y:.3f} 1/m<extra></extra>',
+      }],
+      curvatureLayout,
+      config
+    );
 
-    curvatureCtx.strokeStyle = 'rgba(35, 48, 40, 0.55)';
-    curvatureCtx.lineWidth = 1.4;
-    curvatureCtx.strokeRect(padding.left, padding.top, innerWidth, innerHeight);
+    window.Plotly.react(
+      dsChart,
+      [{
+        x: profile.segmentArcLengths,
+        y: profile.segmentLengths,
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: {color: 'rgba(20, 122, 106, 0.95)', width: 2.2},
+        marker: {size: 6, color: 'rgba(20, 122, 106, 0.95)'},
+        hovertemplate: 's=%{x:.2f} m<br>ds=%{y:.3f} m<extra></extra>',
+      }],
+      makeLayout(220, 'Segment midpoint s (m)', 'Spacing ds (m)'),
+      config
+    );
 
-    curvatureCtx.fillStyle = 'rgba(35, 48, 40, 0.82)';
-    curvatureCtx.font = '600 12px "Avenir Next", sans-serif';
-    curvatureCtx.textAlign = 'left';
-    curvatureCtx.textBaseline = 'top';
-    curvatureCtx.fillText('curvature (1/m)', padding.left, 2);
-    curvatureCtx.textAlign = 'right';
-    curvatureCtx.textBaseline = 'bottom';
-    curvatureCtx.fillText(`arc length 0 -> ${profile.totalLength.toFixed(2)} m`, padding.left + innerWidth, plotHeight - 4);
-    curvatureCtx.textAlign = 'left';
-    curvatureCtx.textBaseline = 'middle';
-    curvatureCtx.fillText(`${extent.toFixed(2)}`, 8, yToCanvas(extent));
-    curvatureCtx.fillText('0', 8, zeroY);
-    curvatureCtx.fillText(`${(-extent).toFixed(2)}`, 8, yToCanvas(-extent));
+    window.Plotly.react(
+      dkdsChart,
+      [{
+        x: profile.arcLengths,
+        y: profile.dkDs,
+        type: 'scatter',
+        mode: 'lines',
+        line: {color: 'rgba(217, 122, 43, 0.95)', width: 2.4},
+        hovertemplate: 's=%{x:.2f} m<br>dk/ds=%{y:.3f} 1/m^2<extra></extra>',
+      }],
+      makeLayout(220, 'Arc length s (m)', 'dk/ds (1/m^2)'),
+      config
+    );
 
     setText('curvature-state', 'chart ready');
-    setText('curvature-peak', formatCurvature(profile.peakAbs));
-    setText('curvature-mean', formatCurvature(profile.meanAbs));
-    setText('curvature-min', formatCurvature(profile.signedMin));
-    setText('curvature-max', formatCurvature(profile.signedMax));
+    setText('curvature-peak', formatCurvature(profile.curvatureStats.peakAbs));
+    setText('curvature-mean', formatCurvature(profile.curvatureStats.meanAbs));
+    setText('curvature-min', formatCurvature(profile.curvatureStats.signedMin));
+    setText('curvature-max', formatCurvature(profile.curvatureStats.signedMax));
     setText(
       'curvature-note',
-      `Signed curvature is estimated from local tangent change per metre along the optimized path. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} 1/m).`
+      `Curvature k(s), returned-point spacing ds, and curvature rate dk/ds are estimated from consecutive optimized path samples. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} 1/m). Mean ds: ${profile.dsStats.mean.toFixed(3)} m, peak |dk/ds|: ${profile.dkDsStats.peakAbs.toFixed(3)} 1/m^2.`
     );
   }
 
@@ -1623,6 +1793,143 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.restore();
   }
 
+  function resolvePoseHeading(xs, ys, thetas, index) {
+    if (thetas && Number.isFinite(thetas[index])) {
+      return thetas[index];
+    }
+
+    if (index < xs.length - 1) {
+      return Math.atan2(ys[index + 1] - ys[index], xs[index + 1] - xs[index]);
+    }
+    if (index > 0) {
+      return Math.atan2(ys[index] - ys[index - 1], xs[index] - xs[index - 1]);
+    }
+    return 0;
+  }
+
+  function buildRobotProjectionSampleIndices(xs, ys, config) {
+    if (!xs || xs.length === 0) {
+      return [];
+    }
+
+    const baseExtentM = config.mode === 'rectangle'
+      ? Math.max(config.lengthM, config.widthM)
+      : Math.max(config.pointRadiusM * 2, state.costmap?.resolution || 0.1);
+    const targetSpacingM = Math.max(baseExtentM * 0.9, 0.75);
+    const indices = [0];
+    let accumulated = 0;
+
+    for (let idx = 1; idx < xs.length; idx += 1) {
+      accumulated += Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+      if (accumulated >= targetSpacingM) {
+        indices.push(idx);
+        accumulated = 0;
+      }
+    }
+
+    if (indices[indices.length - 1] !== xs.length - 1) {
+      indices.push(xs.length - 1);
+    }
+
+    return indices;
+  }
+
+  function drawRobotProjectionAtPose(worldX, worldY, thetaRad, motionDirection, config, emphasize = false) {
+    const pixel = worldToCanvas(worldX, worldY);
+    const strokeColor = motionDirection === 'reverse'
+      ? ROBOT_PROJECTION_REVERSE_STROKE
+      : ROBOT_PROJECTION_FORWARD_STROKE;
+    const fillColor = motionDirection === 'reverse'
+      ? ROBOT_PROJECTION_REVERSE_FILL
+      : ROBOT_PROJECTION_FORWARD_FILL;
+    const headingLengthPx = config.mode === 'rectangle'
+      ? Math.max(metersToCanvas(config.lengthM) * 0.5 + 8, 12)
+      : Math.max(metersToCanvas(config.pointRadiusM) + 8, 12);
+
+    ctx.save();
+    ctx.translate(pixel.x, pixel.y);
+    ctx.rotate(-thetaRad);
+    ctx.lineWidth = emphasize ? 1.8 : 1.35;
+    ctx.strokeStyle = strokeColor;
+    ctx.fillStyle = fillColor;
+
+    if (config.mode === 'rectangle') {
+      const halfLengthPx = metersToCanvas(config.lengthM) * 0.5;
+      const halfWidthPx = metersToCanvas(config.widthM) * 0.5;
+      ctx.beginPath();
+      ctx.rect(-halfLengthPx, -halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(halfLengthPx, 0);
+      ctx.lineTo(halfLengthPx - Math.max(halfLengthPx * 0.28, 5), -Math.max(halfWidthPx * 0.52, 4));
+      ctx.lineTo(halfLengthPx - Math.max(halfLengthPx * 0.28, 5), Math.max(halfWidthPx * 0.52, 4));
+      ctx.closePath();
+      ctx.fillStyle = strokeColor;
+      ctx.fill();
+    } else {
+      const pointRadiusPx = metersToCanvas(config.pointRadiusM);
+      if (pointRadiusPx > 1.2) {
+        ctx.beginPath();
+        ctx.arc(0, 0, pointRadiusPx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = strokeColor;
+        ctx.fill();
+      }
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(headingLengthPx, 0);
+    ctx.strokeStyle = strokeColor;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(headingLengthPx, 0);
+    ctx.lineTo(headingLengthPx - 5.5, -3.5);
+    ctx.lineTo(headingLengthPx - 5.5, 3.5);
+    ctx.closePath();
+    ctx.fillStyle = strokeColor;
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawSmoothedRobotProjection(xs, ys, thetas) {
+    if (!state.layers.robotProjection || !xs || xs.length < 1) {
+      return;
+    }
+
+    const config = getRobotFootprintConfig();
+    const sampleIndices = buildRobotProjectionSampleIndices(xs, ys, config);
+    if (!sampleIndices.length) {
+      return;
+    }
+
+    sampleIndices.forEach((index, sampleIndex) => {
+      const thetaRad = resolvePoseHeading(xs, ys, thetas, index);
+      let motionDirection = 'forward';
+      if (index < xs.length - 1) {
+        motionDirection = getSegmentMotionDirection(thetaRad, xs[index + 1] - xs[index], ys[index + 1] - ys[index]);
+      } else if (index > 0) {
+        motionDirection = getSegmentMotionDirection(thetaRad, xs[index] - xs[index - 1], ys[index] - ys[index - 1]);
+      }
+
+      drawRobotProjectionAtPose(
+        xs[index],
+        ys[index],
+        thetaRad,
+        motionDirection,
+        config,
+        sampleIndex === 0 || sampleIndex === sampleIndices.length - 1
+      );
+    });
+  }
+
   function drawMarker(point, fillColor, text) {
     if (!point) {
       return;
@@ -1725,6 +2032,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (state.layers.reference) {
         drawPath(state.paths.ref_x, state.paths.ref_y, 'rgba(217, 122, 43, 0.5)', 2.2, true);
+      }
+      if (state.layers.robotProjection) {
+        drawSmoothedRobotProjection(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta);
       }
       if (state.layers.smoothed) {
         drawDirectionalSmoothedPath(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta, 2.8, true);

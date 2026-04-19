@@ -309,7 +309,7 @@ def plan_and_smooth():
         if footprint_mode not in {"point", "rectangle"}:
             footprint_mode = "point"
         hinge_loss_threshold_m = max(0.05, float(req.get("hinge_loss_threshold_m", 0.5)))
-        point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 0.0)))
+        point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 1.0)))
         robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
         robot_width_m = max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5)))
 
@@ -339,6 +339,10 @@ def plan_and_smooth():
             point_robot_radius_m if footprint_mode == "point" else 0.0
         )
         planner_params.cost_penalty_weight = planner_penalty_weight
+        planner_params.point_radius = point_robot_radius_m if footprint_mode == "point" else 0.0
+        planner_params.use_rectangular_footprint = footprint_mode == "rectangle"
+        planner_params.rectangular_length = robot_length_m if footprint_mode == "rectangle" else 0.0
+        planner_params.rectangular_width = robot_width_m if footprint_mode == "rectangle" else 0.0
         t0 = time.time()
         raw_path = planner.plan(
             planner_costmap,
