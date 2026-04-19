@@ -29,13 +29,13 @@ public:
     double last_to_current_length_ratio,
     bool reversing,
     const constrained_smoother::Costmap2D * costmap,
-    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>> &
-    costmap_interpolator,
+    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> &
+    esdf_interpolator,
     const constrained_smoother::SmootherParams & params,
     double costmap_weight)
   : SmootherCostFunction(
       original_pos, last_to_current_length_ratio, reversing,
-      costmap, costmap_interpolator,
+      costmap, esdf_interpolator,
       params, costmap_weight)
   {
   }
@@ -59,7 +59,7 @@ TEST(CostFunctionTest, CurvatureResidual)
   constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
   TestableSmootherCostFunction fn(
     Eigen::Vector2d(1.0, 0.0), 1.0, false,
-    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>>(),
+    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(),
     constrained_smoother::SmootherParams(), 0.0
   );
 
@@ -71,10 +71,30 @@ TEST(CostFunctionTest, CurvatureResidual)
   params_no_min.max_curvature = 1.0f / 0.0;
   TestableSmootherCostFunction fn2(
     Eigen::Vector2d(1.0, 0.0), 1.0, false,
-    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>>(),
+    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(),
     params_no_min, 0.0
   );
   EXPECT_EQ(fn2.getCurvatureResidual(1.0, pt, pt_other, pt_other), 0.0);
+}
+
+TEST(CostFunctionTest, CurvatureRateResidual)
+{
+  constrained_smoother::CurvatureRateCostFunction fn(2.0);
+
+  double pt_prev[2] = {0.0, 0.0};
+  double pt[2] = {1.0, 0.0};
+  double pt_next[2] = {2.0, 0.0};
+  double pt_next2[2] = {3.0, 0.0};
+  double residual[2] = {0.0, 0.0};
+
+  EXPECT_TRUE(fn(pt_prev, pt, pt_next, pt_next2, residual));
+  EXPECT_DOUBLE_EQ(residual[0], 0.0);
+  EXPECT_DOUBLE_EQ(residual[1], 0.0);
+
+  pt_next2[1] = 1.0;
+  EXPECT_TRUE(fn(pt_prev, pt, pt_next, pt_next2, residual));
+  EXPECT_DOUBLE_EQ(residual[0], 0.0);
+  EXPECT_DOUBLE_EQ(residual[1], 2.0);
 }
 
 TEST(UtilsTest, ArcCenterAndTangent)

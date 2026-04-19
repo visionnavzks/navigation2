@@ -39,6 +39,7 @@ struct SmootherParams
   double cusp_zone_length{0.0};
   double distance_weight_sqrt{0.0};
   double curvature_weight_sqrt{0.0};
+  double curvature_rate_weight_sqrt{0.0};
   double max_curvature{0.0};
   double max_time{10.0};
   double obstacle_safe_distance{0.5};

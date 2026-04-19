@@ -28,6 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     costmap_weight: value => Number(value).toFixed(3),
     distance_weight: value => Number(value).toFixed(1),
     curvature_weight: value => Number(value).toFixed(1),
+    curvature_rate_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
     reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),

@@ -58,6 +58,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "curvature_weight_sqrt",
     &constrained_smoother::SmootherParams::curvature_weight_sqrt)
+    .def_readwrite(
+    "curvature_rate_weight_sqrt",
+    &constrained_smoother::SmootherParams::curvature_rate_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
     .def_readwrite(
@@ -142,7 +145,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"),
-    "Smooth a path. Returns the smoothed path as a list of (x, y, direction) vectors.");
+    "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.");
 
   // --- Exceptions ---
   py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");

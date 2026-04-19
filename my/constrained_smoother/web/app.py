@@ -318,6 +318,7 @@ def plan_and_smooth():
         costmap_weight = float(req.get("costmap_weight", 1.0))
         distance_weight = float(req.get("distance_weight", 0.0))
         curvature_weight = float(req.get("curvature_weight", 30.0))
+        curvature_rate_weight = float(req.get("curvature_rate_weight", 5.0))
         max_curvature = float(req.get("max_curvature", 2.5))
         reference_spacing_target_m = min(
             2.0,
@@ -374,6 +375,7 @@ def plan_and_smooth():
         smoother_params.obstacle_safe_distance = planner_params.safe_distance
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
+        smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
         smoother_params.max_curvature = max_curvature
         smoother_params.max_time = 10.0
         smoother_params.keep_start_orientation = keep_start_orientation
@@ -442,6 +444,7 @@ def plan_and_smooth():
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
             "reference_spacing_target_m": round(reference_spacing_target_m, 3),
             "planner_penalty_weight": round(planner_penalty_weight, 3),
+            "curvature_rate_weight": round(curvature_rate_weight, 3),
             "start_yaw_deg": round(start_yaw_deg, 2),
             "goal_yaw_deg": round(goal_yaw_deg, 2),
             "keep_start_orientation": keep_start_orientation,

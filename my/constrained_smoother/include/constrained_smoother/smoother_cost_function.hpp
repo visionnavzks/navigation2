@@ -248,6 +248,44 @@ protected:
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_;
 };
 
+/**
+ * @brief D3 finite-difference proxy for curvature-rate smoothness.
+ */
+class CurvatureRateCostFunction
+{
+public:
+  explicit CurvatureRateCostFunction(double weight_sqrt)
+  : weight_sqrt_(weight_sqrt)
+  {
+  }
+
+  ceres::CostFunction * AutoDiff()
+  {
+    return new ceres::AutoDiffCostFunction<CurvatureRateCostFunction, 2, 2, 2, 2, 2>(this);
+  }
+
+  template<typename T>
+  bool operator()(
+    const T * const pt_prev,
+    const T * const pt,
+    const T * const pt_next,
+    const T * const pt_next2,
+    T * pt_residual) const
+  {
+    Eigen::Map<const Eigen::Matrix<T, 2, 1>> xi_prev(pt_prev);
+    Eigen::Map<const Eigen::Matrix<T, 2, 1>> xi(pt);
+    Eigen::Map<const Eigen::Matrix<T, 2, 1>> xi_next(pt_next);
+    Eigen::Map<const Eigen::Matrix<T, 2, 1>> xi_next2(pt_next2);
+    Eigen::Map<Eigen::Matrix<T, 2, 1>> residual(pt_residual);
+
+    residual = (T)weight_sqrt_ * (xi_next2 - (T)3.0 * xi_next + (T)3.0 * xi - xi_prev);
+    return true;
+  }
+
+protected:
+  double weight_sqrt_;
+};
+
 }  // namespace constrained_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__SMOOTHER_COST_FUNCTION_HPP_

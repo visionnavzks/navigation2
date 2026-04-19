@@ -221,6 +221,11 @@
             <p class="param-hint">Discourages high-curvature turns, especially around obstacle corners.</p>
           </div>
           <div class="param-group">
+            <label>Curvature-Rate Weight: <span id="val_curvature_rate_weight">5.0</span></label>
+            <input type="range" id="curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
+            <p class="param-hint">Applies a four-point D3 finite-difference penalty. Raise it to suppress sudden curvature changes without replacing the max-curvature constraint.</p>
+          </div>
+          <div class="param-group">
             <label>Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
             <input type="range" id="max_curvature" min="0.1" max="10.0" step="0.1" value="2.5">
             <p id="val_min_turn_radius" class="param-hint">Minimum turning radius: 0.40 m</p>

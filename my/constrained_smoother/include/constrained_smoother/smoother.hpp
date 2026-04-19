@@ -77,7 +77,8 @@ public:
 
   /**
    * @brief Smoother method
-   * @param path Reference to path (vector of (x, y, direction_sign))
+    * @param path Reference to path. On input it stores (x, y, direction_sign);
+    * on output the third component is overwritten with yaw in radians.
    * @param start_dir Orientation of the first pose
    * @param end_dir Orientation of the last pose
    * @param costmap Pointer to Costmap2D
@@ -151,6 +152,7 @@ private:
     applyEndpointOrientationAnchors(path_optim, start_dir, end_dir, params);
     optimized = std::vector<bool>(path.size());
     optimized[0] = true;
+    int preprelast_i = -1;
     int prelast_i = -1;
     int last_i = 0;
     double last_direction = path_optim[0][2];
@@ -232,12 +234,27 @@ private:
           cost_function->AutoDiff(), loss_function,
           path_optim[last_i].data(), pt.data(), path_optim[prelast_i].data());
 
+        if (params.curvature_rate_weight_sqrt > 0.0 &&
+          preprelast_i != -1 &&
+          path_optim[preprelast_i][2] * path_optim[prelast_i][2] > 0.0 &&
+          path_optim[prelast_i][2] * path_optim[last_i][2] > 0.0 &&
+          path_optim[last_i][2] * pt[2] > 0.0)
+        {
+          CurvatureRateCostFunction * curvature_rate_cost_function =
+            new CurvatureRateCostFunction(params.curvature_rate_weight_sqrt);
+          problem.AddResidualBlock(
+            curvature_rate_cost_function->AutoDiff(), loss_function,
+            path_optim[preprelast_i].data(), path_optim[prelast_i].data(),
+            path_optim[last_i].data(), pt.data());
+        }
+
         potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
       }
 
       // shift current to last and last to pre-last
       last_was_cusp = is_cusp;
       last_is_reversing = last_direction < 0;
+      preprelast_i = prelast_i;
       prelast_i = last_i;
       last_i = i;
       len_since_cusp += current_segment_len;
