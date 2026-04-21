@@ -71,3 +71,4 @@ Session.vim
 # Vim Temporary
 .netrwhist
 .DS_Store
+my/constrained_smoother/build-py313
