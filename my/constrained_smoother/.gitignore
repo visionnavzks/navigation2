@@ -1,5 +1,7 @@
 # Build artifacts
 build/
+build-py*/
+.venv/
 *.so
 *.pyd
 __pycache__/

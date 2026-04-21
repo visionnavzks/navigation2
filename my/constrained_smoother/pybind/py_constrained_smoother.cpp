@@ -10,6 +10,7 @@
 #include "constrained_smoother/options.hpp"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/exceptions.hpp"
+#include "constrained_smoother/esdf.hpp"
 
 #include <vector>
 #include <cmath>
@@ -63,6 +64,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     &constrained_smoother::SmootherParams::curvature_rate_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
+    .def_readwrite("use_exact_esdf", &constrained_smoother::SmootherParams::use_exact_esdf)
     .def_readwrite(
     "obstacle_safe_distance",
     &constrained_smoother::SmootherParams::obstacle_safe_distance)
@@ -98,6 +100,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   py::class_<constrained_smoother::AStarPlannerParams>(m, "AStarPlannerParams")
     .def(py::init<>())
     .def_readwrite("lethal_cost", &constrained_smoother::AStarPlannerParams::lethal_cost)
+    .def_readwrite("use_exact_esdf", &constrained_smoother::AStarPlannerParams::use_exact_esdf)
     .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
     .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
     .def_readwrite("point_radius", &constrained_smoother::AStarPlannerParams::point_radius)
@@ -125,9 +128,23 @@ PYBIND11_MODULE(py_constrained_smoother, m)
 
   m.def(
     "compute_esdf",
+    [](const constrained_smoother::Costmap2D & costmap, unsigned char lethal_cost, bool use_exact)
+    {
+      return constrained_smoother::ESDF::ComputeESDF(
+        &costmap,
+        lethal_cost,
+        use_exact ? constrained_smoother::ESDFAlgorithm::Exact :
+        constrained_smoother::ESDFAlgorithm::Approximate);
+    },
+    py::arg("costmap"),
+    py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE,
+    py::arg("use_exact") = true);
+
+  m.def(
+    "compute_approximate_esdf",
     [](const constrained_smoother::Costmap2D & costmap, unsigned char lethal_cost)
     {
-      return constrained_smoother::AStarPlanner::ComputeESDF(&costmap, lethal_cost);
+      return constrained_smoother::ESDF::ComputeApproximateESDF(&costmap, lethal_cost);
     },
     py::arg("costmap"),
     py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE);

@@ -9,6 +9,10 @@ set(CMAKE_BUILD_TYPE Release)  # significant Ceres optimization speedup
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
 
+# Include distance_transform library
+include_directories(./distance_transform/include)
+include_directories(./distance_transform/extern/DopeVector/include)
+
 # Check Ceres version for API compatibility
 if(${CERES_VERSION} VERSION_LESS_EQUAL 2.0.0)
   add_compile_definitions(USE_OLD_CERES_API)

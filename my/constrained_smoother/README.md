@@ -36,6 +36,15 @@ These are the most important behavior contracts in the current standalone implem
 - pybind11 (optional, for Python bindings)
 - Flask and NumPy (optional, for the Web Lab)
 
+## ESDF Backends
+
+The standalone project now keeps two ESDF implementations:
+
+- `Exact` uses the vendored `distance_transform` implementation of the Felzenszwalb/Huttenlocher algorithm.
+- `Approximate` keeps the older 8-neighbor propagation implementation as a simpler fallback.
+
+Planner, smoother, and Python `compute_esdf()` calls now default to the exact backend. The simpler backend is still available for comparison and debugging.
+
 ## Build
 
 ```bash
@@ -55,6 +64,15 @@ cmake --build . --parallel
 ```
 
 This produces `py_constrained_smoother.*.so` in `build/`.
+
+### Build and run the Web Lab
+
+```bash
+./run_web_app.sh
+```
+
+The script creates a local uv-managed virtual environment, installs the Python dependencies needed by the Web Lab, rebuilds and installs the pybind11 module, and then starts the Flask app on port 5002.
+It disables Flask's code reloader by default so the freshly rebuilt Python extension is not hot-reloaded while the shared object is still being replaced.
 
 ## Run Tests
 

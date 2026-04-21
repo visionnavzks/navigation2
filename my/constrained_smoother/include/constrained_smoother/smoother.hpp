@@ -139,7 +139,10 @@ private:
     std::vector<Eigen::Vector3d> & path_optim,
     std::vector<bool> & optimized)
   {
-    esdf_values_ = AStarPlanner::ComputeESDF(costmap, Costmap2D::LETHAL_OBSTACLE);
+    esdf_values_ = AStarPlanner::ComputeESDF(
+      costmap,
+      Costmap2D::LETHAL_OBSTACLE,
+      params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
     esdf_grid_ = std::make_shared<ceres::Grid2D<double>>(
       esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
     auto esdf_interpolator =

@@ -31,6 +31,14 @@ if os.path.isdir(_build_dir):
 import py_constrained_smoother as pcs  # noqa: E402
 from astar import downsample_path  # noqa: E402
 
+
+def _env_flag(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -468,4 +476,9 @@ def plan_and_smooth():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(
+        host=os.environ.get("CS_WEBAPP_HOST", "127.0.0.1"),
+        port=int(os.environ.get("CS_WEBAPP_PORT", "5002")),
+        debug=_env_flag("CS_WEBAPP_DEBUG", True),
+        use_reloader=_env_flag("CS_WEBAPP_RELOADER", False),
+    )
