@@ -140,15 +140,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE,
     py::arg("use_exact") = true);
 
-  m.def(
-    "compute_approximate_esdf",
-    [](const constrained_smoother::Costmap2D & costmap, unsigned char lethal_cost)
-    {
-      return constrained_smoother::ESDF::ComputeApproximateESDF(&costmap, lethal_cost);
-    },
-    py::arg("costmap"),
-    py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
-
   // --- Smoother ---
   py::class_<constrained_smoother::Smoother>(m, "Smoother")
     .def(py::init<>())

@@ -182,37 +182,10 @@ def _compute_esdf_grid(costmap):
     if not HAS_COMPUTE_ESDF:
         return None
 
-    outside_esdf = np.asarray(
+    return np.asarray(
         pcs.compute_esdf(costmap, pcs.Costmap2D.LETHAL_OBSTACLE),
         dtype=np.float64,
     ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
-
-    # Build an inverted occupancy map so occupied cells measure distance to the nearest free cell.
-    inside_costmap = pcs.Costmap2D(
-        DEFAULT_SIZE_X,
-        DEFAULT_SIZE_Y,
-        DEFAULT_RESOLUTION,
-        DEFAULT_ORIGIN_X,
-        DEFAULT_ORIGIN_Y,
-    )
-    for my in range(DEFAULT_SIZE_Y):
-        for mx in range(DEFAULT_SIZE_X):
-            is_obstacle = costmap.getCost(mx, my) >= pcs.Costmap2D.LETHAL_OBSTACLE
-            inside_costmap.setCost(
-                mx,
-                my,
-                pcs.Costmap2D.FREE_SPACE if is_obstacle else pcs.Costmap2D.LETHAL_OBSTACLE,
-            )
-
-    inside_esdf = np.asarray(
-        pcs.compute_esdf(inside_costmap, pcs.Costmap2D.LETHAL_OBSTACLE),
-        dtype=np.float64,
-    ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
-
-    signed_esdf = outside_esdf.copy()
-    obstacle_mask = np.asarray(COSTMAP_GRID >= pcs.Costmap2D.LETHAL_OBSTACLE)
-    signed_esdf[obstacle_mask] = -inside_esdf[obstacle_mask]
-    return signed_esdf
 
 
 PCS_COSTMAP = None

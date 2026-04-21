@@ -139,7 +139,7 @@ private:
     std::vector<Eigen::Vector3d> & path_optim,
     std::vector<bool> & optimized)
   {
-    esdf_values_ = AStarPlanner::ComputeESDF(
+    esdf_values_ = ESDF::ComputeESDF(
       costmap,
       Costmap2D::LETHAL_OBSTACLE,
       params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);

@@ -43,7 +43,7 @@ The standalone project now keeps two ESDF implementations:
 - `Exact` uses the vendored `distance_transform` implementation of the Felzenszwalb/Huttenlocher algorithm.
 - `Approximate` keeps the older 8-neighbor propagation implementation as a simpler fallback.
 
-Planner, smoother, and Python `compute_esdf()` calls now default to the exact backend. The simpler backend is still available for comparison and debugging.
+Public `compute_esdf()` now means signed ESDF. Planner and smoother both use the same signed distance semantics, while the simpler backend remains available through the `use_exact` switch for comparison and debugging.
 
 ## Build
 
