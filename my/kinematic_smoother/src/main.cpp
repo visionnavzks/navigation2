@@ -14,6 +14,7 @@
 //   obstacles (optional)    : array of {x_min, y_min, x_max, y_max}
 //   esdf (optional)         : {resolution, origin_x, origin_y, width, height, data:[...]}
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>

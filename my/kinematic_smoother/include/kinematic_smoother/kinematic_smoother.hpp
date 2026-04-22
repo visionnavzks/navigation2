@@ -170,57 +170,72 @@ public:
     const double sw_ds    = std::sqrt(2.0 * params.w_ds);
     const double sw_esdf  = std::sqrt(2.0 * params.w_esdf);
 
+    // Collect residual block IDs per cost category for post-solve evaluation
+    std::vector<ceres::ResidualBlockId> rb_kinematic;
+    std::vector<ceres::ResidualBlockId> rb_ref;
+    std::vector<ceres::ResidualBlockId> rb_smooth;
+    std::vector<ceres::ResidualBlockId> rb_kappa;
+    std::vector<ceres::ResidualBlockId> rb_ds;
+    std::vector<ceres::ResidualBlockId> rb_esdf;
+
     // --- 4a. Kinematic / virtual defects ---
     for (int i = 0; i < M; ++i) {
+      ceres::ResidualBlockId id;
       if (is_virtual[i]) {
-        problem.AddResidualBlock(
+        id = problem.AddResidualBlock(
           VirtualSegmentCost::Create(sw_kin),
           nullptr,
           states[i].data(), states[i + 1].data());
       } else {
-        problem.AddResidualBlock(
+        id = problem.AddResidualBlock(
           KinematicDefectCost::Create(gears[i], sw_kin),
           nullptr,
           states[i].data(), states[i + 1].data(), controls[i].data());
       }
+      rb_kinematic.push_back(id);
     }
 
     // --- 4b. Reference tracking ---
     for (int i = 0; i < N; ++i) {
-      problem.AddResidualBlock(
+      auto id = problem.AddResidualBlock(
         ReferenceTrackingCost::Create(
           x_ref[i], y_ref[i], theta_ref[i], sw_ref, sw_ref),
         nullptr,
         states[i].data());
+      rb_ref.push_back(id);
     }
 
     // --- 4c. Smoothness, step-size uniformity ---
     for (int i = 0; i < M; ++i) {
       if (is_virtual[i]) {continue;}
-      problem.AddResidualBlock(
+      auto id_s = problem.AddResidualBlock(
         SmoothnessCost::Create(sw_dk),
         nullptr, controls[i].data());
-      problem.AddResidualBlock(
+      rb_smooth.push_back(id_s);
+      auto id_d = problem.AddResidualBlock(
         StepSizeUniformityCost::Create(target_ds_mag, sw_ds),
         nullptr, controls[i].data());
+      rb_ds.push_back(id_d);
     }
 
     // --- 4d. Curvature ---
     for (int i = 0; i < N; ++i) {
-      problem.AddResidualBlock(
+      auto id = problem.AddResidualBlock(
         CurvatureCost::Create(sw_kappa),
         nullptr, states[i].data());
+      rb_kappa.push_back(id);
     }
 
     // --- 4e. ESDF obstacle avoidance ---
     if (esdf && esdf->valid() && params.w_esdf > 1e-8) {
       for (int i = 0; i < N; ++i) {
-        problem.AddResidualBlock(
+        auto id = problem.AddResidualBlock(
           ESDFCost::Create(
             sw_esdf, params.esdf_safe_distance,
             esdf->originX(), esdf->originY(), esdf->resolution(),
             esdf->interpolator()),
           nullptr, states[i].data());
+        rb_esdf.push_back(id);
       }
     }
 
@@ -319,9 +334,7 @@ public:
     // ---------------------------------------------------------------
     result.costs.total = summary.final_cost * 2.0;  // Ceres stores 0.5*sum(r^2)
 
-    // Evaluate individual cost groups
-    auto evalGroup = [&](
-      const std::vector<ceres::ResidualBlockId> & ids) -> double
+    auto evalGroup = [&](const std::vector<ceres::ResidualBlockId> & ids) -> double
     {
       double cost = 0.0;
       for (auto id : ids) {
@@ -331,7 +344,13 @@ public:
       }
       return cost * 2.0;
     };
-    (void)evalGroup;  // suppress unused warning if not used
+
+    result.costs.kinematic = evalGroup(rb_kinematic);
+    result.costs.ref       = evalGroup(rb_ref);
+    result.costs.smooth    = evalGroup(rb_smooth);
+    result.costs.kappa     = evalGroup(rb_kappa);
+    result.costs.ds        = evalGroup(rb_ds);
+    result.costs.esdf      = evalGroup(rb_esdf);
 
     return result;
   }
