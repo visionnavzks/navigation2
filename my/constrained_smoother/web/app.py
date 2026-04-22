@@ -323,6 +323,9 @@ def plan_and_smooth():
         path_downsample = max(1, int(req.get("path_downsampling_factor", 1)))
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
+        optimizer_type = str(req.get("optimizer_type", "constrained_smoother")).strip().lower()
+        if optimizer_type not in {"constrained_smoother", "kinematic_simple"}:
+            optimizer_type = "constrained_smoother"
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
             linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
@@ -403,7 +406,15 @@ def plan_and_smooth():
         opt_params.fn_tol = fn_tol
         opt_params.gradient_tol = gradient_tol
 
-        smoother = pcs.Smoother()
+        optimizer_label = (
+            "Kinematic Simple"
+            if optimizer_type == "kinematic_simple"
+            else "Constrained Smoother"
+        )
+        if optimizer_type == "kinematic_simple":
+            smoother = pcs.SimpleKinematicSmoother()
+        else:
+            smoother = pcs.Smoother()
         smoother.initialize(opt_params)
 
         t1 = time.time()
@@ -463,6 +474,8 @@ def plan_and_smooth():
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
             "reference_spacing_target_m": round(reference_spacing_target_m, 3),
             "planner_penalty_weight": round(planner_penalty_weight, 3),
+            "optimizer_type": optimizer_type,
+            "optimizer_label": optimizer_label,
             "curvature_rate_weight": round(curvature_rate_weight, 3),
             "start_yaw_deg": round(start_yaw_deg, 2),
             "goal_yaw_deg": round(goal_yaw_deg, 2),

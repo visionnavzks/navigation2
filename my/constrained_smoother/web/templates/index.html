@@ -290,12 +290,20 @@
         <details class="details-card">
           <summary>Solver</summary>
           <div class="param-group">
+            <label for="optimizer_type">Optimizer Backend</label>
+            <select id="optimizer_type">
+              <option value="constrained_smoother" selected>Constrained Smoother</option>
+              <option value="kinematic_simple">Kinematic Simple</option>
+            </select>
+            <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
+          </div>
+          <div class="param-group">
             <label for="linear_solver_type">Linear Solver</label>
             <select id="linear_solver_type">
               <option value="SPARSE_NORMAL_CHOLESKY" selected>SPARSE_NORMAL_CHOLESKY</option>
               <option value="DENSE_QR">DENSE_QR</option>
             </select>
-            <p class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
+            <p id="linear-solver-hint" class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
           </div>
           <label class="constraint-toggle" for="optimizer_debug">
             <input type="checkbox" id="optimizer_debug">
@@ -415,6 +423,10 @@
           </div>
 
           <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label">Optimizer</span>
+              <strong id="info-optimizer">--</strong>
+            </div>
             <div class="metric-card subtle">
               <span class="metric-label">A* Time</span>
               <strong id="info-astar-time">--</strong>

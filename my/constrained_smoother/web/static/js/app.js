@@ -13,6 +13,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const mapDisplayModeSelect = document.getElementById('map-display-mode');
   const esdfColormapSelect = document.getElementById('esdf-colormap');
   const footprintModeSelect = document.getElementById('footprint_mode');
+  const optimizerTypeSelect = document.getElementById('optimizer_type');
+  const linearSolverTypeSelect = document.getElementById('linear_solver_type');
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
@@ -46,7 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     gradient_tol: value => formatScientific(value),
   };
   const numericInputs = Object.keys(numericInputConfig);
-  const selectParamIds = ['linear_solver_type'];
+  const selectParamIds = ['optimizer_type', 'linear_solver_type'];
   const checkboxParamIds = ['optimizer_debug'];
 
   const sliders = Object.keys(sliderConfig);
@@ -61,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const planInfoIds = [
-    'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-knots', 'info-opt-pts',
+    'info-optimizer', 'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-knots', 'info-opt-pts',
     'info-ref-spacing', 'info-raw-length', 'info-ref-length', 'info-opt-length', 'info-length-delta',
   ];
   const AUTO_REPLAN_DELAY_MS = 220;
@@ -221,6 +223,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (optimizerTypeSelect) {
+    optimizerTypeSelect.addEventListener('change', () => {
+      updateOptimizerUi();
+    });
+  }
+
   ['keep_start_orientation', 'keep_goal_orientation'].forEach(id => {
     const input = document.getElementById(id);
     if (!input) {
@@ -284,6 +292,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  function updateOptimizerUi() {
+    const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
+    const isConstrainedSmoother = optimizerType === 'constrained_smoother';
+
+    if (linearSolverTypeSelect) {
+      linearSolverTypeSelect.disabled = !isConstrainedSmoother;
+    }
+
+    setText(
+      'optimizer-mode-hint',
+      isConstrainedSmoother
+        ? 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.'
+        : 'Kinematic Simple uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.'
+    );
+    setText(
+      'linear-solver-hint',
+      isConstrainedSmoother
+        ? 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.'
+        : 'Only used by Constrained Smoother. Kinematic Simple solves a single packed state vector with a dense backend.'
+    );
+  }
+
   function updateRobotConfigUi() {
     const mode = footprintModeSelect ? footprintModeSelect.value : 'point';
     const pointRobotRadiusInput = document.getElementById('point_robot_radius_m');
@@ -316,6 +346,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
+    updateOptimizerUi();
   function formatMeters(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
@@ -1416,6 +1447,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
+    setText('info-optimizer', data.optimizer_label || '--');
     setText('info-astar-time', `${data.astar_time_ms} ms`);
     setText('info-smooth-time', `${data.smooth_time_ms} ms`);
     setText('info-astar-pts', String(data.num_astar_pts));
@@ -1433,12 +1465,17 @@ document.addEventListener('DOMContentLoaded', () => {
       : `${deltaValue >= 0 ? '+' : ''}${deltaValue.toFixed(2)} m`;
     setText('info-length-delta', deltaText);
 
-    setText('smooth-state', data.smooth_success ? 'smooth success' : 'fallback to ref');
+    setText(
+      'smooth-state',
+      data.smooth_success
+        ? `${data.optimizer_label || 'optimizer'} success`
+        : `${data.optimizer_label || 'optimizer'} fallback`
+    );
     setText(
       'run-note',
       data.smooth_success
-        ? 'Compare the raw, reference, and smoothed path lengths while toggling layers to inspect how the optimizer changed geometry.'
-        : `Smoothing failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
+        ? `${data.optimizer_label || 'The selected optimizer'} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.`
+        : `${data.optimizer_label || 'The selected optimizer'} failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
     );
     drawCurvatureChart();
   }
@@ -2210,10 +2247,11 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       updateOptimizedPointInspector();
       updateRunInfo(data);
+      const optimizerLabel = data.optimizer_label || 'Optimizer';
       setStatus(
         data.smooth_success
-          ? `Run complete. A* ${data.astar_time_ms} ms, smoothing ${data.smooth_time_ms} ms.`
-          : `A* succeeded in ${data.astar_time_ms} ms, but smoothing failed so the reference path is shown.`,
+          ? `${optimizerLabel} complete. A* ${data.astar_time_ms} ms, smoothing ${data.smooth_time_ms} ms.`
+          : `A* succeeded in ${data.astar_time_ms} ms, but ${optimizerLabel} failed so the reference path is shown.`,
         data.smooth_success ? 'ok' : 'error'
       );
       draw();
