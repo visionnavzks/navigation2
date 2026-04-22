@@ -265,14 +265,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Attach click handler for placing obstacles
         const pathChart = document.getElementById('path-chart');
-        pathChart.removeAllListeners?.('plotly_click');
-        pathChart.on('plotly_click', (ev) => {
+        if (pathChart._obstacleHandler) {
+            pathChart.removeListener('plotly_click', pathChart._obstacleHandler);
+        }
+        pathChart._obstacleHandler = (ev) => {
             if (!ev.points || !ev.points.length) return;
             const pt = ev.points[0];
             const hw = 0.5;
             state.obstacles.push({ x_min: pt.x - hw, y_min: pt.y - hw, x_max: pt.x + hw, y_max: pt.y + hw });
             runOptimization({ keepCustomReference: state.reference.isCustom });
-        });
+        };
+        pathChart.on('plotly_click', pathChart._obstacleHandler);
 
         if (data.kappa_opt && data.kappa_opt.length) {
             Plotly.newPlot('kappa-chart', [{

@@ -136,16 +136,17 @@ private:
     v.type = Number;
     size_t start = pos_;
     if (peek() == '-') {next();}
-    while (std::isdigit(peek()) || peek() == '.' || peek() == 'e' ||
-           peek() == 'E' || peek() == '+' || peek() == '-')
-    {
-      // Avoid consuming '-' that is part of a minus in "1e-5" vs next number.
-      // After first char, only consume '-' if preceded by 'e'/'E'.
-      if ((peek() == '-' || peek() == '+') && pos_ > start) {
-        char prev = s_[pos_ - 1];
-        if (prev != 'e' && prev != 'E') {break;}
-      }
+    // Consume digits, decimal point
+    while (std::isdigit(peek())) {next();}
+    if (peek() == '.') {
       next();
+      while (std::isdigit(peek())) {next();}
+    }
+    // Consume exponent
+    if (peek() == 'e' || peek() == 'E') {
+      next();
+      if (peek() == '+' || peek() == '-') {next();}
+      while (std::isdigit(peek())) {next();}
     }
     v.number = std::stod(s_.substr(start, pos_ - start));
     return v;
