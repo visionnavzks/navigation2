@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Path Smoother Tuner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Path Smoother Tuning Dashboard</h1>
+            <p>Dynamically adjust weights and constraints for nonlinear path optimization</p>
+        </header>
+
+        <div class="main-layout">
+            <aside class="sidebar glass-panel">
+                <h2>Parameters</h2>
+                <form id="tune-form">
+
+                    <!-- ===== Backend Selector ===== -->
+                    <details open>
+                        <summary>Smoother Backend</summary>
+                        <div class="param-group">
+                            <label for="backend">Engine:</label>
+                            <select id="backend" class="select-input">
+                                <option value="python" {% if python_available %}selected{% endif %}
+                                        {% if not python_available %}disabled{% endif %}>
+                                    Kinematic (Python / CasADi)
+                                </option>
+                                <option value="ceres"
+                                        {% if not ceres_available %}disabled{% endif %}>
+                                    Kinematic (C++ / Ceres)
+                                </option>
+                            </select>
+                        </div>
+                    </details>
+
+                    <!-- ===== Start State ===== -->
+                    <details open>
+                        <summary>Start State</summary>
+                        <div class="param-group">
+                            <label>X (m): <span id="val_start_x">0.00</span></label>
+                            <input type="range" id="start_x" min="-5.0" max="25.0" step="0.1" value="0.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Y (m): <span id="val_start_y">0.00</span></label>
+                            <input type="range" id="start_y" min="-10.0" max="10.0" step="0.1" value="0.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Theta (rad): <span id="val_start_theta">0.00</span></label>
+                            <input type="range" id="start_theta" min="-3.14" max="3.14" step="0.01" value="0.0">
+                        </div>
+                        <div class="param-group checkbox-group">
+                            <label for="fix_start_kappa">Fix Start Curvature:</label>
+                            <input type="checkbox" id="fix_start_kappa" checked>
+                        </div>
+                        <div class="param-group" id="start_kappa_container">
+                            <label>Start Curvature (1/m): <span id="val_start_kappa">0.00</span></label>
+                            <input type="range" id="start_kappa" min="-0.6" max="0.6" step="0.01" value="0.0">
+                        </div>
+                    </details>
+
+                    <!-- ===== Goal State ===== -->
+                    <details open>
+                        <summary>Goal State</summary>
+                        <div class="param-group">
+                            <label>X (m): <span id="val_goal_x">20.00</span></label>
+                            <input type="range" id="goal_x" min="-5.0" max="25.0" step="0.1" value="20.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Y (m): <span id="val_goal_y">0.00</span></label>
+                            <input type="range" id="goal_y" min="-10.0" max="10.0" step="0.1" value="0.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Theta (rad): <span id="val_goal_theta">0.00</span></label>
+                            <input type="range" id="goal_theta" min="-3.14" max="3.14" step="0.01" value="0.0">
+                        </div>
+                    </details>
+
+                    <!-- ===== Algorithm Parameters ===== -->
+                    <details open>
+                        <summary>Algorithm Parameters</summary>
+                        <div class="param-group">
+                            <label>Max Curvature (1/m): <span id="val_max_kappa">0.5</span></label>
+                            <input type="range" id="max_kappa" min="0.05" max="2.0" step="0.05" value="0.5">
+                        </div>
+                        <div class="param-group">
+                            <label>Target Spacing (m): <span id="val_target_ds">0.40</span></label>
+                            <input type="range" id="target_ds" min="0.0" max="1.5" step="0.05" value="0.4">
+                        </div>
+                        <div class="param-group">
+                            <label>DS Min Ratio: <span id="val_ds_min_ratio">0.05</span></label>
+                            <input type="range" id="ds_min_ratio" min="0.01" max="1.0" step="0.01" value="0.05">
+                        </div>
+                        <div class="param-group">
+                            <label>DS Max Ratio: <span id="val_ds_max_ratio">2.00</span></label>
+                            <input type="range" id="ds_max_ratio" min="1.0" max="5.0" step="0.1" value="2.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Ref Weight (w_ref): <span id="val_w_ref">10.0</span></label>
+                            <input type="range" id="w_ref" min="0.0" max="50.0" step="1.0" value="10.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Smooth Weight (w_dkappa): <span id="val_w_dkappa">10.0</span></label>
+                            <input type="range" id="w_dkappa" min="0.0" max="50.0" step="1.0" value="10.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Curvature Weight (w_kappa): <span id="val_w_kappa">0.1</span></label>
+                            <input type="range" id="w_kappa" min="0.0" max="10.0" step="0.1" value="0.1">
+                        </div>
+                        <div class="param-group">
+                            <label>Step Weight (w_ds): <span id="val_w_ds">1.0</span></label>
+                            <input type="range" id="w_ds" min="0.0" max="20.0" step="0.5" value="1.0">
+                        </div>
+                        <div class="param-group checkbox-group">
+                            <label for="use_dubins">Dubins Initialization:</label>
+                            <input type="checkbox" id="use_dubins" checked>
+                        </div>
+                    </details>
+
+                    <!-- ===== Ceres-only Parameters ===== -->
+                    <details id="ceres-params-section" class="backend-ceres" style="display:none;">
+                        <summary>Ceres Parameters</summary>
+                        <div class="param-group">
+                            <label>Kinematic Weight: <span id="val_w_kinematic">1000</span></label>
+                            <input type="range" id="w_kinematic" min="10" max="10000" step="10" value="1000">
+                        </div>
+                        <div class="param-group">
+                            <label>Max Iterations: <span id="val_ceres_max_iter">500</span></label>
+                            <input type="range" id="ceres_max_iter" min="10" max="2000" step="10" value="500">
+                        </div>
+                        <div class="param-group">
+                            <label>Tolerance (log10): <span id="val_ceres_tol">1.0e-6</span></label>
+                            <input type="range" id="ceres_tol_log" min="-12" max="-2" step="1" value="-6">
+                            <input type="hidden" id="ceres_tol" value="1e-6">
+                        </div>
+                    </details>
+
+                    <!-- ===== IPOPT Parameters (Python only) ===== -->
+                    <details id="ipopt-params-section" class="backend-python">
+                        <summary>CasADi Solver</summary>
+                        <div class="param-group">
+                            <label>Max Iterations: <span id="val_ipopt_max_iter">500</span></label>
+                            <input type="range" id="ipopt_max_iter" min="10" max="2000" step="10" value="500">
+                        </div>
+                        <div class="param-group">
+                            <label>Tolerance (log10): <span id="val_ipopt_tol">1.0e-6</span></label>
+                            <input type="range" id="ipopt_tol_log" min="-12" max="-2" step="1" value="-6">
+                            <input type="hidden" id="ipopt_tol" value="1e-6">
+                        </div>
+                        <div class="param-group">
+                            <label>Print Level: <span id="val_ipopt_print_level">0</span></label>
+                            <input type="range" id="ipopt_print_level" min="0" max="5" step="1" value="0">
+                        </div>
+                    </details>
+
+                    <!-- ===== ESDF / Obstacles ===== -->
+                    <details id="esdf-section">
+                        <summary>ESDF / Obstacles</summary>
+                        <div class="param-group">
+                            <label>ESDF Weight (w_esdf): <span id="val_w_esdf">0.0</span></label>
+                            <input type="range" id="w_esdf" min="0.0" max="100.0" step="1.0" value="0.0">
+                        </div>
+                        <div class="param-group">
+                            <label>Safe Distance (m): <span id="val_esdf_safe_distance">0.50</span></label>
+                            <input type="range" id="esdf_safe_distance" min="0.0" max="3.0" step="0.1" value="0.5">
+                        </div>
+                        <p class="editor-hint">
+                            Click on the path chart to add rectangular obstacles (1m × 1m).
+                            Right-click an obstacle to remove it.
+                        </p>
+                        <button type="button" id="clear-obstacles-btn" class="ghost-btn">Clear All Obstacles</button>
+                    </details>
+
+                    <button type="button" id="run-btn" class="glow-btn">Run Optimization</button>
+                    <div id="status-msg" class="status-msg"></div>
+                </form>
+            </aside>
+
+            <section class="charts glass-panel">
+                <!-- Reference editor -->
+                <div class="reference-editor-panel glass-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>Reference Path Editor</h2>
+                            <p class="panel-subtitle">Drag any reference point to perturb the initial path.</p>
+                        </div>
+                        <div class="panel-actions">
+                            <span id="reference-editor-state" class="panel-pill">Generated Reference</span>
+                            <button type="button" id="reset-reference-btn" class="ghost-btn" disabled>Reset Edited Path</button>
+                        </div>
+                    </div>
+                    <div id="reference-editor-chart" class="chart-container editor-chart"></div>
+                    <p class="editor-hint">Zoom, pan, box-select, and double-click reset are disabled in this panel so point dragging stays predictable.</p>
+                </div>
+
+                <!-- Info bar -->
+                <div class="top-info-bar">
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Backend:</span>
+                            <span id="display-backend" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Turning Radius:</span>
+                            <span id="display-turning-radius" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Target ds:</span>
+                            <span id="display-target-ds" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Points:</span>
+                            <span id="display-num-points" class="value">--</span>
+                            <span class="unit">pts</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Rotation:</span>
+                            <span id="display-total-rotation" class="value">--</span>
+                            <span class="unit">°</span>
+                        </div>
+                    </div>
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Ref Length:</span>
+                            <span id="display-ref-length" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Opt Length:</span>
+                            <span id="display-path-length" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Avg ds:</span>
+                            <span id="display-avg-ds" class="value">--</span>
+                            <span class="unit">m</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Total Cost:</span>
+                            <span id="display-cost-total" class="value">--</span>
+                        </div>
+                    </div>
+                    <div class="info-row">
+                        <div class="info-badge">
+                            <span class="label">Ref Cost:</span>
+                            <span id="display-cost-ref" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Smooth Cost:</span>
+                            <span id="display-cost-smooth" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Kappa Cost:</span>
+                            <span id="display-cost-kappa" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">DS Cost:</span>
+                            <span id="display-cost-ds" class="value">--</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="info-badge">
+                            <span class="label">Solve Time:</span>
+                            <span id="display-solve-time" class="value">--</span>
+                            <span class="unit">ms</span>
+                        </div>
+                    </div>
+                    <div class="info-row divider-top">
+                        <div id="dubins-commands-list" class="commands-hbar">
+                            <p class="empty-msg">No path generated yet.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div id="path-chart" class="chart-container"></div>
+                <div id="kappa-chart" class="chart-container" style="height: 250px;"></div>
+                <div id="ds-chart" class="chart-container" style="height: 250px;"></div>
+                <div id="dk-chart" class="chart-container" style="height: 250px;"></div>
+            </section>
+        </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
