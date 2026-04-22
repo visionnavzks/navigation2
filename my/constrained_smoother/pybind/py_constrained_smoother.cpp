@@ -159,7 +159,23 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"),
-    "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.");
+    "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
+    .def(
+    "smooth_with_planner_esdf",
+    [](constrained_smoother::Smoother & self,
+    std::vector<Eigen::Vector3d> path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const constrained_smoother::Costmap2D & costmap,
+    const constrained_smoother::SmootherParams & params,
+    const constrained_smoother::AStarPlanner & planner) -> std::vector<Eigen::Vector3d>
+    {
+      self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF());
+      return path;
+    },
+    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
+    py::arg("costmap"), py::arg("params"), py::arg("planner"),
+    "Smooth a path while reusing the ESDF previously computed by an A* planner.");
 
   // --- Exceptions ---
   py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");

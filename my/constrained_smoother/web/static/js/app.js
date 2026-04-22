@@ -1,5 +1,6 @@
 // A* + Constrained Smoother — interactive map frontend
 document.addEventListener('DOMContentLoaded', () => {
+  const formatScientific = value => Number(value).toExponential(1);
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
   const ctx = canvas.getContext('2d');
@@ -27,15 +28,26 @@ document.addEventListener('DOMContentLoaded', () => {
     robot_width_m: value => Number(value).toFixed(2),
     smooth_weight: value => Math.round(value).toLocaleString(),
     costmap_weight: value => Number(value).toFixed(3),
+    cusp_costmap_weight: value => Number(value).toFixed(3),
+    cusp_zone_length: value => Number(value).toFixed(2),
     distance_weight: value => Number(value).toFixed(1),
     curvature_weight: value => Number(value).toFixed(1),
     curvature_rate_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
     reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),
+    max_time: value => Number(value).toFixed(1),
     path_downsampling_factor: value => String(Math.round(value)),
     path_upsampling_factor: value => String(Math.round(value)),
   };
+  const numericInputConfig = {
+    param_tol: value => formatScientific(value),
+    fn_tol: value => formatScientific(value),
+    gradient_tol: value => formatScientific(value),
+  };
+  const numericInputs = Object.keys(numericInputConfig);
+  const selectParamIds = ['linear_solver_type'];
+  const checkboxParamIds = ['optimizer_debug'];
 
   const sliders = Object.keys(sliderConfig);
   const layerBindings = {
@@ -143,6 +155,47 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('input', sync);
     input.addEventListener('input', () => scheduleAutoPlan());
     sync();
+  });
+
+  numericInputs.forEach(id => {
+    const input = document.getElementById(id);
+    const label = document.getElementById('val_' + id);
+    if (!input || !label) {
+      return;
+    }
+
+    const sync = () => {
+      const value = parseFloat(input.value);
+      if (!Number.isFinite(value)) {
+        return;
+      }
+      label.textContent = numericInputConfig[id](value);
+    };
+
+    input.addEventListener('input', sync);
+    input.addEventListener('change', () => {
+      sync();
+      scheduleAutoPlan();
+    });
+    sync();
+  });
+
+  selectParamIds.forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) {
+      return;
+    }
+
+    input.addEventListener('change', () => scheduleAutoPlan());
+  });
+
+  checkboxParamIds.forEach(id => {
+    const input = document.getElementById(id);
+    if (!input) {
+      return;
+    }
+
+    input.addEventListener('change', () => scheduleAutoPlan());
   });
 
   if (mapDisplayModeSelect) {
@@ -2057,6 +2110,31 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       params[id] = parseFloat(input.value);
+    });
+    numericInputs.forEach(id => {
+      const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
+
+      const value = parseFloat(input.value);
+      if (Number.isFinite(value)) {
+        params[id] = value;
+      }
+    });
+    selectParamIds.forEach(id => {
+      const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
+      params[id] = input.value;
+    });
+    checkboxParamIds.forEach(id => {
+      const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
+      params[id] = input.checked;
     });
     if (footprintModeSelect) {
       params.footprint_mode = footprintModeSelect.value;

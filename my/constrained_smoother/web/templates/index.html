@@ -110,7 +110,7 @@
             <p class="param-hint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
           </div>
 
-          <p class="param-hint">Other boolean switches are not exposed here. The standalone build still defines <strong>reversing_enabled</strong>, but this implementation does not currently read it, so it is intentionally not shown as a UI toggle.</p>
+          <p class="param-hint">The standalone build still defines <strong>reversing_enabled</strong>, but this implementation does not currently read it, so it remains intentionally hidden from the UI.</p>
 
           <p class="param-hint">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
 
@@ -213,6 +213,16 @@
             <p class="param-hint">Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.</p>
           </div>
           <div class="param-group">
+            <label>Cusp Obstacle Weight: <span id="val_cusp_costmap_weight">3.000</span></label>
+            <input type="range" id="cusp_costmap_weight" min="0" max="10.0" step="0.05" value="3.0">
+            <p class="param-hint">Overrides the nominal obstacle weight around cusp neighborhoods so direction-switch regions can be pushed harder away from obstacles.</p>
+          </div>
+          <div class="param-group">
+            <label>Cusp Zone Length (m): <span id="val_cusp_zone_length">2.50</span></label>
+            <input type="range" id="cusp_zone_length" min="0.0" max="10.0" step="0.1" value="2.5">
+            <p class="param-hint">Sets the full arc-length span over which cusp obstacle weighting ramps up before and after a direction switch.</p>
+          </div>
+          <div class="param-group">
             <label>Distance Weight: <span id="val_distance_weight">0.0</span></label>
             <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
             <p class="param-hint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
@@ -280,6 +290,18 @@
         <details class="details-card">
           <summary>Solver</summary>
           <div class="param-group">
+            <label for="linear_solver_type">Linear Solver</label>
+            <select id="linear_solver_type">
+              <option value="SPARSE_NORMAL_CHOLESKY" selected>SPARSE_NORMAL_CHOLESKY</option>
+              <option value="DENSE_QR">DENSE_QR</option>
+            </select>
+            <p class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
+          </div>
+          <label class="constraint-toggle" for="optimizer_debug">
+            <input type="checkbox" id="optimizer_debug">
+            <span>Enable per-iteration solver logging on the Flask server</span>
+          </label>
+          <div class="param-group">
             <label>Reference Spacing Target (m): <span id="val_reference_spacing_target_m">0.30</span></label>
             <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
             <p class="param-hint">Controls how aggressively the dense A* path is downsampled before it becomes the Reference Path / optimizer input. Larger spacing usually means fewer reference points.</p>
@@ -288,6 +310,26 @@
             <label>Max Iterations: <span id="val_max_iterations">50</span></label>
             <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
             <p class="param-hint">Upper bound on Ceres iterations before the optimizer stops.</p>
+          </div>
+          <div class="param-group">
+            <label>Max Solver Time (s): <span id="val_max_time">10.0</span></label>
+            <input type="range" id="max_time" min="0.1" max="30.0" step="0.1" value="10.0">
+            <p class="param-hint">Wall-clock time limit for the nonlinear solve. The optimizer stops when it hits either this limit or the iteration cap.</p>
+          </div>
+          <div class="param-group">
+            <label>Parameter Tolerance: <span id="val_param_tol">1.0e-8</span></label>
+            <input type="number" id="param_tol" min="0" max="0.01" step="any" value="1e-8">
+            <p class="param-hint">Stops when parameter updates become sufficiently small between iterations.</p>
+          </div>
+          <div class="param-group">
+            <label>Function Tolerance: <span id="val_fn_tol">1.0e-6</span></label>
+            <input type="number" id="fn_tol" min="0" max="0.01" step="any" value="1e-6">
+            <p class="param-hint">Stops when the objective improvement falls below this threshold.</p>
+          </div>
+          <div class="param-group">
+            <label>Gradient Tolerance: <span id="val_gradient_tol">1.0e-10</span></label>
+            <input type="number" id="gradient_tol" min="0" max="0.01" step="any" value="1e-10">
+            <p class="param-hint">Stops when the gradient norm becomes sufficiently small near a stationary point.</p>
           </div>
           <div class="param-group">
             <label>Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>

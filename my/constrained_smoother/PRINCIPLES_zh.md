@@ -55,7 +55,14 @@ ceres::AutoDiffCostFunction<SmootherCostFunction, 6, 2, 2, 2>
 2. 栅格分辨率 `resolution`。
 3. 原始代价值数组 `getCharMap()`。
 
-代价查询不是用最近邻采样，而是通过 `ceres::Grid2D<unsigned char>` + `ceres::BiCubicInterpolator` 做双三次插值。因此，优化器看到的是连续位置上的平滑 cost field，而不是离散台阶函数，这对自动求导和收敛稳定性很重要。
+但当前独立版并不是直接对原始 `unsigned char` cost 做插值。真实流程是：
+
+1. 先基于栅格构建一张 ESDF（Euclidean Signed Distance Field，这里实际使用的是“到最近障碍物的距离场”）。
+2. `use_exact_esdf = true` 时走精确算法，否则走近似算法。
+3. 把 ESDF 的 `double` 数组包装成 `ceres::Grid2D<double>`。
+4. 再通过 `ceres::BiCubicInterpolator` 在连续位置上查询“离最近障碍物有多远”。
+
+因此，优化器真正看到的不是离散 cost 值本身，而是一个连续、可插值的“障碍距离场”。最终障碍残差也不是简单最小化 cost，而是只在点进入 `obstacle_safe_distance` 安全距离带时才触发一个二次惩罚。
 
 ## 3. 执行总流程
 
@@ -140,7 +147,7 @@ d_diff = ratio * d_next - d_prev
 所以从当前实现的真实计算看：
 
 $$
-   ext{last\_to\_current\_length\_ratio\_} =
+\mathrm{last\_to\_current\_length\_ratio\_} =
 \pm \frac{\lVert \mathbf{p}_{last} - \mathbf{p}_{prelast} \rVert}{\lVert \mathbf{p}_{current} - \mathbf{p}_{last} \rVert}
 $$
 
@@ -188,6 +195,24 @@ diff = optimized_point - original_point
 
 ### 5.4 costmap 残差 `addCostResidual`
 
+虽然名字还叫 costmap 残差，但当前实现实际优化的是“基于 ESDF 的安全距离惩罚”。也就是先查某点到最近障碍物的距离 `distance`，再做：
+
+$$
+\operatorname{penalty}(d)=
+\begin{cases}
+0, & d \ge d_{safe} \\
+\left(\frac{d_{safe}-d}{d_{safe}}\right)^2, & d < d_{safe}
+\end{cases}
+$$
+
+其中 $d_{safe} = \text{obstacle\_safe\_distance}$。
+
+这意味着：
+
+1. 在安全距离之外，避障残差完全为 0。
+2. 进入安全距离带之后，越靠近障碍，罚得越快。
+3. `costmap_weight_sqrt` 或 `cusp_costmap_weight_sqrt` 控制的是这条惩罚曲线的整体强度，而不是直接缩放原始栅格 cost。
+
 避障项有两种工作模式。
 
 #### 模式 A：单点采样
@@ -198,8 +223,9 @@ diff = optimized_point - original_point
 
 1. 把世界坐标减去地图原点。
 2. 再除以分辨率，转为栅格浮点坐标。
-3. 通过双三次插值读取该点附近的代价。
-4. 用 `costmap_weight_sqrt` 加权。
+3. 通过双三次插值读取该点在 ESDF 上的障碍距离。
+4. 用上面的安全距离公式把距离转换成惩罚值。
+5. 用 `costmap_weight_sqrt` 加权。
 
 这种模式适合近似点机器人或只想做轻量障碍回避的场景。
 
@@ -211,7 +237,12 @@ diff = optimized_point - original_point
 [x1, y1, weight1, x2, y2, weight2, ...]
 ```
 
-每个 `(x, y)` 都是在机器人局部坐标系里的检查点。实现会先推导当前路径点的切线方向，再构造一个刚体变换，把这些局部点变换到世界系，逐个到 costmap 里采样并累加。
+每个 `(x, y)` 都是在机器人局部坐标系里的检查点。实现会先推导当前路径点的切线方向，再构造一个刚体变换，把这些局部点变换到世界系，逐个到 ESDF 里采样并累加。
+
+这里还有两个容易忽略的细节：
+
+1. 切线方向来自 `tangentDir(pt_prev, pt, pt_next, is_cusp)`，所以它本身就带有 cusp-aware 几何解释。
+2. 方向向量归一化后，还会结合 `reversing_` 再判一次正负，保证机器人局部坐标系是沿“真实行进方向”摆放，而不是沿几何 chord 任意取一个切向号。
 
 这个模式的意义是：
 
@@ -242,9 +273,44 @@ is_cusp = current_direction_sign * last_direction_sign < 0
 2. 机器人外形相对障碍物的包络变化更危险。
 3. 单纯的平滑项可能把轨迹往障碍物附近拉。
 
-因此实现中会在尖点附近提高 costmap 代价权重。
+因此实现里对 cusp 不是只做“权重加大”这一件事，而是同时做三类处理：
 
-### 6.3 权重不是突变，而是渐变
+1. 在局部几何里把 cusp 后一段按“反向运动”解释。
+2. 在 cusp 前后一定弧长范围内提高障碍残差权重。
+3. 不让高阶平滑项跨越前进/倒车切换点直接耦合。
+
+也就是说，cusp 既影响代价大小，也影响“几何该怎么读”。
+
+### 6.3 cusp 会改写三点几何，而不只是改权重
+
+在 `arcCenter()` 和 `tangentDir()` 里，如果 `is_cusp = true`，实现会先做：
+
+```text
+d2 = -(pt_next - pt)
+pt_next = pt + d2
+```
+
+等价理解是：把 cusp 后面的那一段先翻转到“与当前运动方向一致的参考系”里，再去算圆心和切线。
+
+这一步的效果是：
+
+1. 曲率中心是按“前一段前进到 cusp，再沿后一段倒着离开 cusp”的几何关系求的。
+2. 切线方向也是在这个翻转后的局部模型上求出来的。
+3. 如果翻转后三点几乎共线，代码会把它视为直线退化情形，不额外制造一个虚假的极小转弯半径。
+
+所以 cusp 在这里并不是一个单独的额外罚项，而是改变了同一组三点被解释的坐标语义。
+
+### 6.4 cusp 如何进入平滑项、曲率项和避障项
+
+它进入不同残差项的方式并不相同：
+
+1. 对平滑项，`buildProblem()` 会把 `last_to_current_length_ratio_` 设成负值。
+2. 对曲率项和多检查点避障项，`SmootherCostFunction` 再通过 `last_to_current_length_ratio_ < 0` 判断“这一组三点是否跨过 cusp”。
+3. 对单点避障项，cusp 不改变采样位置本身，但会通过 cusp zone 权重修改残差强度。
+
+因此，平滑项里的核心效果其实是把 `d_next` 隐式反向后再与 `d_prev` 比较；曲率项和切线项则是显式走 cusp-aware 的三点几何分支。
+
+### 6.5 权重不是突变，而是渐变
 
 代码不是简单地“尖点前后若干个点乘一个固定系数”，而是按路径弧长做线性过渡。
 
@@ -256,6 +322,20 @@ is_cusp = current_direction_sign * last_direction_sign < 0
 4. 尖点之后的一段路径则通过 `len_since_cusp` 继续用同样的线性策略逐渐降回普通权重。
 
 因此 `cusp_zone_length` 对应的是“完整尖点区长度”，而尖点前后各占一半。
+
+另外，代码还有一个小细节：如果两个 cusp 距离很近，某个旧残差块可能被多个 cusp zone 命中。实现不是盲目覆盖，而是只在“新权重更接近 `cusp_costmap_weight_sqrt`”时才更新它。可以把这理解为：重叠区保留更强的那次 cusp 增益。
+
+### 6.6 曲率变化率项不会跨 cusp 连接
+
+如果启用了 `curvature_rate_weight_sqrt`，代码会额外加入一个 4 点的 D3 有限差分残差：
+
+```text
+pt_next2 - 3 * pt_next + 3 * pt - pt_prev
+```
+
+但这条残差只有在连续四个参与点的方向符号都同号时才会建立。只要其中任何一段跨过 cusp，就直接不加这项。
+
+原因很直接：这个高阶项假设相邻段在同一运动方向下连续变化。如果硬把前进段和倒车段用一个三阶差分捆在一起，会把本来合理的换向动作误当成高阶不平滑去压制。
 
 ## 7. 下采样为什么这样做
 
@@ -283,6 +363,8 @@ last_segment_len / current_segment_len
 去修正前后段尺度，这就是 `last_to_current_length_ratio_` 的来源。
 
 如果这一段还跨过 cusp，则同一个比例会额外乘上 `-1`，这样后续曲率中心和切线方向推导就会按“运动方向翻转”来解释这组三点关系。
+
+从平滑项角度看，这也意味着优化器比较的不是“前一段”和“几何上的后一段”，而是“前一段”和“按换向语义翻转后的后一段”。这正是 cusp 不会被简单当成普通折线角来抹掉的关键。
 
 ## 8. 求解器层面的行为
 
@@ -358,6 +440,12 @@ ceres::LossFunction * loss_function = NULL;
 
 这意味着姿态并不是优化变量，而是由优化后的几何形状反推出来的派生量。
 
+如果该关键点本身位于换向处，调用 `tangentDir()` 时还会传入 `prelast[2] * last[2] < 0`，也就是继续沿用 cusp-aware 的切线定义。随后再检查切线方向是否与 `(current - last) * last[2]` 同向，不同向就翻转。这一步保证了：
+
+1. 前进段的 yaw 指向前进方向。
+2. 倒车段的 yaw 指向机器人车头朝向，而不是简单跟着几何连线方向跑偏。
+3. cusp 两侧虽然位置连续，但朝向允许按换向语义发生跳变。
+
 ### 9.3 为什么要用三次 Bezier 上采样
 
 如果前面做过下采样，关键点之间可能隔着多个原始节点。直接线性插值会重新引入折线感，所以实现使用分段三次 Bezier 曲线补点。
@@ -394,6 +482,8 @@ interp_cnt = (last_i - prelast_i) * path_upsampling_factor - 1
 
 Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍历这些插值点，用相邻三个输出点计算切线方向，并按段方向修正正负，再写回 `atan2()` 角度。
 
+这里插值点不会再单独做一次 cusp 判定，而是直接继承该 Bezier 段所属运动段的方向符号 `prelast[2]`。所以一个 cusp 真正对应的是“段与段之间的切换”，而不是在同一段插值过程中再人为塞进新的换向点。
+
 ## 10. 参数之间的联动关系
 
 下面给出几个最常用参数的实际影响，而不是字面解释。
@@ -425,8 +515,10 @@ Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍
 
 决定对环境障碍代价的敏感程度。
 
-1. 太小：轨迹可能仍贴着障碍物走。
-2. 太大：会强烈排斥高代价区，可能导致偏离原路径更多。
+1. 太小：路径即使进入 `obstacle_safe_distance` 带，也不太会被推出去。
+2. 太大：一旦进入安全距离带就会被强烈推出，可能导致偏离原路径更多。
+
+要注意它和 `obstacle_safe_distance` 是联动的：前者控制“罚多重”，后者控制“从多远开始罚”。
 
 ### 10.5 `cusp_costmap_weight_sqrt` 与 `cusp_zone_length`
 
@@ -455,8 +547,9 @@ Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍
 1. 传入的各类 `*_weight_sqrt` 已经是平方根权重，而不是原始权重。
 2. `max_curvature` 已经是曲率上限，而不是最小转弯半径。
 3. `cost_check_points` 的第三列权重已经按自己需要预处理。
+4. `obstacle_safe_distance` 已经按机器人真实安全包络设好，因为当前避障项直接基于它做 ESDF 距离惩罚。
 
-另外，`SmootherParams` 中保留了 `reversing_enabled` 字段，但当前独立版实现并未读取它。也就是说，当前版本始终假设输入路径第三维已经正确编码了前进/倒车方向，并据此做尖点检测。
+另外，`SmootherParams` 中保留了 `reversing_enabled` 字段，但当前独立版实现并未读取它。也就是说，当前版本始终假设输入路径第三维已经正确编码了前进/倒车方向，并据此做尖点检测与后处理姿态恢复。
 
 ## 12. 已知前提与限制
 
@@ -466,7 +559,7 @@ Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍
 
 ### 12.2 `costmap` 不能为空
 
-当前实现会无条件访问 `costmap->getCharMap()` 等接口，因此调用方必须保证传入有效指针。
+当前实现会无条件访问 `costmap->getOriginX()`、`getResolution()` 以及基于原始栅格构建 ESDF，因此调用方必须保证传入有效指针。
 
 ### 12.3 输入方向符号必须可信
 
@@ -482,7 +575,7 @@ Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍
 
 1. 先确认输入路径第三维真的是 `+1/-1` 方向符号，而不是 yaw。
 2. 再确认 `*_weight_sqrt` 传入的是平方根权重。
-3. 若路径贴障太近，先增大 `costmap_weight_sqrt`，再看是否需要启用 `cost_check_points`。
+3. 若路径贴障太近，先检查 `obstacle_safe_distance` 是否合理，再增大 `costmap_weight_sqrt`，然后再看是否需要启用 `cost_check_points`。
 4. 若拐弯过急，先检查 `max_curvature` 是否设成了 `1 / minimum_turning_radius`。
 5. 若求解太慢，先提高 `path_downsampling_factor`，再视需要用 `path_upsampling_factor` 恢复输出密度。
 6. 若尖点附近仍危险，增大 `cusp_costmap_weight_sqrt` 或 `cusp_zone_length`。

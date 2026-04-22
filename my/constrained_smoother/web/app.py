@@ -39,6 +39,18 @@ def _env_flag(name, default):
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _coerce_bool(value, default):
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default
+
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -284,8 +296,8 @@ def plan_and_smooth():
         goal_y = float(req.get("goal_y", 18.0))
         start_yaw_deg = float(req.get("start_yaw_deg", 45.0))
         goal_yaw_deg = float(req.get("goal_yaw_deg", 45.0))
-        keep_start_orientation = bool(req.get("keep_start_orientation", True))
-        keep_goal_orientation = bool(req.get("keep_goal_orientation", True))
+        keep_start_orientation = _coerce_bool(req.get("keep_start_orientation"), True)
+        keep_goal_orientation = _coerce_bool(req.get("keep_goal_orientation"), True)
         footprint_mode = str(req.get("footprint_mode", "point")).strip().lower()
         if footprint_mode not in {"point", "rectangle"}:
             footprint_mode = "point"
@@ -297,10 +309,13 @@ def plan_and_smooth():
         # Smoother tuning knobs from the frontend
         smooth_weight = float(req.get("smooth_weight", 20.0))
         costmap_weight = float(req.get("costmap_weight", 1.0))
+        cusp_costmap_weight = max(0.0, float(req.get("cusp_costmap_weight", costmap_weight * 3.0)))
+        cusp_zone_length = max(0.0, float(req.get("cusp_zone_length", 2.5)))
         distance_weight = float(req.get("distance_weight", 0.0))
         curvature_weight = float(req.get("curvature_weight", 30.0))
         curvature_rate_weight = float(req.get("curvature_rate_weight", 5.0))
         max_curvature = float(req.get("max_curvature", 2.5))
+        max_time = max(0.01, float(req.get("max_time", 10.0)))
         reference_spacing_target_m = min(
             2.0,
             max(DEFAULT_RESOLUTION, float(req.get("reference_spacing_target_m", DEFAULT_REFERENCE_SPACING_TARGET_M))),
@@ -308,6 +323,13 @@ def plan_and_smooth():
         path_downsample = max(1, int(req.get("path_downsampling_factor", 1)))
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
+        linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
+        if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
+            linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
+        param_tol = max(0.0, float(req.get("param_tol", 1e-8)))
+        fn_tol = max(0.0, float(req.get("fn_tol", 1e-6)))
+        gradient_tol = max(0.0, float(req.get("gradient_tol", 1e-10)))
+        optimizer_debug = _coerce_bool(req.get("optimizer_debug"), False)
         planner_penalty_weight = max(0.0, float(req.get("planner_penalty_weight", 1.0)))
 
         with STATE_LOCK:
@@ -355,14 +377,14 @@ def plan_and_smooth():
         smoother_params = pcs.SmootherParams()
         smoother_params.smooth_weight_sqrt = math.sqrt(smooth_weight)
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
-        smoother_params.cusp_costmap_weight_sqrt = smoother_params.costmap_weight_sqrt * math.sqrt(3.0)
-        smoother_params.cusp_zone_length = 2.5
+        smoother_params.cusp_costmap_weight_sqrt = math.sqrt(cusp_costmap_weight)
+        smoother_params.cusp_zone_length = cusp_zone_length
         smoother_params.obstacle_safe_distance = planner_params.safe_distance
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
         smoother_params.max_curvature = max_curvature
-        smoother_params.max_time = 10.0
+        smoother_params.max_time = max_time
         smoother_params.keep_start_orientation = keep_start_orientation
         smoother_params.keep_goal_orientation = keep_goal_orientation
         smoother_params.cost_check_points = _build_robot_cost_check_points(
@@ -374,7 +396,12 @@ def plan_and_smooth():
         smoother_params.path_upsampling_factor = path_upsample
 
         opt_params = pcs.OptimizerParams()
+        opt_params.debug = optimizer_debug
+        opt_params.linear_solver_type = linear_solver_type
         opt_params.max_iterations = max_iterations
+        opt_params.param_tol = param_tol
+        opt_params.fn_tol = fn_tol
+        opt_params.gradient_tol = gradient_tol
 
         smoother = pcs.Smoother()
         smoother.initialize(opt_params)
@@ -383,7 +410,14 @@ def plan_and_smooth():
         smooth_message = ""
         optimized_knot_count = 0
         try:
-            smoothed = smoother.smooth(eigen_path, s_dir, e_dir, planner_costmap, smoother_params)
+            smoothed = smoother.smooth_with_planner_esdf(
+                eigen_path,
+                s_dir,
+                e_dir,
+                planner_costmap,
+                smoother_params,
+                planner,
+            )
             smooth_time = (time.time() - t1) * 1000.0
             smooth_success = True
         except Exception as e:

@@ -92,6 +92,17 @@ public:
     const Costmap2D * costmap,
     const SmootherParams & params)
   {
+    return smooth(path, start_dir, end_dir, costmap, params, nullptr);
+  }
+
+  bool smooth(
+    std::vector<Eigen::Vector3d> & path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    const std::vector<double> * precomputed_esdf)
+  {
     // Path has always at least 2 points
     if (path.size() < 2) {
       throw InvalidPath("Constrained smoother: Path must have at least 2 points");
@@ -102,7 +113,10 @@ public:
     ceres::Problem problem;
     std::vector<Eigen::Vector3d> path_optim;
     std::vector<bool> optimized;
-    if (buildProblem(path, start_dir, end_dir, costmap, params, problem, path_optim, optimized)) {
+    if (buildProblem(
+      path, start_dir, end_dir, costmap, params, precomputed_esdf, problem, path_optim,
+      optimized))
+    {
       last_optimized_knot_count_ = std::count(optimized.begin(), optimized.end(), true);
       // solve the problem
       ceres::Solver::Summary summary;
@@ -135,14 +149,24 @@ private:
     const Eigen::Vector2d & end_dir,
     const Costmap2D * costmap,
     const SmootherParams & params,
+    const std::vector<double> * precomputed_esdf,
     ceres::Problem & problem,
     std::vector<Eigen::Vector3d> & path_optim,
     std::vector<bool> & optimized)
   {
-    esdf_values_ = ESDF::ComputeESDF(
-      costmap,
-      Costmap2D::LETHAL_OBSTACLE,
-      params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
+    const size_t expected_esdf_size =
+      static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
+    if (precomputed_esdf != nullptr) {
+      if (precomputed_esdf->size() != expected_esdf_size) {
+        throw std::runtime_error("Precomputed ESDF size does not match costmap dimensions");
+      }
+      esdf_values_ = *precomputed_esdf;
+    } else {
+      esdf_values_ = ESDF::ComputeESDF(
+        costmap,
+        Costmap2D::LETHAL_OBSTACLE,
+        params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
+    }
     esdf_grid_ = std::make_shared<ceres::Grid2D<double>>(
       esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
     auto esdf_interpolator =
