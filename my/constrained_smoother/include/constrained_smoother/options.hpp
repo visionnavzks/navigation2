@@ -44,6 +44,7 @@ struct SmootherParams
   double max_time{10.0};
   bool use_exact_esdf{true};
   double obstacle_safe_distance{0.5};
+  double cost_check_radius{0.0};
   int path_downsampling_factor{1};
   int path_upsampling_factor{1};
   bool reversing_enabled{true};

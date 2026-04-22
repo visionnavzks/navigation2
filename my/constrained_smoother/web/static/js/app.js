@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const loupe = document.getElementById('costmap-loupe');
   const loupeCanvas = document.getElementById('loupe-canvas');
   const loupeCtx = loupeCanvas.getContext('2d');
+  const footprintPreviewCanvas = document.getElementById('footprint-preview-canvas');
+  const footprintPreviewCtx = footprintPreviewCanvas ? footprintPreviewCanvas.getContext('2d') : null;
   const mapDisplayModeSelect = document.getElementById('map-display-mode');
   const esdfColormapSelect = document.getElementById('esdf-colormap');
   const footprintModeSelect = document.getElementById('footprint_mode');
@@ -315,38 +317,32 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateRobotConfigUi() {
-    const mode = footprintModeSelect ? footprintModeSelect.value : 'point';
+    const mode = footprintModeSelect ? footprintModeSelect.value : 'capsule';
     const pointRobotRadiusInput = document.getElementById('point_robot_radius_m');
-    const robotLengthInput = document.getElementById('robot_length_m');
-    const robotWidthInput = document.getElementById('robot_width_m');
-    const hingeLossThresholdInput = document.getElementById('hinge_loss_threshold_m');
-    const rectangleEnabled = mode === 'rectangle';
     const pointEnabled = mode === 'point';
 
     if (pointRobotRadiusInput) {
       pointRobotRadiusInput.disabled = !pointEnabled;
     }
 
-    if (robotLengthInput) {
-      robotLengthInput.disabled = !rectangleEnabled;
-    }
-    if (robotWidthInput) {
-      robotWidthInput.disabled = !rectangleEnabled;
-    }
+    const config = getRobotFootprintConfig();
+    const badgeText = config.mode === 'capsule' ? 'Capsule' : 'Single circle';
+    const summaryText = config.mode === 'capsule'
+      ? `Planning and smoothing use ${config.localCheckPoints.length} capsule checkpoints with ${config.checkRadiusM.toFixed(2)} m radius. The dashed ${config.lengthM.toFixed(2)} m × ${config.widthM.toFixed(2)} m rectangle is final validation only.`
+      : `Planning and smoothing use one ${config.checkRadiusM.toFixed(2)} m check circle. The dashed ${config.lengthM.toFixed(2)} m × ${config.widthM.toFixed(2)} m rectangle still validates the final path.`;
 
-    const penaltyValue = hingeLossThresholdInput ? Number(hingeLossThresholdInput.value).toFixed(2) : '--';
-    const radiusValue = pointRobotRadiusInput ? Number(pointRobotRadiusInput.value).toFixed(2) : '--';
-    const lengthValue = robotLengthInput ? Number(robotLengthInput.value).toFixed(2) : '--';
-    const widthValue = robotWidthInput ? Number(robotWidthInput.value).toFixed(2) : '--';
+    setText('footprint-preview-badge', badgeText);
     setText(
       'robot-config-summary',
-      rectangleEnabled
-        ? `Using a rectangular footprint with ${lengthValue} m length and ${widthValue} m width. Hinge loss threshold: ${penaltyValue} m.`
-        : `Using a point robot with ${radiusValue} m radius. Effective hinge threshold: ${(Number(penaltyValue) + Number(radiusValue)).toFixed(2)} m.`
+      summaryText
     );
+    if (!state.paths?.final_rectangle_validation) {
+      setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+    }
+    drawFootprintPreview();
   }
 
-    updateOptimizerUi();
+  updateOptimizerUi();
   function formatMeters(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
@@ -375,7 +371,30 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${Number(value).toFixed(digits)} 1/m`;
   }
 
-  function getRobotFootprintConfig() {
+  function buildCapsuleCenterOffsets(limitX, radius, tolerance) {
+    if (limitX <= 1e-6) {
+      return [0];
+    }
+
+    const maxGapDepth = Math.min(Math.max(tolerance, 1e-3), Math.max(radius * 0.5, 1e-3));
+    const minValue = radius * radius - Math.max(radius - maxGapDepth, 0) ** 2;
+    const maxSpacing = Math.max(2 * Math.sqrt(Math.max(minValue, 1e-9)), (state.costmap?.resolution || 0.1) * 0.5);
+    const intervalCount = Math.max(1, Math.ceil((2 * limitX) / maxSpacing));
+    return Array.from({length: intervalCount + 1}, (_, index) => -limitX + ((2 * limitX * index) / intervalCount));
+  }
+
+  function buildLocalFootprintPoints(mode, pointRadiusM, lengthM, widthM) {
+    if (mode === 'point') {
+      return [{x: 0, y: 0}];
+    }
+
+    const halfLength = Math.max(lengthM * 0.5, (state.costmap?.resolution || 0.1) * 0.5);
+    const checkRadiusM = Math.max(widthM * 0.5, (state.costmap?.resolution || 0.1) * 0.5);
+    return buildCapsuleCenterOffsets(halfLength, checkRadiusM, Math.max((state.costmap?.resolution || 0.1) * 0.35, 0.02))
+      .map(offsetX => ({x: offsetX, y: 0}));
+  }
+
+  function getRobotFootprintConfig(pathData = null) {
     const readValue = (id, fallback) => {
       const input = document.getElementById(id);
       const value = input ? parseFloat(input.value) : fallback;
@@ -383,13 +402,88 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const resolution = state.costmap?.resolution || 0.1;
-    const mode = footprintModeSelect ? footprintModeSelect.value : 'point';
+    const mode = pathData?.footprint_mode || (footprintModeSelect ? footprintModeSelect.value : 'capsule');
+    const pointRadiusM = Math.max(0, readValue('point_robot_radius_m', 1.0));
+    const lengthM = Math.max(resolution, pathData?.robot_length_m ?? readValue('robot_length_m', 0.8));
+    const widthM = Math.max(resolution, pathData?.robot_width_m ?? readValue('robot_width_m', 0.5));
+    const localCheckPoints = Array.isArray(pathData?.collision_check_points_local) && pathData.collision_check_points_local.length
+      ? pathData.collision_check_points_local.map(point => ({x: Number(point.x), y: Number(point.y)}))
+      : buildLocalFootprintPoints(mode, pointRadiusM, lengthM, widthM);
+    const checkRadiusM = Number.isFinite(pathData?.collision_check_radius_m)
+      ? Math.max(0, Number(pathData.collision_check_radius_m))
+      : (mode === 'point' ? pointRadiusM : Math.max(widthM * 0.5, resolution * 0.5));
+
     return {
       mode,
-      pointRadiusM: Math.max(0, readValue('point_robot_radius_m', 1.0)),
-      lengthM: Math.max(resolution, readValue('robot_length_m', 0.8)),
-      widthM: Math.max(resolution, readValue('robot_width_m', 0.5)),
+      pointRadiusM,
+      checkRadiusM,
+      lengthM,
+      widthM,
+      localCheckPoints,
     };
+  }
+
+  function drawFootprintPreview(pathData = null) {
+    if (!footprintPreviewCanvas || !footprintPreviewCtx) {
+      return;
+    }
+
+    const config = getRobotFootprintConfig(pathData);
+    const ctx2d = footprintPreviewCtx;
+    const width = footprintPreviewCanvas.width;
+    const height = footprintPreviewCanvas.height;
+    ctx2d.clearRect(0, 0, width, height);
+
+    const maxExtentX = Math.max(config.lengthM * 0.5 + config.checkRadiusM, 0.15);
+    const maxExtentY = Math.max(config.widthM * 0.5, config.checkRadiusM, 0.15);
+    const scale = 0.78 * Math.min(width / (2 * maxExtentX), height / (2 * maxExtentY));
+    const centerX = width * 0.5;
+    const centerY = height * 0.52;
+    const toPreview = point => ({
+      x: centerX + point.x * scale,
+      y: centerY - point.y * scale,
+    });
+
+    ctx2d.save();
+    ctx2d.strokeStyle = 'rgba(20, 122, 106, 0.24)';
+    ctx2d.lineWidth = 1;
+    ctx2d.beginPath();
+    ctx2d.moveTo(16, centerY);
+    ctx2d.lineTo(width - 16, centerY);
+    ctx2d.moveTo(centerX, 12);
+    ctx2d.lineTo(centerX, height - 12);
+    ctx2d.stroke();
+
+    const halfLengthPx = config.lengthM * 0.5 * scale;
+    const halfWidthPx = config.widthM * 0.5 * scale;
+    ctx2d.setLineDash([6, 4]);
+    ctx2d.lineWidth = 1.5;
+    ctx2d.strokeStyle = 'rgba(20, 122, 106, 0.88)';
+    ctx2d.strokeRect(centerX - halfLengthPx, centerY - halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
+    ctx2d.setLineDash([]);
+
+    ctx2d.fillStyle = 'rgba(217, 122, 43, 0.16)';
+    ctx2d.strokeStyle = 'rgba(217, 122, 43, 0.92)';
+    ctx2d.lineWidth = 1.35;
+    const circleRadiusPx = Math.max(config.checkRadiusM * scale, 2.2);
+    config.localCheckPoints.forEach(point => {
+      const previewPoint = toPreview(point);
+      ctx2d.beginPath();
+      ctx2d.arc(previewPoint.x, previewPoint.y, circleRadiusPx, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.stroke();
+      ctx2d.beginPath();
+      ctx2d.fillStyle = 'rgba(90, 48, 12, 0.96)';
+      ctx2d.arc(previewPoint.x, previewPoint.y, 2.3, 0, Math.PI * 2);
+      ctx2d.fill();
+      ctx2d.fillStyle = 'rgba(217, 122, 43, 0.16)';
+    });
+
+    ctx2d.fillStyle = 'rgba(35, 48, 40, 0.74)';
+    ctx2d.font = '12px "Avenir Next", "Helvetica Neue", sans-serif';
+    ctx2d.fillText('+X', width - 30, centerY - 8);
+    ctx2d.fillText('+Y', centerX + 8, 24);
+    ctx2d.restore();
   }
 
   function metersToCanvas(distanceM) {
@@ -1477,6 +1571,16 @@ document.addEventListener('DOMContentLoaded', () => {
         ? `${data.optimizer_label || 'The selected optimizer'} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.`
         : `${data.optimizer_label || 'The selected optimizer'} failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
     );
+
+    const validation = data.final_rectangle_validation;
+    if (validation) {
+      const statusText = validation.collision_free
+        ? `Rectangle validation passed on all ${data.num_returned_pts ?? data.num_opt_pts ?? 0} returned poses.`
+        : `Rectangle validation found ${validation.collision_count} colliding pose(s). First indices: ${(validation.colliding_indices || []).join(', ') || '--'}.`;
+      setText('footprint-validation-summary', statusText);
+    }
+
+    drawFootprintPreview(data);
     drawCurvatureChart();
   }
 
@@ -1484,6 +1588,8 @@ document.addEventListener('DOMContentLoaded', () => {
     planInfoIds.forEach(id => setText(id, '--'));
     setText('smooth-state', 'idle');
     setText('run-note', 'Set a start and goal to generate path metrics.');
+    setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+    drawFootprintPreview();
     clearCurvatureChart();
   }
 
@@ -1902,9 +2008,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return [];
     }
 
-    const baseExtentM = config.mode === 'rectangle'
-      ? Math.max(config.lengthM, config.widthM)
-      : Math.max(config.pointRadiusM * 2, state.costmap?.resolution || 0.1);
+    const baseExtentM = Math.max(
+      config.lengthM,
+      config.widthM,
+      config.checkRadiusM * 2,
+      state.costmap?.resolution || 0.1
+    );
     const targetSpacingM = Math.max(baseExtentM * 0.9, 0.75);
     const indices = [0];
     let accumulated = 0;
@@ -1932,9 +2041,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fillColor = motionDirection === 'reverse'
       ? ROBOT_PROJECTION_REVERSE_FILL
       : ROBOT_PROJECTION_FORWARD_FILL;
-    const headingLengthPx = config.mode === 'rectangle'
-      ? Math.max(metersToCanvas(config.lengthM) * 0.5 + 8, 12)
-      : Math.max(metersToCanvas(config.pointRadiusM) + 8, 12);
+    const headingLengthPx = Math.max(metersToCanvas(Math.max(config.lengthM * 0.5, config.checkRadiusM)) + 8, 12);
 
     ctx.save();
     ctx.translate(pixel.x, pixel.y);
@@ -1943,35 +2050,33 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.strokeStyle = strokeColor;
     ctx.fillStyle = fillColor;
 
-    if (config.mode === 'rectangle') {
-      const halfLengthPx = metersToCanvas(config.lengthM) * 0.5;
-      const halfWidthPx = metersToCanvas(config.widthM) * 0.5;
-      ctx.beginPath();
-      ctx.rect(-halfLengthPx, -halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
-      ctx.fill();
-      ctx.stroke();
+    const halfLengthPx = metersToCanvas(config.lengthM) * 0.5;
+    const halfWidthPx = metersToCanvas(config.widthM) * 0.5;
+    if (halfLengthPx > 1 && halfWidthPx > 1) {
+      ctx.save();
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(20, 122, 106, 0.88)';
+      ctx.lineWidth = emphasize ? 1.5 : 1.1;
+      ctx.strokeRect(-halfLengthPx, -halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
+      ctx.restore();
+    }
 
-      ctx.beginPath();
-      ctx.moveTo(halfLengthPx, 0);
-      ctx.lineTo(halfLengthPx - Math.max(halfLengthPx * 0.28, 5), -Math.max(halfWidthPx * 0.52, 4));
-      ctx.lineTo(halfLengthPx - Math.max(halfLengthPx * 0.28, 5), Math.max(halfWidthPx * 0.52, 4));
-      ctx.closePath();
-      ctx.fillStyle = strokeColor;
-      ctx.fill();
-    } else {
-      const pointRadiusPx = metersToCanvas(config.pointRadiusM);
-      if (pointRadiusPx > 1.2) {
+    const checkRadiusPx = metersToCanvas(config.checkRadiusM);
+    config.localCheckPoints.forEach(point => {
+      const circleX = metersToCanvas(point.x);
+      const circleY = -metersToCanvas(point.y);
+      if (checkRadiusPx > 1.2) {
         ctx.beginPath();
-        ctx.arc(0, 0, pointRadiusPx, 0, Math.PI * 2);
+        ctx.arc(circleX, circleY, checkRadiusPx, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       } else {
         ctx.beginPath();
-        ctx.arc(0, 0, 2.6, 0, Math.PI * 2);
+        ctx.arc(circleX, circleY, 2.6, 0, Math.PI * 2);
         ctx.fillStyle = strokeColor;
         ctx.fill();
       }
-    }
+    });
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -1994,7 +2099,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const config = getRobotFootprintConfig();
+    const config = getRobotFootprintConfig(state.paths);
     const sampleIndices = buildRobotProjectionSampleIndices(xs, ys, config);
     if (!sampleIndices.length) {
       return;

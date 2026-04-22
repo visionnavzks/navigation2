@@ -277,6 +277,46 @@ body {
   line-height: 1.45;
 }
 
+.footprint-preview-card {
+  margin-top: 0.85rem;
+  padding: 0.8rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(100, 85, 60, 0.10);
+}
+
+.footprint-preview-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.footprint-preview-card__header span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.footprint-preview-card__header strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+}
+
+#footprint-preview-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(35, 48, 40, 0.16);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.82), rgba(245, 236, 220, 0.92)),
+    linear-gradient(180deg, rgba(255, 250, 240, 0.95), rgba(239, 226, 194, 0.92));
+}
+
 .constraint-toggle-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

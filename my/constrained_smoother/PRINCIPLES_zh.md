@@ -423,6 +423,143 @@ ceres::LossFunction * loss_function = NULL;
 2. 下采样后只剩边界点。
 3. 起终姿态保持导致中间自由度被吃光。
 
+### 8.5 `SimpleKinematicSmoother` 里的“大参数块”和“状态块”是什么
+
+这一节解释新增的 `SimpleKinematicSmoother`，也就是当前
+`kinematic_smoother_simple.hpp` 里通过 `buildProblem()` 构建问题的那套实现。
+
+先说结论：
+
+1. “大参数块”指的是把整条路径的全部优化变量拼成一个一维数组，一次性作为一个 Ceres parameter block 交给残差函数。
+2. “状态块”指的是把每个离散路径节点自己的状态单独拿出来，作为一个固定大小的小 parameter block。
+3. 当前实现已经采用“状态块”方案，不再使用“大参数块”方案。
+
+#### 什么叫大参数块
+
+假设路径有 $N$ 个待优化节点，而每个节点都显式带 5 个状态：
+
+$$
+[x, y, \theta, \kappa, ds]
+$$
+
+那么把整条路径打平以后，会得到一个长度为 $5N$ 的向量：
+
+$$
+\mathbf{z} = [x_0, y_0, \theta_0, \kappa_0, ds_0, x_1, y_1, \theta_1, \kappa_1, ds_1, \ldots]
+$$
+
+如果 Ceres 里只注册这一个参数块，那么这就是“大参数块”。
+
+它的直观问题不是“数学上不对”，而是“问题结构被抹平了”：
+
+1. 任何一个残差看起来都像是依赖整个向量。
+2. Jacobian 很容易退化成“一个大而密的矩阵”。
+3. 如果再叠加数值求导，求一列 Jacobian 时往往要重复评估整条路径的所有残差。
+
+这就是之前性能会显著变慢的根本原因。
+
+#### 什么叫状态块
+
+当前实现把每个节点自己的 5 维状态单独切出来：
+
+```cpp
+static double * stateData(std::vector<double> & variables, size_t index)
+{
+   return variables.data() + 5 * index;
+}
+```
+
+于是第 $i$ 个节点对应的参数块就是：
+
+$$
+\mathbf{s}_i = [x_i, y_i, \theta_i, \kappa_i, ds_i]
+$$
+
+这就是“状态块”。
+
+它的意义在于，残差函数终于可以只绑定自己真正关心的局部变量：
+
+1. 相邻两点之间的运动学约束，只需要 `state_i` 和 `state_{i+1}`。
+2. 起点或终点边界约束，只需要单个 `state_i`。
+3. 参考路径回拉项，只需要单个 `state_i`。
+4. footprint/ESDF 避障项，也只需要单个 `state_i`。
+
+这样 Jacobian 的非零结构天然就是局部稀疏的。
+
+#### `buildProblem()` 到底在做什么
+
+`SimpleKinematicSmoother::smooth()` 里先调用：
+
+```cpp
+buildProblem(processed, costmap, params, variables, problem);
+```
+
+这里的 `buildProblem()` 本质上做了四件事：
+
+1. 为每一对相邻状态块添加一个 `TransitionCostFunctor`。
+2. 为起点和终点各添加一个 `BoundaryCostFunctor`。
+3. 如果启用了参考路径回拉，为每个状态块添加一个 `ReferenceCostFunctor`。
+4. 如果启用了避障，为每个状态块添加一个 `ObstacleCostFunctor`。
+
+从图结构上看，可以把它理解成：
+
+```text
+state_0 -- state_1 -- state_2 -- ... -- state_n
+    |         |         |               |
+boundary   ref/obs   ref/obs        boundary/ref/obs
+```
+
+也就是说，它不是“先有一个大向量，再在里面手工切片算残差”，而是“先定义每个节点的状态块，再把局部残差一块块挂到图上”。
+
+#### 为什么 `TransitionCostFunctor` 绑定两个状态块
+
+因为当前 simple 后端显式优化的是离散运动学状态，而不是旧后端那种纯二维位置点。
+
+对第 $i$ 段来说，转移残差至少要看：
+
+1. 当前状态里的 $(x_i, y_i, \theta_i, \kappa_i, ds_i)$。
+2. 下一状态里的 $(x_{i+1}, y_{i+1}, \theta_{i+1}, \kappa_{i+1})$。
+
+所以 `TransitionCostFunctor` 的接口是：
+
+```cpp
+ceres::AutoDiffCostFunction<TransitionCostFunctor, 5, 5, 5>
+```
+
+这里的含义是：
+
+1. 残差维数是 5。
+2. 第一个参数块大小是 5，也就是当前状态块。
+3. 第二个参数块大小也是 5，也就是下一状态块。
+
+它和旧 `SmootherCostFunction` 的“三点二维坐标块”思路不同，但本质上是同一种局部建图方法：每个残差块只看附近少量变量，而不是看整条路径的全量变量。
+
+#### 为什么 `ObstacleCostFunctor` 还是 `DynamicAutoDiffCostFunction`
+
+因为 obstacle residual 的数量不是固定编译期常数：
+
+1. 如果 `cost_check_points` 为空，它只输出 1 个残差。
+2. 如果 `cost_check_points` 有 $M$ 个三元组，它就输出 $M$ 个残差。
+
+所以这里保留了“动态 residual 数量”，但它仍然只绑定一个状态块：
+
+```cpp
+cost_function->AddParameterBlock(5);
+```
+
+也就是说，这里“动态”的只是残差个数，不是“大参数块”。
+
+#### 为什么状态块方案会更快
+
+因为 Ceres 在当前建图下能看到真正的局部依赖关系：
+
+1. 大多数残差只依赖 1 个或 2 个状态块。
+2. Jacobian 不再是人为打平后的大密矩阵。
+3. `SPARSE_NORMAL_CHOLESKY` 这类稀疏线性求解器终于能发挥作用。
+4. 自动求导也只在局部块上传播，不需要为了一个变量扰动重算整条路径的所有残差。
+
+所以“状态块”不是一个术语上的小修饰，而是当前 simple 后端性能恢复到正常量级的关键。
+
 ## 9. 求解后的路径是如何恢复的
 
 优化完成后，并不会直接把下采样后的关键点作为最终输出，而是进入 `upsampleAndPopulate()` 做后处理。

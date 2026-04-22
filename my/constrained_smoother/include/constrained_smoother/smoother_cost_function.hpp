@@ -230,11 +230,12 @@ protected:
   inline T evaluateObstaclePenalty(const T & distance) const
   {
     const T safe_distance = (T)std::max(params_.obstacle_safe_distance, 1e-6);
-    if (distance >= safe_distance) {
+    const T surface_distance = distance - (T)std::max(params_.cost_check_radius, 0.0);
+    if (surface_distance >= safe_distance) {
       return (T)0.0;
     }
 
-    const T normalized_gap = (safe_distance - distance) / safe_distance;
+    const T normalized_gap = (safe_distance - surface_distance) / safe_distance;
     return normalized_gap * normalized_gap;
   }
 

@@ -264,27 +264,35 @@
           <div class="param-group">
             <label for="footprint_mode">Footprint Model</label>
             <select id="footprint_mode">
-              <option value="point" selected>Point Robot</option>
-              <option value="rectangle">Rectangular Footprint</option>
+              <option value="capsule" selected>Capsule Checkpoints</option>
+              <option value="point">Single Check Circle</option>
             </select>
-            <p class="param-hint">Choose whether obstacle avoidance samples only the path centerline or a simple rectangular robot footprint.</p>
+            <p class="param-hint">Planning and smoothing now share the same checkpoint-plus-radius model. The rectangle is kept only for final path validation.</p>
           </div>
           <div class="param-group">
-            <label>Point Robot Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
+            <label>Single-Circle Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
             <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="1.00">
-            <p class="param-hint">Used only in point-robot mode. This inflates the shared hinge threshold around the robot centerline.</p>
+            <p class="param-hint">Used only in single-circle mode. Capsule mode derives the circle radius directly from robot width.</p>
           </div>
           <div class="param-group">
             <label>Robot Length (m): <span id="val_robot_length_m">0.80</span></label>
             <input type="range" id="robot_length_m" min="0.2" max="2.0" step="0.05" value="0.8">
-            <p class="param-hint">Front-to-back extent used when the rectangular footprint model is enabled.</p>
+            <p class="param-hint">Used to build capsule checkpoint centers and to validate the final path against the actual rectangle.</p>
           </div>
           <div class="param-group">
             <label>Robot Width (m): <span id="val_robot_width_m">0.50</span></label>
             <input type="range" id="robot_width_m" min="0.2" max="1.5" step="0.05" value="0.5">
-            <p class="param-hint">Left-to-right extent used for the rectangular footprint model.</p>
+            <p class="param-hint">Capsule radius defaults to half of this width. The same width is also used for final rectangle validation.</p>
           </div>
-          <p id="robot-config-summary" class="param-hint">Currently sampling the path centerline only.</p>
+          <div class="footprint-preview-card">
+            <div class="footprint-preview-card__header">
+              <span>Footprint Preview</span>
+              <strong id="footprint-preview-badge">Capsule</strong>
+            </div>
+            <canvas id="footprint-preview-canvas" width="220" height="160"></canvas>
+            <p id="robot-config-summary" class="param-hint">Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.</p>
+            <p id="footprint-validation-summary" class="param-hint">Rectangle validation status will appear after each plan.</p>
+          </div>
         </details>
 
         <details class="details-card">
@@ -410,7 +418,7 @@
               <span class="swatch swatch-robot-projection"></span>
               <span class="layer-copy-wrap">
                 <span class="layer-name">Robot Projection</span>
-                <span class="layer-copy">sampled robot poses swept along the smoothed path</span>
+                <span class="layer-copy">checkpoint circles with the dashed rectangle validation outline swept along the smoothed path</span>
               </span>
             </label>
           </div>

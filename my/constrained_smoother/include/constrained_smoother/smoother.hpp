@@ -140,6 +140,220 @@ public:
   }
 
 private:
+  using EsdfInterpolator = ceres::BiCubicInterpolator<ceres::Grid2D<double>>;
+
+  struct BuildProblemState
+  {
+    explicit BuildProblemState(double initial_direction)
+    : last_direction(initial_direction)
+    {
+    }
+
+    int preprelast_i{-1};
+    int prelast_i{-1};
+    int last_i{0};
+    double last_direction;
+    bool last_was_cusp{false};
+    bool last_is_reversing{false};
+    std::deque<std::pair<double, SmootherCostFunction *>> potential_cusp_funcs{};
+    double last_segment_len{EPSILON};
+    double potential_cusp_funcs_len{0.0};
+    double len_since_cusp{std::numeric_limits<double>::infinity()};
+  };
+
+  static double interpolateCuspZoneWeight(
+    double distance_from_cusp,
+    double cusp_half_length,
+    const SmootherParams & params)
+  {
+    return params.cusp_costmap_weight_sqrt * (1.0 - distance_from_cusp / cusp_half_length) +
+           params.costmap_weight_sqrt * distance_from_cusp / cusp_half_length;
+  }
+
+  std::shared_ptr<EsdfInterpolator> initializeEsdfInterpolator(
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    const std::vector<double> * precomputed_esdf)
+  {
+    // Build or validate the ESDF backing the obstacle residuals.
+    const size_t expected_esdf_size =
+      static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
+    if (precomputed_esdf != nullptr) {
+      if (precomputed_esdf->size() != expected_esdf_size) {
+        throw std::runtime_error("Precomputed ESDF size does not match costmap dimensions");
+      }
+      esdf_values_ = *precomputed_esdf;
+    } else {
+      esdf_values_ = ESDF::ComputeESDF(
+        costmap,
+        Costmap2D::LETHAL_OBSTACLE,
+        params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
+    }
+
+    esdf_grid_ = std::make_shared<ceres::Grid2D<double>>(
+      esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
+    return std::make_shared<EsdfInterpolator>(*esdf_grid_);
+  }
+
+  void initializeOptimizationPath(
+    const std::vector<Eigen::Vector3d> & path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const SmootherParams & params,
+    std::vector<Eigen::Vector3d> & path_optim,
+    std::vector<bool> & optimized) const
+  {
+    path_optim = path;
+    applyEndpointOrientationAnchors(path_optim, start_dir, end_dir, params);
+    optimized = std::vector<bool>(path.size(), false);
+    optimized[0] = true;
+  }
+
+  void addPathResidualBlocks(
+    const std::vector<Eigen::Vector3d> & path,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    const std::shared_ptr<EsdfInterpolator> & esdf_interpolator,
+    ceres::Problem & problem,
+    std::vector<Eigen::Vector3d> & path_optim,
+    std::vector<bool> & optimized) const
+  {
+    // Walk the path once to downsample, detect cusps, and wire the local residuals.
+    const double cusp_half_length = params.cusp_zone_length / 2;
+    ceres::LossFunction * loss_function = nullptr;
+    BuildProblemState state(path_optim[0][2]);
+
+    for (size_t i = 1; i < path_optim.size(); i++) {
+      auto & pt = path_optim[i];
+
+      // A cusp is a direction-sign flip between consecutive path points.
+      // Those points must be preserved, so they bypass the normal downsampling skip.
+      bool is_cusp = false;
+      if (i != path_optim.size() - 1) {
+        is_cusp = pt[2] * state.last_direction < 0;
+        state.last_direction = pt[2];
+
+        if (!is_cusp &&
+          i > (params.keep_start_orientation ? 1 : 0) &&
+          i < path_optim.size() - (params.keep_goal_orientation ? 2 : 1) &&
+          static_cast<int>(i - state.last_i) < params.path_downsampling_factor)
+        {
+          continue;
+        }
+      }
+
+      double current_segment_len =
+        (path_optim[i] - path_optim[state.last_i]).block<2, 1>(0, 0).norm();
+
+      // Retain only recent cost blocks that can still fall inside the backward half
+      // of a cusp zone. Older ones can no longer be reweighted by a future cusp.
+      state.potential_cusp_funcs_len += current_segment_len;
+      while (!state.potential_cusp_funcs.empty() &&
+        state.potential_cusp_funcs_len > cusp_half_length)
+      {
+        state.potential_cusp_funcs_len -= state.potential_cusp_funcs.front().first;
+        state.potential_cusp_funcs.pop_front();
+      }
+
+      // When a cusp is found, retroactively raise the obstacle weight on the nearby
+      // preceding blocks, then start the forward-side ramp from zero arc length.
+      if (is_cusp) {
+        double len_to_cusp = current_segment_len;
+        for (int i_cusp = state.potential_cusp_funcs.size() - 1; i_cusp >= 0; i_cusp--) {
+          auto & f = state.potential_cusp_funcs[i_cusp];
+          double new_weight = interpolateCuspZoneWeight(len_to_cusp, cusp_half_length, params);
+          if (std::abs(new_weight - params.cusp_costmap_weight_sqrt) <
+            std::abs(f.second->getCostmapWeightSqrt() - params.cusp_costmap_weight_sqrt))
+          {
+            f.second->setCostmapWeightSqrt(new_weight);
+          }
+          len_to_cusp += f.first;
+        }
+        state.potential_cusp_funcs_len = 0;
+        state.potential_cusp_funcs.clear();
+        state.len_since_cusp = 0;
+      }
+
+      // Register the main 3-point smoothing/cost block once we have a predecessor,
+      // and optionally add the 4-point D3 curvature-rate proxy on same-direction runs.
+      optimized[i] = true;
+      if (state.prelast_i != -1) {
+        double costmap_weight_sqrt = params.costmap_weight_sqrt;
+        if (state.len_since_cusp <= cusp_half_length) {
+          costmap_weight_sqrt =
+            interpolateCuspZoneWeight(state.len_since_cusp, cusp_half_length, params);
+        }
+
+        SmootherCostFunction * cost_function = new SmootherCostFunction(
+          path[state.last_i].template block<2, 1>(0, 0),
+          (state.last_was_cusp ? -1 : 1) * state.last_segment_len / current_segment_len,
+          state.last_is_reversing,
+          costmap,
+          esdf_interpolator,
+          params,
+          costmap_weight_sqrt);
+        problem.AddResidualBlock(
+          cost_function->AutoDiff(), loss_function,
+          path_optim[state.last_i].data(), pt.data(), path_optim[state.prelast_i].data());
+
+        if (params.curvature_rate_weight_sqrt > 0.0 &&
+          state.preprelast_i != -1 &&
+          path_optim[state.preprelast_i][2] * path_optim[state.prelast_i][2] > 0.0 &&
+          path_optim[state.prelast_i][2] * path_optim[state.last_i][2] > 0.0 &&
+          path_optim[state.last_i][2] * pt[2] > 0.0)
+        {
+          // Do not connect this D3 term across a cusp. The finite-difference proxy
+          // is only meaningful when all three consecutive segments share one direction.
+          CurvatureRateCostFunction * curvature_rate_cost_function =
+            new CurvatureRateCostFunction(params.curvature_rate_weight_sqrt);
+          problem.AddResidualBlock(
+            curvature_rate_cost_function->AutoDiff(), loss_function,
+            path_optim[state.preprelast_i].data(), path_optim[state.prelast_i].data(),
+            path_optim[state.last_i].data(), pt.data());
+        }
+
+        state.potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
+      }
+
+      state.last_was_cusp = is_cusp;
+      state.last_is_reversing = state.last_direction < 0;
+      state.preprelast_i = state.prelast_i;
+      state.prelast_i = state.last_i;
+      state.last_i = i;
+      state.len_since_cusp += current_segment_len;
+      state.last_segment_len = std::max(EPSILON, current_segment_len);
+    }
+  }
+
+  bool finalizeOptimizationProblem(
+    ceres::Problem & problem,
+    const std::vector<Eigen::Vector3d> & path_optim,
+    const SmootherParams & params) const
+  {
+    // If every interior point was skipped or fixed, there is no optimization problem to solve.
+    int posesToOptimize = problem.NumParameterBlocks() - 2;  // minus start and goal
+    if (params.keep_goal_orientation) {
+      posesToOptimize -= 1;
+    }
+    if (params.keep_start_orientation) {
+      posesToOptimize -= 1;
+    }
+    if (posesToOptimize <= 0) {
+      return false;  // nothing to optimize
+    }
+
+    // Freeze the endpoint anchors after all residuals are wired.
+    problem.SetParameterBlockConstant(path_optim.front().data());
+    if (params.keep_start_orientation) {
+      problem.SetParameterBlockConstant(path_optim[1].data());
+    }
+    if (params.keep_goal_orientation) {
+      problem.SetParameterBlockConstant(path_optim[path_optim.size() - 2].data());
+    }
+    problem.SetParameterBlockConstant(path_optim.back().data());
+    return true;
+  }
+
   /**
    * @brief Build problem method
    */
@@ -154,160 +368,10 @@ private:
     std::vector<Eigen::Vector3d> & path_optim,
     std::vector<bool> & optimized)
   {
-    const size_t expected_esdf_size =
-      static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
-    if (precomputed_esdf != nullptr) {
-      if (precomputed_esdf->size() != expected_esdf_size) {
-        throw std::runtime_error("Precomputed ESDF size does not match costmap dimensions");
-      }
-      esdf_values_ = *precomputed_esdf;
-    } else {
-      esdf_values_ = ESDF::ComputeESDF(
-        costmap,
-        Costmap2D::LETHAL_OBSTACLE,
-        params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
-    }
-    esdf_grid_ = std::make_shared<ceres::Grid2D<double>>(
-      esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
-    auto esdf_interpolator =
-      std::make_shared<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(*esdf_grid_);
-
-    // Create residual blocks
-    const double cusp_half_length = params.cusp_zone_length / 2;
-    ceres::LossFunction * loss_function = NULL;
-    path_optim = path;
-    applyEndpointOrientationAnchors(path_optim, start_dir, end_dir, params);
-    optimized = std::vector<bool>(path.size());
-    optimized[0] = true;
-    int preprelast_i = -1;
-    int prelast_i = -1;
-    int last_i = 0;
-    double last_direction = path_optim[0][2];
-    bool last_was_cusp = false;
-    bool last_is_reversing = false;
-    std::deque<std::pair<double, SmootherCostFunction *>> potential_cusp_funcs;
-    double last_segment_len = EPSILON;
-    double potential_cusp_funcs_len = 0;
-    double len_since_cusp = std::numeric_limits<double>::infinity();
-
-    for (size_t i = 1; i < path_optim.size(); i++) {
-      auto & pt = path_optim[i];
-      bool is_cusp = false;
-      if (i != path_optim.size() - 1) {
-        is_cusp = pt[2] * last_direction < 0;
-        last_direction = pt[2];
-
-        // skip to downsample if can be skipped (no forward/reverse direction change)
-        if (!is_cusp &&
-          i > (params.keep_start_orientation ? 1 : 0) &&
-          i < path_optim.size() - (params.keep_goal_orientation ? 2 : 1) &&
-          static_cast<int>(i - last_i) < params.path_downsampling_factor)
-        {
-          continue;
-        }
-      }
-
-      // keep distance inequalities between poses
-      double current_segment_len = (path_optim[i] - path_optim[last_i]).block<2, 1>(0, 0).norm();
-
-      // forget cost functions which don't have chance to be part of a cusp zone
-      potential_cusp_funcs_len += current_segment_len;
-      while (!potential_cusp_funcs.empty() && potential_cusp_funcs_len > cusp_half_length) {
-        potential_cusp_funcs_len -= potential_cusp_funcs.front().first;
-        potential_cusp_funcs.pop_front();
-      }
-
-      // update cusp zone costmap weights
-      if (is_cusp) {
-        double len_to_cusp = current_segment_len;
-        for (int i_cusp = potential_cusp_funcs.size() - 1; i_cusp >= 0; i_cusp--) {
-          auto & f = potential_cusp_funcs[i_cusp];
-          double new_weight =
-            params.cusp_costmap_weight_sqrt * (1.0 - len_to_cusp / cusp_half_length) +
-            params.costmap_weight_sqrt * len_to_cusp / cusp_half_length;
-          if (std::abs(new_weight - params.cusp_costmap_weight_sqrt) <
-            std::abs(f.second->getCostmapWeightSqrt() - params.cusp_costmap_weight_sqrt))
-          {
-            f.second->setCostmapWeightSqrt(new_weight);
-          }
-          len_to_cusp += f.first;
-        }
-        potential_cusp_funcs_len = 0;
-        potential_cusp_funcs.clear();
-        len_since_cusp = 0;
-      }
-
-      // add cost function
-      optimized[i] = true;
-      if (prelast_i != -1) {
-        double costmap_weight_sqrt = params.costmap_weight_sqrt;
-        if (len_since_cusp <= cusp_half_length) {
-          costmap_weight_sqrt =
-            params.cusp_costmap_weight_sqrt * (1.0 - len_since_cusp / cusp_half_length) +
-            params.costmap_weight_sqrt * len_since_cusp / cusp_half_length;
-        }
-        SmootherCostFunction * cost_function = new SmootherCostFunction(
-          path[last_i].template block<2, 1>(
-            0,
-            0),
-          (last_was_cusp ? -1 : 1) * last_segment_len / current_segment_len,
-          last_is_reversing,
-          costmap,
-          esdf_interpolator,
-          params,
-          costmap_weight_sqrt
-        );
-        problem.AddResidualBlock(
-          cost_function->AutoDiff(), loss_function,
-          path_optim[last_i].data(), pt.data(), path_optim[prelast_i].data());
-
-        if (params.curvature_rate_weight_sqrt > 0.0 &&
-          preprelast_i != -1 &&
-          path_optim[preprelast_i][2] * path_optim[prelast_i][2] > 0.0 &&
-          path_optim[prelast_i][2] * path_optim[last_i][2] > 0.0 &&
-          path_optim[last_i][2] * pt[2] > 0.0)
-        {
-          CurvatureRateCostFunction * curvature_rate_cost_function =
-            new CurvatureRateCostFunction(params.curvature_rate_weight_sqrt);
-          problem.AddResidualBlock(
-            curvature_rate_cost_function->AutoDiff(), loss_function,
-            path_optim[preprelast_i].data(), path_optim[prelast_i].data(),
-            path_optim[last_i].data(), pt.data());
-        }
-
-        potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
-      }
-
-      // shift current to last and last to pre-last
-      last_was_cusp = is_cusp;
-      last_is_reversing = last_direction < 0;
-      preprelast_i = prelast_i;
-      prelast_i = last_i;
-      last_i = i;
-      len_since_cusp += current_segment_len;
-      last_segment_len = std::max(EPSILON, current_segment_len);
-    }
-
-    int posesToOptimize = problem.NumParameterBlocks() - 2;  // minus start and goal
-    if (params.keep_goal_orientation) {
-      posesToOptimize -= 1;
-    }
-    if (params.keep_start_orientation) {
-      posesToOptimize -= 1;
-    }
-    if (posesToOptimize <= 0) {
-      return false;  // nothing to optimize
-    }
-    // first two and last two points are constant (to keep start and end direction)
-    problem.SetParameterBlockConstant(path_optim.front().data());
-    if (params.keep_start_orientation) {
-      problem.SetParameterBlockConstant(path_optim[1].data());
-    }
-    if (params.keep_goal_orientation) {
-      problem.SetParameterBlockConstant(path_optim[path_optim.size() - 2].data());
-    }
-    problem.SetParameterBlockConstant(path_optim.back().data());
-    return true;
+    auto esdf_interpolator = initializeEsdfInterpolator(costmap, params, precomputed_esdf);
+    initializeOptimizationPath(path, start_dir, end_dir, params, path_optim, optimized);
+    addPathResidualBlocks(path, costmap, params, esdf_interpolator, problem, path_optim, optimized);
+    return finalizeOptimizationProblem(problem, path_optim, params);
   }
 
   void applyEndpointOrientationAnchors(

@@ -24,6 +24,8 @@ struct AStarPlannerParams
   double safe_distance{0.5};
   double cost_penalty_weight{1.0};
   double point_radius{0.0};
+  double collision_check_radius{0.0};
+  std::vector<double> collision_check_points{};
   bool use_rectangular_footprint{false};
   double rectangular_length{0.0};
   double rectangular_width{0.0};
@@ -96,8 +98,10 @@ public:
       return {};
     }
 
-    if (!isTraversable(costmap, start.first, start.second, params) ||
-      !isTraversable(costmap, goal.first, goal.second, params))
+    const double nominal_yaw = std::atan2(goal_wy - start_wy, goal_wx - start_wx);
+
+    if (!isTraversable(costmap, start.first, start.second, nominal_yaw, params) ||
+      !isTraversable(costmap, goal.first, goal.second, nominal_yaw, params))
     {
       return {};
     }
@@ -143,15 +147,23 @@ public:
       for (const auto & neighbor : kNeighbors) {
         const int nx = cx + neighbor.dx;
         const int ny = cy + neighbor.dy;
-        if (!inBounds(nx, ny, size_x, size_y) || !isTraversable(costmap, nx, ny, params)) {
+        const double traversal_yaw = std::atan2(
+          static_cast<double>(neighbor.dy), static_cast<double>(neighbor.dx));
+        if (!inBounds(nx, ny, size_x, size_y) ||
+          !isTraversable(costmap, nx, ny, traversal_yaw, params))
+        {
           continue;
         }
 
         const int next_index = toIndex(nx, ny, size_x);
         const double step_cost = neighbor.distance * costmap->getResolution();
+        const auto next_center = gridToWorld(costmap, nx, ny);
+        const double footprint_distance = evaluateFootprintDistance(
+          costmap, next_center.x(), next_center.y(), traversal_yaw, params, next_index);
+        const double surface_distance = evaluateSurfaceDistance(footprint_distance, params);
         const double penalty = params.cost_penalty_weight *
           EvaluatePenalty(
-          esdf_[next_index],
+          surface_distance,
           params.safe_distance);
         const double tentative_g = current.g_score + step_cost + penalty * costmap->getResolution();
 
@@ -221,10 +233,15 @@ private:
   bool isTraversable(
     const Costmap2D * costmap,
     int mx, int my,
+    double yaw,
     const AStarPlannerParams & params) const
   {
     if (costmap->getCost(mx, my) >= params.lethal_cost) {
       return false;
+    }
+
+    if (!params.collision_check_points.empty() && params.collision_check_radius > 1e-9) {
+      return isMultiCircleTraversable(costmap, mx, my, yaw, params);
     }
 
     if (params.use_rectangular_footprint) {
@@ -251,6 +268,32 @@ private:
 
     const int index = toIndex(mx, my, static_cast<int>(costmap->getSizeInCellsX()));
     return index >= 0 && index < static_cast<int>(esdf_.size()) && esdf_[index] >= point_radius;
+  }
+
+  bool isMultiCircleTraversable(
+    const Costmap2D * costmap,
+    int mx, int my,
+    double yaw,
+    const AStarPlannerParams & params) const
+  {
+    const auto center = gridToWorld(costmap, mx, my);
+    const double radius = std::max(params.collision_check_radius, 0.0);
+    const double clearance = evaluateFootprintDistance(
+      costmap, center.x(), center.y(), yaw, params,
+      toIndex(mx, my, static_cast<int>(costmap->getSizeInCellsX())));
+    return std::isfinite(clearance) && clearance >= radius;
+  }
+
+  static double evaluateSurfaceDistance(
+    double clearance,
+    const AStarPlannerParams & params)
+  {
+    if (!std::isfinite(clearance)) {
+      return clearance;
+    }
+
+    const double radius = std::max(params.collision_check_radius, 0.0);
+    return clearance - radius;
   }
 
   bool isAxisAlignedRectangleTraversable(
@@ -312,6 +355,47 @@ private:
 
     return min_wx >= map_min_x && min_wy >= map_min_y &&
       max_wx <= map_max_x && max_wy <= map_max_y;
+  }
+
+  double evaluateFootprintDistance(
+    const Costmap2D * costmap,
+    double center_wx,
+    double center_wy,
+    double yaw,
+    const AStarPlannerParams & params,
+    int fallback_index) const
+  {
+    if (params.collision_check_points.empty() || params.collision_check_radius <= 1e-9) {
+      if (fallback_index >= 0 && fallback_index < static_cast<int>(esdf_.size())) {
+        return esdf_[fallback_index];
+      }
+      return -std::numeric_limits<double>::infinity();
+    }
+
+    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
+    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    double min_distance = std::numeric_limits<double>::infinity();
+
+    for (size_t offset = 0; offset + 1 < params.collision_check_points.size(); offset += 2) {
+      const double local_x = params.collision_check_points[offset + 0];
+      const double local_y = params.collision_check_points[offset + 1];
+      const double world_x = center_wx + cos_yaw * local_x - sin_yaw * local_y;
+      const double world_y = center_wy + sin_yaw * local_x + cos_yaw * local_y;
+      const auto grid = worldToGrid(costmap, world_x, world_y);
+      if (!inBounds(grid.first, grid.second, size_x, size_y)) {
+        return -std::numeric_limits<double>::infinity();
+      }
+
+      const int index = toIndex(grid.first, grid.second, size_x);
+      if (index < 0 || index >= static_cast<int>(esdf_.size())) {
+        return -std::numeric_limits<double>::infinity();
+      }
+      min_distance = std::min(min_distance, esdf_[index]);
+    }
+
+    return min_distance;
   }
 
   static double heuristic(int ax, int ay, int bx, int by)

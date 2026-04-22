@@ -331,6 +331,7 @@ private:
       size_x_(costmap->getSizeInCellsX()),
       size_y_(costmap->getSizeInCellsY()),
       obstacle_safe_distance_(std::max(params.obstacle_safe_distance, 1e-6)),
+      cost_check_radius_(std::max(params.cost_check_radius, 0.0)),
       obstacle_weight_(std::max(params.costmap_weight_sqrt, 0.0)),
       cusp_obstacle_weight_(std::max(params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt)),
       is_cusp_pose_(is_cusp_pose),
@@ -395,11 +396,13 @@ private:
 
       T distance = T(0.0);
       esdf_interpolator_->Evaluate(grid_y - T(0.5), grid_x - T(0.5), &distance);
-      if (distance >= T(obstacle_safe_distance_)) {
+      const T surface_distance = distance - T(cost_check_radius_);
+      if (surface_distance >= T(obstacle_safe_distance_)) {
         return T(0.0);
       }
 
-      const T normalized_gap = (T(obstacle_safe_distance_) - distance) / T(obstacle_safe_distance_);
+      const T normalized_gap =
+        (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
       return normalized_gap * normalized_gap;
     }
 
@@ -422,6 +425,7 @@ private:
     unsigned int size_x_;
     unsigned int size_y_;
     double obstacle_safe_distance_;
+    double cost_check_radius_;
     double obstacle_weight_;
     double cusp_obstacle_weight_;
     bool is_cusp_pose_;

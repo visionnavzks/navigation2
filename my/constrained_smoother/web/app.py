@@ -154,24 +154,126 @@ def _path_length(points):
     return total
 
 
-def _build_robot_cost_check_points(footprint_mode, robot_length_m, robot_width_m):
-    """Build local-frame footprint samples for the smoother obstacle term."""
-    if footprint_mode != "rectangle":
-        return []
+def _build_capsule_center_offsets(limit_x, radius, tolerance):
+    """Distribute circle centers so the union approximates a continuous capsule band."""
+    if limit_x <= 1e-6:
+        return [0.0]
 
+    max_gap_depth = min(max(tolerance, 1e-3), max(radius * 0.5, 1e-3))
+    min_val = radius * radius - max(radius - max_gap_depth, 0.0) ** 2
+    max_spacing = 2.0 * math.sqrt(max(min_val, 1e-9))
+    max_spacing = max(max_spacing, DEFAULT_RESOLUTION * 0.5)
+    interval_count = max(1, int(math.ceil((2.0 * limit_x) / max_spacing)))
+    return np.linspace(-limit_x, limit_x, interval_count + 1).tolist()
+
+
+def _build_robot_footprint_model(
+    footprint_mode,
+    hinge_loss_threshold_m,
+    point_robot_radius_m,
+    robot_length_m,
+    robot_width_m,
+):
+    """Build the unified checkpoint + radius geometry used by planning and smoothing."""
+    mode = footprint_mode if footprint_mode in {"point", "capsule"} else "capsule"
     half_length = max(robot_length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
     half_width = max(robot_width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
-    return [
-        0.0, 0.0, 0.6,
-        half_length, half_width, 1.0,
-        half_length, -half_width, 1.0,
-        -half_length, half_width, 1.0,
-        -half_length, -half_width, 1.0,
-        half_length, 0.0, 0.8,
-        -half_length, 0.0, 0.8,
-        0.0, half_width, 0.8,
-        0.0, -half_width, 0.8,
-    ]
+
+    if mode == "point":
+        check_radius = max(point_robot_radius_m, DEFAULT_RESOLUTION * 0.5)
+        local_points = [(0.0, 0.0)]
+    else:
+        check_radius = half_width
+        local_points = [(offset_x, 0.0) for offset_x in _build_capsule_center_offsets(
+            half_length,
+            check_radius,
+            max(DEFAULT_RESOLUTION * 0.35, 0.02),
+        )]
+
+    planner_points = []
+    smoother_points = []
+    serialized_points = []
+    for point_x, point_y in local_points:
+        planner_points.extend((float(point_x), float(point_y)))
+        smoother_points.extend((float(point_x), float(point_y), 1.0))
+        serialized_points.append({
+            "x": round(float(point_x), 4),
+            "y": round(float(point_y), 4),
+        })
+
+    safe_distance = hinge_loss_threshold_m
+    return {
+        "mode": mode,
+        "safe_distance": safe_distance,
+        "check_radius": check_radius,
+        "planner_points": planner_points,
+        "smoother_points": smoother_points,
+        "serialized_points": serialized_points,
+        "robot_length_m": robot_length_m,
+        "robot_width_m": robot_width_m,
+    }
+
+
+def _collides_oriented_rectangle(grid, center_x, center_y, yaw, length_m, width_m):
+    """Check whether an oriented rectangle overlaps any lethal cells."""
+    half_length = max(length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
+    half_width = max(width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
+    cos_yaw = math.cos(yaw)
+    sin_yaw = math.sin(yaw)
+
+    corners = []
+    for local_x, local_y in (
+        (half_length, half_width),
+        (half_length, -half_width),
+        (-half_length, half_width),
+        (-half_length, -half_width),
+    ):
+        corners.append((
+            center_x + cos_yaw * local_x - sin_yaw * local_y,
+            center_y + sin_yaw * local_x + cos_yaw * local_y,
+        ))
+
+    min_x = min(point[0] for point in corners)
+    max_x = max(point[0] for point in corners)
+    min_y = min(point[1] for point in corners)
+    max_y = max(point[1] for point in corners)
+
+    min_mx = int(math.floor((min_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION))
+    max_mx = int(math.ceil((max_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION)) - 1
+    min_my = int(math.floor((min_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION))
+    max_my = int(math.ceil((max_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION)) - 1
+    if min_mx < 0 or min_my < 0 or max_mx >= DEFAULT_SIZE_X or max_my >= DEFAULT_SIZE_Y:
+        return True
+
+    for my in range(min_my, max_my + 1):
+        for mx in range(min_mx, max_mx + 1):
+            if int(grid[my, mx]) < 254:
+                continue
+
+            cell_x = DEFAULT_ORIGIN_X + (mx + 0.5) * DEFAULT_RESOLUTION
+            cell_y = DEFAULT_ORIGIN_Y + (my + 0.5) * DEFAULT_RESOLUTION
+            dx = cell_x - center_x
+            dy = cell_y - center_y
+            local_x = cos_yaw * dx + sin_yaw * dy
+            local_y = -sin_yaw * dx + cos_yaw * dy
+            if abs(local_x) <= half_length and abs(local_y) <= half_width:
+                return True
+
+    return False
+
+
+def _validate_smoothed_path_rectangles(grid, xs, ys, thetas, robot_length_m, robot_width_m):
+    """Final collision validation using the actual rectangular footprint."""
+    colliding_indices = []
+    for index, (world_x, world_y, theta) in enumerate(zip(xs, ys, thetas)):
+        if _collides_oriented_rectangle(grid, world_x, world_y, theta, robot_length_m, robot_width_m):
+            colliding_indices.append(index)
+
+    return {
+        "collision_free": not colliding_indices,
+        "collision_count": len(colliding_indices),
+        "colliding_indices": colliding_indices[:20],
+    }
 
 
 COSTMAP_GRID = None
@@ -298,9 +400,9 @@ def plan_and_smooth():
         goal_yaw_deg = float(req.get("goal_yaw_deg", 45.0))
         keep_start_orientation = _coerce_bool(req.get("keep_start_orientation"), True)
         keep_goal_orientation = _coerce_bool(req.get("keep_goal_orientation"), True)
-        footprint_mode = str(req.get("footprint_mode", "point")).strip().lower()
-        if footprint_mode not in {"point", "rectangle"}:
-            footprint_mode = "point"
+        footprint_mode = str(req.get("footprint_mode", "capsule")).strip().lower()
+        if footprint_mode not in {"point", "capsule"}:
+            footprint_mode = "capsule"
         hinge_loss_threshold_m = max(0.05, float(req.get("hinge_loss_threshold_m", 0.5)))
         point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 1.0)))
         robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
@@ -335,20 +437,29 @@ def plan_and_smooth():
         optimizer_debug = _coerce_bool(req.get("optimizer_debug"), False)
         planner_penalty_weight = max(0.0, float(req.get("planner_penalty_weight", 1.0)))
 
+        footprint_model = _build_robot_footprint_model(
+            footprint_mode,
+            hinge_loss_threshold_m,
+            point_robot_radius_m,
+            robot_length_m,
+            robot_width_m,
+        )
+
         with STATE_LOCK:
-            planner_costmap = _grid_to_pcs_costmap(COSTMAP_GRID.copy())
+            costmap_grid = COSTMAP_GRID.copy()
+            planner_costmap = _grid_to_pcs_costmap(costmap_grid)
 
         # 1) A* path planning
         planner = pcs.AStarPlanner()
         planner_params = pcs.AStarPlannerParams()
-        planner_params.safe_distance = hinge_loss_threshold_m + (
-            point_robot_radius_m if footprint_mode == "point" else 0.0
-        )
+        planner_params.safe_distance = footprint_model["safe_distance"]
         planner_params.cost_penalty_weight = planner_penalty_weight
-        planner_params.point_radius = point_robot_radius_m if footprint_mode == "point" else 0.0
-        planner_params.use_rectangular_footprint = footprint_mode == "rectangle"
-        planner_params.rectangular_length = robot_length_m if footprint_mode == "rectangle" else 0.0
-        planner_params.rectangular_width = robot_width_m if footprint_mode == "rectangle" else 0.0
+        planner_params.point_radius = 0.0
+        planner_params.collision_check_radius = footprint_model["check_radius"]
+        planner_params.collision_check_points = footprint_model["planner_points"]
+        planner_params.use_rectangular_footprint = False
+        planner_params.rectangular_length = 0.0
+        planner_params.rectangular_width = 0.0
         t0 = time.time()
         raw_path = planner.plan(
             planner_costmap,
@@ -382,7 +493,8 @@ def plan_and_smooth():
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
         smoother_params.cusp_costmap_weight_sqrt = math.sqrt(cusp_costmap_weight)
         smoother_params.cusp_zone_length = cusp_zone_length
-        smoother_params.obstacle_safe_distance = planner_params.safe_distance
+        smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
+        smoother_params.cost_check_radius = footprint_model["check_radius"]
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
@@ -390,11 +502,7 @@ def plan_and_smooth():
         smoother_params.max_time = max_time
         smoother_params.keep_start_orientation = keep_start_orientation
         smoother_params.keep_goal_orientation = keep_goal_orientation
-        smoother_params.cost_check_points = _build_robot_cost_check_points(
-            footprint_mode,
-            robot_length_m,
-            robot_width_m,
-        )
+        smoother_params.cost_check_points = footprint_model["smoother_points"]
         smoother_params.path_downsampling_factor = path_downsample
         smoother_params.path_upsampling_factor = path_upsample
 
@@ -449,6 +557,14 @@ def plan_and_smooth():
         raw_length = _path_length(raw_path)
         ref_length = _path_length(sparse_path)
         opt_length = _path_length(smoothed)
+        final_rectangle_validation = _validate_smoothed_path_rectangles(
+            costmap_grid,
+            opt_x,
+            opt_y,
+            opt_theta,
+            robot_length_m,
+            robot_width_m,
+        )
 
         return jsonify({
             "success": True,
@@ -483,11 +599,14 @@ def plan_and_smooth():
             "keep_goal_orientation": keep_goal_orientation,
             "hinge_loss_threshold_m": round(hinge_loss_threshold_m, 3),
             "point_robot_radius_m": round(point_robot_radius_m, 3),
-            "effective_safe_distance_m": round(planner_params.safe_distance, 3),
-            "footprint_mode": footprint_mode,
+            "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
+            "footprint_mode": footprint_model["mode"],
             "robot_length_m": round(robot_length_m, 3),
             "robot_width_m": round(robot_width_m, 3),
-            "robot_check_points": len(smoother_params.cost_check_points) // 3,
+            "robot_check_points": len(footprint_model["serialized_points"]),
+            "collision_check_radius_m": round(footprint_model["check_radius"], 3),
+            "collision_check_points_local": footprint_model["serialized_points"],
+            "final_rectangle_validation": final_rectangle_validation,
         })
 
     except Exception as e:

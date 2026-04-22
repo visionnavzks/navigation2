@@ -70,6 +70,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "obstacle_safe_distance",
     &constrained_smoother::SmootherParams::obstacle_safe_distance)
     .def_readwrite(
+    "cost_check_radius",
+    &constrained_smoother::SmootherParams::cost_check_radius)
+    .def_readwrite(
     "path_downsampling_factor",
     &constrained_smoother::SmootherParams::path_downsampling_factor)
     .def_readwrite(
@@ -105,6 +108,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
     .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
     .def_readwrite("point_radius", &constrained_smoother::AStarPlannerParams::point_radius)
+    .def_readwrite(
+    "collision_check_radius",
+    &constrained_smoother::AStarPlannerParams::collision_check_radius)
+    .def_readwrite(
+    "collision_check_points",
+    &constrained_smoother::AStarPlannerParams::collision_check_points)
     .def_readwrite(
     "use_rectangular_footprint",
     &constrained_smoother::AStarPlannerParams::use_rectangular_footprint)
