@@ -15,7 +15,7 @@
 #include <vector>
 #include <cmath>
 
-#include "constrained_smoother/kinematic_smoother_simple.hpp"
+#include "constrained_smoother/kinematic_smoother.hpp"
 #include "gtest/gtest.h"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/smoother_cost_function.hpp"
@@ -184,7 +184,7 @@ TEST(SmootherTest, PathTooShortThrows)
     constrained_smoother::InvalidPath);
 }
 
-TEST(SimpleSmootherTest, SmoothStraightPath)
+TEST(KinematicSmootherTest, SmoothStraightPath)
 {
   constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
 
@@ -209,7 +209,7 @@ TEST(SimpleSmootherTest, SmoothStraightPath)
   constrained_smoother::OptimizerParams opt_params;
   opt_params.max_iterations = 30;
 
-  constrained_smoother::SimpleKinematicSmoother smoother;
+  constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
 
   const Eigen::Vector2d start_dir(1.0, 0.0);
@@ -220,7 +220,7 @@ TEST(SimpleSmootherTest, SmoothStraightPath)
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
 }
 
-TEST(SimpleSmootherTest, ObstacleCostCheckPointsDoNotThrow)
+TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
 {
   constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
   for (unsigned int y = 25; y < 55; ++y) {
@@ -258,7 +258,7 @@ TEST(SimpleSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   constrained_smoother::OptimizerParams opt_params;
   opt_params.max_iterations = 20;
 
-  constrained_smoother::SimpleKinematicSmoother smoother;
+  constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
 
   const Eigen::Vector2d start_dir(1.0, 0.0);

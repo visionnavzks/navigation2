@@ -306,13 +306,13 @@ document.addEventListener('DOMContentLoaded', () => {
       'optimizer-mode-hint',
       isConstrainedSmoother
         ? 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.'
-        : 'Kinematic Simple uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.'
+        : 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.'
     );
     setText(
       'linear-solver-hint',
       isConstrainedSmoother
         ? 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.'
-        : 'Only used by Constrained Smoother. Kinematic Simple solves a single packed state vector with a dense backend.'
+        : 'Only used by Constrained Smoother. Kinematic Smoother solves a single packed state vector with a dense backend.'
     );
   }
 

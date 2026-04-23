@@ -426,7 +426,7 @@ def plan_and_smooth():
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
         optimizer_type = str(req.get("optimizer_type", "constrained_smoother")).strip().lower()
-        if optimizer_type not in {"constrained_smoother", "kinematic_simple"}:
+        if optimizer_type not in {"constrained_smoother", "kinematic_smoother"}:
             optimizer_type = "constrained_smoother"
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
@@ -515,12 +515,12 @@ def plan_and_smooth():
         opt_params.gradient_tol = gradient_tol
 
         optimizer_label = (
-            "Kinematic Simple"
-            if optimizer_type == "kinematic_simple"
+            "Kinematic Smoother"
+            if optimizer_type == "kinematic_smoother"
             else "Constrained Smoother"
         )
-        if optimizer_type == "kinematic_simple":
-            smoother = pcs.SimpleKinematicSmoother()
+        if optimizer_type == "kinematic_smoother":
+            smoother = pcs.KinematicSmoother()
         else:
             smoother = pcs.Smoother()
         smoother.initialize(opt_params)

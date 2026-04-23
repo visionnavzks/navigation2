@@ -423,10 +423,10 @@ ceres::LossFunction * loss_function = NULL;
 2. 下采样后只剩边界点。
 3. 起终姿态保持导致中间自由度被吃光。
 
-### 8.5 `SimpleKinematicSmoother` 里的“大参数块”和“状态块”是什么
+### 8.5 `KinematicSmoother` 里的“大参数块”和“状态块”是什么
 
-这一节解释新增的 `SimpleKinematicSmoother`，也就是当前
-`kinematic_smoother_simple.hpp` 里通过 `buildProblem()` 构建问题的那套实现。
+这一节解释新增的 `KinematicSmoother`，也就是当前
+`kinematic_smoother.hpp` 里通过 `buildProblem()` 构建问题的那套实现。
 
 先说结论：
 
@@ -488,7 +488,7 @@ $$
 
 #### `buildProblem()` 到底在做什么
 
-`SimpleKinematicSmoother::smooth()` 里先调用：
+`KinematicSmoother::smooth()` 里先调用：
 
 ```cpp
 buildProblem(processed, costmap, params, variables, problem);

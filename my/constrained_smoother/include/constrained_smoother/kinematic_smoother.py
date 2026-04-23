@@ -10,7 +10,7 @@ def angle_diff(a, b):
     return normalize_angle(a - b)
 
 
-class SimpleKinematicSmoother:
+class KinematicSmoother:
     def __init__(
         self,
         w_model=10.0,
@@ -232,6 +232,3 @@ class SimpleKinematicSmoother:
             self.w_fix * angle_diff(theta[-1], end_pose[2]),
             self.w_fix * ds[-1],
         ]
-
-
-KinematicSmootherSimple = SimpleKinematicSmoother

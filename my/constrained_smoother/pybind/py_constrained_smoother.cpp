@@ -7,7 +7,7 @@
 
 #include "constrained_smoother/astar_esdf.hpp"
 #include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/kinematic_smoother_simple.hpp"
+#include "constrained_smoother/kinematic_smoother.hpp"
 #include "constrained_smoother/options.hpp"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/exceptions.hpp"
@@ -187,15 +187,15 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::arg("costmap"), py::arg("params"), py::arg("planner"),
     "Smooth a path while reusing the ESDF previously computed by an A* planner.");
 
-  py::class_<constrained_smoother::SimpleKinematicSmoother>(m, "SimpleKinematicSmoother")
+  py::class_<constrained_smoother::KinematicSmoother>(m, "KinematicSmoother")
     .def(py::init<>())
-    .def("initialize", &constrained_smoother::SimpleKinematicSmoother::initialize)
+    .def("initialize", &constrained_smoother::KinematicSmoother::initialize)
     .def(
       "get_last_optimized_knot_count",
-      &constrained_smoother::SimpleKinematicSmoother::getLastOptimizedKnotCount)
+      &constrained_smoother::KinematicSmoother::getLastOptimizedKnotCount)
     .def(
       "smooth",
-      [](constrained_smoother::SimpleKinematicSmoother & self,
+      [](constrained_smoother::KinematicSmoother & self,
       std::vector<Eigen::Vector3d> path,
       const Eigen::Vector2d & start_dir,
       const Eigen::Vector2d & end_dir,
@@ -207,10 +207,10 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"),
-      "Smooth a path using the simple kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
+      "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
       "smooth_with_planner_esdf",
-      [](constrained_smoother::SimpleKinematicSmoother & self,
+      [](constrained_smoother::KinematicSmoother & self,
       std::vector<Eigen::Vector3d> path,
       const Eigen::Vector2d & start_dir,
       const Eigen::Vector2d & end_dir,
@@ -223,7 +223,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),
-      "Smooth a path with the simple kinematic backend while reusing the ESDF previously computed by an A* planner.");
+      "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner.");
 
   // --- Exceptions ---
   py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");

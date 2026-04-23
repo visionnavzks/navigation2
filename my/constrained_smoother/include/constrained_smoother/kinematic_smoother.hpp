@@ -1,5 +1,5 @@
-#ifndef CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_SIMPLE_HPP_
-#define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_SIMPLE_HPP_
+#ifndef CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
+#define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 
 #include <algorithm>
 #include <array>
@@ -21,11 +21,11 @@
 namespace constrained_smoother
 {
 
-class SimpleKinematicSmoother
+class KinematicSmoother
 {
 public:
-  SimpleKinematicSmoother() = default;
-  ~SimpleKinematicSmoother() = default;
+  KinematicSmoother() = default;
+  ~KinematicSmoother() = default;
 
   void initialize(const OptimizerParams & params)
   {
@@ -68,7 +68,7 @@ public:
     const std::vector<double> * precomputed_esdf)
   {
     if (path.size() < 2) {
-      throw InvalidPath("Simple kinematic smoother: Path must have at least 2 points");
+      throw InvalidPath("Kinematic smoother: Path must have at least 2 points");
     }
 
     options_.max_solver_time_in_seconds = params.max_time;
@@ -101,7 +101,7 @@ public:
       std::cout << summary.FullReport() << std::endl;
     }
     if (!summary.IsSolutionUsable() || summary.initial_cost - summary.final_cost < 0.0) {
-      throw FailedToSmoothPath("Simple kinematic smoother failed to produce a usable solution");
+      throw FailedToSmoothPath("Kinematic smoother failed to produce a usable solution");
     }
 
     path = unpackPath(variables, processed.state_count);
@@ -643,4 +643,4 @@ private:
 
 }  // namespace constrained_smoother
 
-#endif  // CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_SIMPLE_HPP_
+#endif  // CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
