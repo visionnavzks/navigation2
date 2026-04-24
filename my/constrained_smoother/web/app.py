@@ -180,6 +180,28 @@ def _error_payload(exc, *, default_status=400, default_source="server"):
     ).to_payload()["error"]
 
 
+def _build_smoother_error_payload(result):
+    error_payload = {
+        "code": str(result["error_code"]),
+        "message": str(result["error_message"]),
+        "source": "smoother",
+    }
+
+    details = {}
+    failure_reason = result.get("error_reason")
+    if failure_reason is not None:
+        details["failure_reason"] = str(failure_reason)
+
+    error_details = result.get("error_details")
+    if isinstance(error_details, dict):
+        details.update(error_details)
+
+    if details:
+        error_payload["details"] = details
+
+    return error_payload
+
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -779,13 +801,13 @@ def plan_and_smooth():
         # Downsample dense grid path
         sparse_path = downsample_path(raw_path, reference_spacing_target_m)
 
-        # Build Eigen-compatible path: (x, y, direction_sign=1.0)
-        eigen_path = [np.array([p[0], p[1], 1.0]) for p in sparse_path]
+        # Build pybind-compatible path input: (x, y, direction_sign=1.0)
+        eigen_path = [[p[0], p[1], 1.0] for p in sparse_path]
 
         start_yaw_rad = math.radians(start_yaw_deg)
         goal_yaw_rad = math.radians(goal_yaw_deg)
-        s_dir = np.array([math.cos(start_yaw_rad), math.sin(start_yaw_rad)])
-        e_dir = np.array([math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)])
+        s_dir = [math.cos(start_yaw_rad), math.sin(start_yaw_rad)]
+        e_dir = [math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)]
         reference_with_yaw = _reconstruct_path_with_yaw(
             eigen_path,
             start_yaw=start_yaw_rad,
@@ -853,11 +875,7 @@ def plan_and_smooth():
             else:
                 candidate_smoothed = None
                 smoothed = reference_with_yaw
-                smooth_error = {
-                    "code": str(smooth_result["error_code"]),
-                    "message": str(smooth_result["error_message"]),
-                    "source": "smoother",
-                }
+                smooth_error = _build_smoother_error_payload(smooth_result)
                 smooth_message = smooth_error["message"]
         except Exception as e:
             smooth_time = (time.time() - t1) * 1000.0

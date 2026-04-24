@@ -92,7 +92,7 @@ public:
     const Costmap2D * costmap,
     const SmootherParams & params)
   {
-    return smooth(path, start_dir, end_dir, costmap, params, nullptr);
+    return smooth(path, start_dir, end_dir, costmap, params, nullptr, nullptr);
   }
 
   bool smooth(
@@ -101,7 +101,8 @@ public:
     const Eigen::Vector2d & end_dir,
     const Costmap2D * costmap,
     const SmootherParams & params,
-    const std::vector<double> * precomputed_esdf)
+    const std::vector<double> * precomputed_esdf,
+    SmoothingFailureInfo * failure = nullptr)
   {
     // Path has always at least 2 points
     if (path.size() < 2) {
@@ -124,8 +125,17 @@ public:
       if (debug_) {
         std::cout << summary.FullReport() << std::endl;
       }
-      if (!summary.IsSolutionUsable() || summary.initial_cost - summary.final_cost < 0.0) {
-        throw FailedToSmoothPath("Solution is not usable");
+      if (!summary.IsSolutionUsable()) {
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::SolverRejectedSolution,
+          "Constrained smoother rejected the Ceres solution as unusable");
+      }
+      if (summary.initial_cost - summary.final_cost < 0.0) {
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::NoCostImprovement,
+          "Constrained smoother did not improve the objective cost");
       }
     } else {
       last_optimized_knot_count_ = std::count(optimized.begin(), optimized.end(), true);

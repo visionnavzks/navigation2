@@ -173,7 +173,12 @@ print(optimized_knot_count, float(smoothed[0][2]))
 
 safe_result = smoother.try_smooth(path, start_dir, end_dir, costmap, params)
 if not safe_result["ok"]:
-		print(safe_result["error_code"], safe_result["error_message"])
+		print(
+			safe_result["error_code"],
+			safe_result["error_reason"],
+			safe_result["error_message"],
+			safe_result["error_details"],
+		)
 ```
 
 ## Error Codes
@@ -183,7 +188,7 @@ The standalone project now uses stable error codes instead of relying on free-fo
 - C++ exceptions expose `code()` and `codeString()`.
 - Python bindings expose `ErrorCode`, `error_code_to_string(...)`, and `ERROR_*` constants.
 - For Python callers that want structured failures without exception handling, prefer `try_smooth(...)` and `try_smooth_with_planner_esdf(...)`.
-	- These methods return a dict with `ok`, `path`, `error_code`, and `error_message`.
+	- These methods return a dict with `ok`, `path`, `error_code`, `error_reason`, `error_message`, and `error_details`.
 - The pure Python SciPy helper in `include/constrained_smoother/kinematic_smoother.py` now also exposes `try_optimize(...)`.
 	- It returns `ok`, `states`, `optimizer_result`, `error_code`, and `error_message`.
 - The Flask web API returns an `error` object on failures:

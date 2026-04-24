@@ -13,7 +13,7 @@ This file is the reference catalog for the standalone constrained smoother proje
 | Code | Layer | Meaning | Typical Trigger | Recommended Handling |
 | --- | --- | --- | --- | --- |
 | `CS_INVALID_PATH` | C++, pybind `try_*` | Input path is too short or malformed for smoothing. | Fewer than 2 knots passed to smoother backends. | Validate path length before smoothing; keep the reference path. |
-| `CS_SMOOTHING_FAILED` | C++, pybind `try_*`, web `smooth_error` | Optimizer ran but did not produce a usable solution. | Non-usable solution, no cost decrease, or backend convergence failure. | Fall back to the reference path and surface the failure to the operator. |
+| `CS_SMOOTHING_FAILED` | C++, pybind `try_*`, web `smooth_error` | Optimizer ran but did not produce a usable solution. | Non-usable solution, no cost decrease, backend convergence failure, or post-solve validation finding boundary / motion-direction / footprint violations. | Fall back to the reference path, and inspect `error_reason` or `smooth_error.details.failure_reason` to see which condition failed. |
 | `CS_INVALID_COSTMAP` | C++, pybind `try_*` | Planner or smoother received no valid costmap. | Null or otherwise invalid costmap object. | Rebuild or reinitialize the costmap before retrying. |
 | `CS_PRECOMPUTED_ESDF_SIZE_MISMATCH` | C++, pybind `try_*` | The supplied ESDF does not match costmap dimensions. | Reusing planner ESDF with mismatched map dimensions. | Discard cached ESDF and recompute from the active map. |
 
@@ -27,6 +27,28 @@ This file is the reference catalog for the standalone constrained smoother proje
 | `CS_FINAL_PATH_OUT_OF_BOUNDS` | `/api/plan` `smooth_error` | Final post-smoothing validation found the robot footprint outside the map. | Smoothed candidate leaves the costmap extent once the full rectangle footprint is applied. | Reject the candidate path; reduce deformation or adjust constraints. |
 | `CS_FINAL_PATH_COLLISION` | `/api/plan` `smooth_error` | Final post-smoothing validation found a footprint collision. | Smoothed candidate overlaps lethal cells after rectangle-footprint validation. | Reject the candidate path and fall back to the reference path. |
 | `CS_INTERNAL_ERROR` | Any web endpoint | Unexpected server-side error. | Unhandled Python exception or runtime fault. | Inspect logs and server state before retrying. |
+
+## `CS_SMOOTHING_FAILED` Reasons
+
+The code stays stable as `CS_SMOOTHING_FAILED`, but the backend now also reports a stable reason string.
+
+| Reason | Typical Trigger |
+| --- | --- |
+| `solver_rejected_solution` | `summary.IsSolutionUsable()` was false after Ceres solve. |
+| `no_cost_improvement` | Final objective cost was not lower than initial cost. |
+| `invalid_state_vector` | Backend produced a packed state vector with the wrong size. |
+| `nonfinite_state` | A returned state contained `NaN` or `Inf`. |
+| `start_position_constraint` | Returned path drifted off the fixed start position. |
+| `start_orientation_constraint` | Returned path violated the fixed start heading. |
+| `goal_position_constraint` | Returned path drifted off the fixed goal position. |
+| `goal_orientation_constraint` | Returned path violated the fixed goal heading. |
+| `cusp_hold_constraint` | A cusp duplicate state moved or rotated when it should remain fixed. |
+| `collapsed_segment` | A non-cusp segment collapsed to near-zero length. |
+| `motion_direction_constraint` | Segment displacement contradicted the input gear or endpoint orientation constraints. |
+| `path_out_of_bounds` | A footprint checkpoint left the map during post-solve validation. |
+| `footprint_collision` | A footprint checkpoint had clearance smaller than the configured collision radius. |
+
+When available, `error_details.failed_index` identifies the state or segment index that failed.
 
 ## Pure Python SciPy Helper Codes
 
@@ -56,6 +78,8 @@ Return shape:
     "path": list | None,
     "error_code": str | None,
     "error_message": str | None,
+    "error_reason": str | None,
+    "error_details": {"failed_index": int} | None,
 }
 ```
 
@@ -70,7 +94,10 @@ When smoothing runs, the web API may return these additional fields:
         "code": str,
         "message": str,
         "source": "smoother" | "post_validation",
-        "details": dict | None,
+        "details": {
+            "failure_reason": str,
+            "failed_index": int,
+        } | dict | None,
     } | None,
     "candidate_rectangle_validation": {
         "valid": bool,

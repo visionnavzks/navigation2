@@ -8,6 +8,7 @@
 #include <memory>
 #include <numeric>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -56,7 +57,7 @@ public:
     const Costmap2D * costmap,
     const SmootherParams & params)
   {
-    return smooth(path, start_dir, end_dir, costmap, params, nullptr);
+    return smooth(path, start_dir, end_dir, costmap, params, nullptr, nullptr);
   }
 
   bool smooth(
@@ -65,7 +66,8 @@ public:
     const Eigen::Vector2d & end_dir,
     const Costmap2D * costmap,
     const SmootherParams & params,
-    const std::vector<double> * precomputed_esdf)
+    const std::vector<double> * precomputed_esdf,
+    SmoothingFailureInfo * failure = nullptr)
   {
     if (path.size() < 2) {
       throw InvalidPath("Kinematic smoother: Path must have at least 2 points");
@@ -101,8 +103,21 @@ public:
     if (debug_) {
       std::cout << summary.FullReport() << std::endl;
     }
-    if (!summary.IsSolutionUsable() || summary.initial_cost - summary.final_cost < 0.0) {
-      throw FailedToSmoothPath("Kinematic smoother failed to produce a usable solution");
+    if (!summary.IsSolutionUsable()) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::SolverRejectedSolution,
+        "Kinematic smoother rejected the Ceres solution as unusable");
+    }
+    if (summary.initial_cost - summary.final_cost < 0.0) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::NoCostImprovement,
+        "Kinematic smoother did not improve the objective cost");
+    }
+
+    if (!validateSolution(variables, processed, costmap, params, failure)) {
+      return false;
     }
 
     path = unpackPath(variables, processed.state_count);
@@ -634,6 +649,270 @@ private:
         normalizeAngle(variables[5 * index + 2]));
     }
     return path;
+  }
+
+  static double angleDifference(double a, double b)
+  {
+    return normalizeAngle(a - b);
+  }
+
+  static bool isFiniteState(const double * state)
+  {
+    for (size_t index = 0; index < 5; ++index) {
+      if (!std::isfinite(state[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static double positionTolerance(const Costmap2D * costmap)
+  {
+    return std::max(costmap->getResolution() * 0.5, 1e-3);
+  }
+
+  static double orientationTolerance()
+  {
+    return 0.1;
+  }
+
+  static double displacementTolerance(const Costmap2D * costmap)
+  {
+    return std::max(costmap->getResolution() * 0.25, 1e-4);
+  }
+
+  static std::pair<int, int> worldToGrid(const Costmap2D * costmap, double wx, double wy)
+  {
+    const double resolution = costmap->getResolution();
+    const int mx = static_cast<int>(std::floor((wx - costmap->getOriginX()) / resolution));
+    const int my = static_cast<int>(std::floor((wy - costmap->getOriginY()) / resolution));
+    return {mx, my};
+  }
+
+  static bool inBounds(const Costmap2D * costmap, int mx, int my)
+  {
+    return mx >= 0 && my >= 0 &&
+      mx < static_cast<int>(costmap->getSizeInCellsX()) &&
+      my < static_cast<int>(costmap->getSizeInCellsY());
+  }
+
+  static double clearanceAtWorldPoint(
+    const Costmap2D * costmap,
+    const std::vector<double> & esdf_values,
+    double world_x,
+    double world_y)
+  {
+    const auto grid = worldToGrid(costmap, world_x, world_y);
+    if (!inBounds(costmap, grid.first, grid.second)) {
+      return -std::numeric_limits<double>::infinity();
+    }
+
+    const size_t flat_index = static_cast<size_t>(grid.second) * costmap->getSizeInCellsX() +
+      static_cast<size_t>(grid.first);
+    if (flat_index >= esdf_values.size()) {
+      return -std::numeric_limits<double>::infinity();
+    }
+
+    return esdf_values[flat_index];
+  }
+
+  bool validateSolution(
+    const std::vector<double> & variables,
+    const ProcessedPath & processed,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    SmoothingFailureInfo * failure) const
+  {
+    if (variables.size() != processed.state_count * 5) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::InvalidStateVector,
+        "Kinematic smoother returned an invalid state vector size");
+    }
+
+    if (!validateFiniteStates(variables, processed.state_count, failure)) {
+      return false;
+    }
+    if (!validateBoundaryStates(variables, processed, costmap, params, failure)) {
+      return false;
+    }
+    if (!validateSegmentConsistency(variables, processed, costmap, failure)) {
+      return false;
+    }
+    if (!validateObstacleClearance(variables, processed.state_count, costmap, params, failure)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  bool validateFiniteStates(
+    const std::vector<double> & variables,
+    size_t state_count,
+    SmoothingFailureInfo * failure) const
+  {
+    for (size_t index = 0; index < state_count; ++index) {
+      const double * state = variables.data() + 5 * index;
+      if (!isFiniteState(state)) {
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::NonFiniteState,
+          "Kinematic smoother returned a non-finite state at index " + std::to_string(index),
+          static_cast<int>(index));
+      }
+    }
+
+    return true;
+  }
+
+  bool validateBoundaryStates(
+    const std::vector<double> & variables,
+    const ProcessedPath & processed,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    SmoothingFailureInfo * failure) const
+  {
+    const double position_tol = positionTolerance(costmap);
+    const double angle_tol = orientationTolerance();
+
+    const double * start_state = variables.data();
+    const double start_dx = start_state[0] - processed.reference_points.front().x();
+    const double start_dy = start_state[1] - processed.reference_points.front().y();
+    if (std::hypot(start_dx, start_dy) > position_tol) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::StartPositionConstraint,
+        "Kinematic smoother violated the fixed start position constraint",
+        0);
+    }
+    if (params.keep_start_orientation &&
+      std::abs(angleDifference(start_state[2], processed.start_theta)) > angle_tol)
+    {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::StartOrientationConstraint,
+        "Kinematic smoother violated the fixed start orientation constraint",
+        0);
+    }
+
+    const double * goal_state = variables.data() + 5 * (processed.state_count - 1);
+    const double goal_dx = goal_state[0] - processed.reference_points.back().x();
+    const double goal_dy = goal_state[1] - processed.reference_points.back().y();
+    if (std::hypot(goal_dx, goal_dy) > position_tol) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::GoalPositionConstraint,
+        "Kinematic smoother violated the fixed goal position constraint",
+        static_cast<int>(processed.state_count - 1));
+    }
+    if (params.keep_goal_orientation &&
+      std::abs(angleDifference(goal_state[2], processed.end_theta)) > angle_tol)
+    {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::GoalOrientationConstraint,
+        "Kinematic smoother violated the fixed goal orientation constraint",
+        static_cast<int>(processed.state_count - 1));
+    }
+
+    return true;
+  }
+
+  bool validateSegmentConsistency(
+    const std::vector<double> & variables,
+    const ProcessedPath & processed,
+    const Costmap2D * costmap,
+    SmoothingFailureInfo * failure) const
+  {
+    const double position_tol = positionTolerance(costmap);
+    const double displacement_tol = displacementTolerance(costmap);
+    const double angle_tol = orientationTolerance();
+
+    for (size_t index = 0; index + 1 < processed.state_count; ++index) {
+      const double * current = variables.data() + 5 * index;
+      const double * next = variables.data() + 5 * (index + 1);
+      const double dx = next[0] - current[0];
+      const double dy = next[1] - current[1];
+      const double displacement = std::hypot(dx, dy);
+
+      if (processed.is_cusp_segment[index]) {
+        if (displacement > position_tol || std::abs(angleDifference(next[2], current[2])) > angle_tol) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::CuspHoldConstraint,
+            "Kinematic smoother violated the cusp hold constraint during post-validation",
+            static_cast<int>(index));
+        }
+        continue;
+      }
+
+      if (displacement <= displacement_tol) {
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::CollapsedSegment,
+          "Kinematic smoother collapsed a non-cusp segment during post-validation",
+          static_cast<int>(index));
+      }
+
+      const Eigen::Vector2d heading(std::cos(current[2]), std::sin(current[2]));
+      const double signed_projection = dx * heading.x() + dy * heading.y();
+      const double gear = processed.gears[index];
+      if ((gear >= 0.0 && signed_projection <= 0.0) || (gear < 0.0 && signed_projection >= 0.0)) {
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::MotionDirectionConstraint,
+          "Kinematic smoother returned a path whose motion direction violates the input gear and endpoint constraints",
+          static_cast<int>(index));
+      }
+    }
+
+    return true;
+  }
+
+  bool validateObstacleClearance(
+    const std::vector<double> & variables,
+    size_t state_count,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    SmoothingFailureInfo * failure) const
+  {
+    const double radius = std::max(params.cost_check_radius, 0.0);
+    if (params.cost_check_points.empty() || radius <= 1e-9) {
+      return true;
+    }
+
+    for (size_t state_index = 0; state_index < state_count; ++state_index) {
+      const double * state = variables.data() + 5 * state_index;
+      const double x = state[0];
+      const double y = state[1];
+      const double theta = state[2];
+      const double cos_theta = std::cos(theta);
+      const double sin_theta = std::sin(theta);
+
+      for (size_t offset = 0; offset + 2 < params.cost_check_points.size(); offset += 3) {
+        const double local_x = params.cost_check_points[offset + 0];
+        const double local_y = params.cost_check_points[offset + 1];
+        const double world_x = x + cos_theta * local_x - sin_theta * local_y;
+        const double world_y = y + sin_theta * local_x + cos_theta * local_y;
+        const double clearance = clearanceAtWorldPoint(costmap, esdf_values_, world_x, world_y);
+        if (!std::isfinite(clearance)) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::PathOutOfBounds,
+            "Kinematic smoother returned a path that leaves the map bounds during footprint validation",
+            static_cast<int>(state_index));
+        }
+        if (clearance < radius) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::FootprintCollision,
+            "Kinematic smoother returned a path that collides with obstacles during footprint validation",
+            static_cast<int>(state_index));
+        }
+      }
+    }
+
+    return true;
   }
 
   bool debug_{false};
