@@ -51,6 +51,135 @@ def _coerce_bool(value, default):
     return default
 
 
+ERROR_INVALID_REQUEST = "CS_INVALID_REQUEST"
+ERROR_ASTAR_NO_PATH = "CS_ASTAR_NO_PATH"
+ERROR_INTERNAL = "CS_INTERNAL_ERROR"
+ERROR_FINAL_PATH_NONFINITE = "CS_FINAL_PATH_NONFINITE"
+ERROR_FINAL_PATH_OUT_OF_BOUNDS = "CS_FINAL_PATH_OUT_OF_BOUNDS"
+ERROR_FINAL_PATH_COLLISION = "CS_FINAL_PATH_COLLISION"
+PCS_ERROR_CODE_BY_TYPE = {
+    "InvalidPathError": getattr(pcs, "ERROR_INVALID_PATH", "CS_INVALID_PATH"),
+    "FailedToSmoothPathError": getattr(pcs, "ERROR_FAILED_TO_SMOOTH_PATH", "CS_SMOOTHING_FAILED"),
+    "InvalidCostmapError": getattr(pcs, "ERROR_INVALID_COSTMAP", "CS_INVALID_COSTMAP"),
+    "PrecomputedEsdfSizeMismatchError": getattr(
+        pcs,
+        "ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH",
+        "CS_PRECOMPUTED_ESDF_SIZE_MISMATCH",
+    ),
+}
+
+
+class ApiError(Exception):
+    def __init__(self, code, message, status_code=400, source="server", details=None):
+        super().__init__(message)
+        self.code = str(code)
+        self.message = str(message)
+        self.status_code = int(status_code)
+        self.source = str(source)
+        self.details = details or {}
+
+    def to_payload(self):
+        error_payload = {
+            "code": self.code,
+            "message": self.message,
+            "source": self.source,
+        }
+        if self.details:
+            error_payload["details"] = self.details
+        return {
+            "success": False,
+            "message": self.message,
+            "error": error_payload,
+        }
+
+
+def _extract_prefixed_error_code(message):
+    if not isinstance(message, str) or not message.startswith("CS_"):
+        return None, message
+    prefix, separator, remainder = message.partition(": ")
+    if not separator:
+        return None, message
+    return prefix, remainder
+
+
+def _exception_to_api_error(exc, *, default_status=400, default_source="server"):
+    if isinstance(exc, ApiError):
+        return exc
+
+    message = getattr(exc, "message", None)
+    if not isinstance(message, str) or not message:
+        message = str(exc) or "Unknown error"
+
+    prefixed_code, prefixed_message = _extract_prefixed_error_code(message)
+    if prefixed_code:
+        return ApiError(
+            code=prefixed_code,
+            message=prefixed_message,
+            status_code=default_status,
+            source=default_source,
+            details={"exception_type": type(exc).__name__},
+        )
+
+    code = getattr(exc, "code", None)
+    numeric_code = getattr(exc, "numeric_code", None)
+    if code:
+        details = {"exception_type": type(exc).__name__}
+        if numeric_code is not None:
+            details["numeric_code"] = int(numeric_code)
+        return ApiError(
+            code=code,
+            message=message,
+            status_code=default_status,
+            source=default_source,
+            details=details,
+        )
+
+    exception_type = type(exc).__name__
+    mapped_code = PCS_ERROR_CODE_BY_TYPE.get(exception_type)
+    if mapped_code:
+        return ApiError(
+            code=mapped_code,
+            message=message,
+            status_code=default_status,
+            source=default_source,
+            details={"exception_type": exception_type},
+        )
+
+    if isinstance(exc, ValueError):
+        return ApiError(
+            code=ERROR_INVALID_REQUEST,
+            message=message,
+            status_code=400,
+            source="request",
+            details={"exception_type": type(exc).__name__},
+        )
+
+    return ApiError(
+        code=ERROR_INTERNAL,
+        message=message,
+        status_code=500,
+        source=default_source,
+        details={"exception_type": type(exc).__name__},
+    )
+
+
+def _error_response(exc, *, default_status=400, default_source="server"):
+    api_error = _exception_to_api_error(
+        exc,
+        default_status=default_status,
+        default_source=default_source,
+    )
+    return jsonify(api_error.to_payload()), api_error.status_code
+
+
+def _error_payload(exc, *, default_status=400, default_source="server"):
+    return _exception_to_api_error(
+        exc,
+        default_status=default_status,
+        default_source=default_source,
+    ).to_payload()["error"]
+
+
 app = Flask(__name__)
 
 # ---------------------------------------------------------------------------
@@ -154,6 +283,85 @@ def _path_length(points):
     return total
 
 
+def _normalize_angle_rad(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def _reconstruct_path_with_yaw(
+    path,
+    start_yaw=None,
+    goal_yaw=None,
+    keep_start_orientation=True,
+    keep_goal_orientation=True,
+):
+    """Convert a path using direction-sign z into a path using yaw z."""
+    if not path:
+        return []
+
+    xs = [float(pose[0]) for pose in path]
+    ys = [float(pose[1]) for pose in path]
+    direction_signs = []
+    for pose in path:
+        direction_sign = float(pose[2]) if len(pose) >= 3 else 1.0
+        direction_signs.append(-1.0 if direction_sign < 0.0 else 1.0)
+
+    pose_count = len(path)
+    fallback_yaw = _normalize_angle_rad(float(start_yaw)) if start_yaw is not None else 0.0
+    yaws = []
+    for index in range(pose_count):
+        if pose_count == 1:
+            yaw = fallback_yaw
+        else:
+            prev_index = max(0, index - 1)
+            next_index = min(pose_count - 1, index + 1)
+            if prev_index == next_index:
+                yaw = fallback_yaw
+            else:
+                delta_x = xs[next_index] - xs[prev_index]
+                delta_y = ys[next_index] - ys[prev_index]
+                if math.hypot(delta_x, delta_y) <= 1e-6:
+                    yaw = fallback_yaw
+                else:
+                    yaw = math.atan2(delta_y, delta_x)
+                    if direction_signs[index] < 0.0:
+                        yaw += math.pi
+                    yaw = _normalize_angle_rad(yaw)
+            fallback_yaw = yaw
+        yaws.append(yaw)
+
+    if keep_start_orientation and start_yaw is not None:
+        yaws[0] = _normalize_angle_rad(float(start_yaw))
+    if keep_goal_orientation and goal_yaw is not None:
+        yaws[-1] = _normalize_angle_rad(float(goal_yaw))
+
+    return [
+        (xs[index], ys[index], yaws[index])
+        for index in range(pose_count)
+    ]
+
+
+def _serialize_validation_scalar(value, digits=4):
+    numeric_value = float(value)
+    if not math.isfinite(numeric_value):
+        return None
+    return round(numeric_value, digits)
+
+
+def _build_validation_error_payload(validation):
+    return {
+        "code": validation["error_code"],
+        "message": validation["message"],
+        "source": "post_validation",
+        "details": {
+            "failure_count": validation["failure_count"],
+            "collision_count": validation["collision_count"],
+            "out_of_bounds_count": validation["out_of_bounds_count"],
+            "nonfinite_count": validation["nonfinite_count"],
+            "first_failure": validation["first_failure"],
+        },
+    }
+
+
 def _build_capsule_center_offsets(limit_x, radius, tolerance):
     """Distribute circle centers so the union approximates a continuous capsule band."""
     if limit_x <= 1e-6:
@@ -214,8 +422,23 @@ def _build_robot_footprint_model(
     }
 
 
-def _collides_oriented_rectangle(grid, center_x, center_y, yaw, length_m, width_m):
-    """Check whether an oriented rectangle overlaps any lethal cells."""
+def _evaluate_oriented_rectangle_pose(grid, center_x, center_y, yaw, length_m, width_m, index):
+    """Classify a final rectangle-validation result for a single pose."""
+    pose_payload = {
+        "index": int(index),
+        "x": _serialize_validation_scalar(center_x),
+        "y": _serialize_validation_scalar(center_y),
+        "yaw": _serialize_validation_scalar(yaw),
+    }
+    if not all(math.isfinite(float(value)) for value in (center_x, center_y, yaw)):
+        return {
+            "valid": False,
+            "code": ERROR_FINAL_PATH_NONFINITE,
+            "message": f"Final validation failed because pose {index} contains non-finite x/y/yaw values.",
+            "reason": "nonfinite_pose",
+            "pose": pose_payload,
+        }
+
     half_length = max(length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
     half_width = max(width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
     cos_yaw = math.cos(yaw)
@@ -243,7 +466,19 @@ def _collides_oriented_rectangle(grid, center_x, center_y, yaw, length_m, width_
     min_my = int(math.floor((min_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION))
     max_my = int(math.ceil((max_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION)) - 1
     if min_mx < 0 or min_my < 0 or max_mx >= DEFAULT_SIZE_X or max_my >= DEFAULT_SIZE_Y:
-        return True
+        return {
+            "valid": False,
+            "code": ERROR_FINAL_PATH_OUT_OF_BOUNDS,
+            "message": f"Final validation failed because pose {index} leaves the map bounds.",
+            "reason": "out_of_bounds",
+            "pose": pose_payload,
+            "bounding_box_cells": {
+                "min_mx": min_mx,
+                "max_mx": max_mx,
+                "min_my": min_my,
+                "max_my": max_my,
+            },
+        }
 
     for my in range(min_my, max_my + 1):
         for mx in range(min_mx, max_mx + 1):
@@ -257,22 +492,75 @@ def _collides_oriented_rectangle(grid, center_x, center_y, yaw, length_m, width_
             local_x = cos_yaw * dx + sin_yaw * dy
             local_y = -sin_yaw * dx + cos_yaw * dy
             if abs(local_x) <= half_length and abs(local_y) <= half_width:
-                return True
+                return {
+                    "valid": False,
+                    "code": ERROR_FINAL_PATH_COLLISION,
+                    "message": f"Final validation failed because pose {index} overlaps a lethal obstacle cell.",
+                    "reason": "lethal_overlap",
+                    "pose": pose_payload,
+                    "collision_cell": {
+                        "mx": int(mx),
+                        "my": int(my),
+                        "world_x": _serialize_validation_scalar(cell_x),
+                        "world_y": _serialize_validation_scalar(cell_y),
+                    },
+                }
 
-    return False
+    return {
+        "valid": True,
+        "pose": pose_payload,
+    }
 
 
 def _validate_smoothed_path_rectangles(grid, xs, ys, thetas, robot_length_m, robot_width_m):
     """Final collision validation using the actual rectangular footprint."""
     colliding_indices = []
+    out_of_bounds_indices = []
+    nonfinite_indices = []
+    failures = []
+    pose_count = 0
     for index, (world_x, world_y, theta) in enumerate(zip(xs, ys, thetas)):
-        if _collides_oriented_rectangle(grid, world_x, world_y, theta, robot_length_m, robot_width_m):
-            colliding_indices.append(index)
+        pose_count += 1
+        validation = _evaluate_oriented_rectangle_pose(
+            grid,
+            world_x,
+            world_y,
+            theta,
+            robot_length_m,
+            robot_width_m,
+            index,
+        )
+        if not validation["valid"]:
+            failures.append(validation)
+            if validation["code"] == ERROR_FINAL_PATH_COLLISION:
+                colliding_indices.append(index)
+            elif validation["code"] == ERROR_FINAL_PATH_OUT_OF_BOUNDS:
+                out_of_bounds_indices.append(index)
+            elif validation["code"] == ERROR_FINAL_PATH_NONFINITE:
+                nonfinite_indices.append(index)
+
+    first_failure = failures[0] if failures else None
+    failure_count = len(failures)
+    if first_failure is None:
+        message = f"Rectangle validation passed on all {pose_count} pose(s)."
+        error_code = None
+    else:
+        message = first_failure["message"]
+        error_code = first_failure["code"]
 
     return {
-        "collision_free": not colliding_indices,
+        "collision_free": failure_count == 0,
+        "valid": failure_count == 0,
+        "message": message,
+        "error_code": error_code,
+        "failure_count": failure_count,
         "collision_count": len(colliding_indices),
         "colliding_indices": colliding_indices[:20],
+        "out_of_bounds_count": len(out_of_bounds_indices),
+        "out_of_bounds_indices": out_of_bounds_indices[:20],
+        "nonfinite_count": len(nonfinite_indices),
+        "nonfinite_indices": nonfinite_indices[:20],
+        "first_failure": first_failure,
     }
 
 
@@ -373,7 +661,12 @@ def update_obstacles():
         req = request.get_json(silent=True) or {}
         rect_payloads = req.get("obstacle_rects_cells")
         if not isinstance(rect_payloads, list) or not rect_payloads:
-            return jsonify({"success": False, "message": "No obstacle rectangles were provided."}), 400
+            raise ApiError(
+                ERROR_INVALID_REQUEST,
+                "No obstacle rectangles were provided.",
+                status_code=400,
+                source="request",
+            )
 
         normalized_rects = _normalize_obstacle_rects(rect_payloads)
         with STATE_LOCK:
@@ -384,7 +677,7 @@ def update_obstacles():
         return jsonify(payload)
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"success": False, "message": str(e)}), 400
+        return _error_response(e, default_status=400, default_source="costmap")
 
 
 @app.route("/api/plan", methods=["POST"])
@@ -472,7 +765,14 @@ def plan_and_smooth():
         astar_time = (time.time() - t0) * 1000.0
 
         if not raw_path:
-            return jsonify({"success": False, "message": "A* could not find a path."})
+            return _error_response(
+                ApiError(
+                    ERROR_ASTAR_NO_PATH,
+                    "A* could not find a path.",
+                    status_code=409,
+                    source="planner",
+                )
+            )
 
         raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
 
@@ -486,6 +786,13 @@ def plan_and_smooth():
         goal_yaw_rad = math.radians(goal_yaw_deg)
         s_dir = np.array([math.cos(start_yaw_rad), math.sin(start_yaw_rad)])
         e_dir = np.array([math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)])
+        reference_with_yaw = _reconstruct_path_with_yaw(
+            eigen_path,
+            start_yaw=start_yaw_rad,
+            goal_yaw=goal_yaw_rad,
+            keep_start_orientation=keep_start_orientation,
+            keep_goal_orientation=keep_goal_orientation,
+        )
 
         # 2) Constrained smoother
         smoother_params = pcs.SmootherParams()
@@ -527,9 +834,11 @@ def plan_and_smooth():
 
         t1 = time.time()
         smooth_message = ""
+        smooth_error = None
+        candidate_rectangle_validation = None
         optimized_knot_count = 0
         try:
-            smoothed = smoother.smooth_with_planner_esdf(
+            smooth_result = smoother.try_smooth_with_planner_esdf(
                 eigen_path,
                 s_dir,
                 e_dir,
@@ -538,13 +847,44 @@ def plan_and_smooth():
                 planner,
             )
             smooth_time = (time.time() - t1) * 1000.0
-            smooth_success = True
+            smooth_success = bool(smooth_result["ok"])
+            if smooth_success:
+                candidate_smoothed = smooth_result["path"]
+            else:
+                candidate_smoothed = None
+                smoothed = reference_with_yaw
+                smooth_error = {
+                    "code": str(smooth_result["error_code"]),
+                    "message": str(smooth_result["error_message"]),
+                    "source": "smoother",
+                }
+                smooth_message = smooth_error["message"]
         except Exception as e:
             smooth_time = (time.time() - t1) * 1000.0
-            smoothed = eigen_path  # fall back to unsmoothed
+            candidate_smoothed = None
+            smoothed = reference_with_yaw
             smooth_success = False
-            smooth_message = str(e)
+            smooth_error = _error_payload(e, default_status=422, default_source="smoother")
+            smooth_message = smooth_error["message"]
         optimized_knot_count = int(smoother.get_last_optimized_knot_count())
+
+        if smooth_success:
+            candidate_rectangle_validation = _validate_smoothed_path_rectangles(
+                costmap_grid,
+                [p[0] for p in candidate_smoothed],
+                [p[1] for p in candidate_smoothed],
+                [p[2] for p in candidate_smoothed],
+                robot_length_m,
+                robot_width_m,
+            )
+            candidate_rectangle_validation["validated_path"] = "smoothed_candidate"
+            if not candidate_rectangle_validation["valid"]:
+                smooth_success = False
+                smooth_error = _build_validation_error_payload(candidate_rectangle_validation)
+                smooth_message = smooth_error["message"]
+                smoothed = reference_with_yaw
+            else:
+                smoothed = candidate_smoothed
 
         # Format response
         astar_x = [p[0] for p in raw_path]
@@ -565,6 +905,11 @@ def plan_and_smooth():
             robot_length_m,
             robot_width_m,
         )
+        final_rectangle_validation["validated_path"] = (
+            "smoothed_path"
+            if smooth_success
+            else "reference_fallback"
+        )
 
         return jsonify({
             "success": True,
@@ -572,6 +917,8 @@ def plan_and_smooth():
             "astar_time_ms": round(astar_time, 2),
             "smooth_time_ms": round(smooth_time, 2),
             "smooth_message": smooth_message,
+            "smooth_error": smooth_error,
+            "candidate_rectangle_validation": candidate_rectangle_validation,
             "astar_x": astar_x,
             "astar_y": astar_y,
             "ref_x": ref_x,
@@ -611,7 +958,7 @@ def plan_and_smooth():
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"success": False, "message": str(e)})
+        return _error_response(e, default_status=400, default_source="planner")
 
 
 if __name__ == "__main__":

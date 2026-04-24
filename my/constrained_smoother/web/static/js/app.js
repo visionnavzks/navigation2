@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
   const statusMsg = document.getElementById('status-msg');
+  const validationDetailsCard = document.getElementById('footprint-validation-details-card');
 
   const sliderConfig = {
     start_yaw_deg: value => `${Math.round(value)} deg`,
@@ -338,6 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
     );
     if (!state.paths?.final_rectangle_validation) {
       setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+      clearValidationFailureDetails();
     }
     drawFootprintPreview();
   }
@@ -369,6 +371,97 @@ document.addEventListener('DOMContentLoaded', () => {
       return '--';
     }
     return `${Number(value).toFixed(digits)} 1/m`;
+  }
+
+  function formatValidationPathLabel(validatedPath) {
+    if (validatedPath === 'smoothed_candidate') {
+      return 'Rejected smoothed candidate';
+    }
+    if (validatedPath === 'reference_fallback') {
+      return 'Returned reference path';
+    }
+    if (validatedPath === 'smoothed_path') {
+      return 'Returned smoothed path';
+    }
+    return '--';
+  }
+
+  function formatValidationReason(reason) {
+    const reasonLabels = {
+      lethal_overlap: 'Lethal obstacle overlap',
+      out_of_bounds: 'Footprint leaves map bounds',
+      nonfinite_pose: 'Non-finite pose value',
+    };
+    return reasonLabels[reason] || '--';
+  }
+
+  function formatValidationPose(pose) {
+    if (!pose || pose.x === null || pose.y === null || pose.x === undefined || pose.y === undefined) {
+      return '--';
+    }
+    return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} m`;
+  }
+
+  function formatValidationCell(firstFailure) {
+    const collisionCell = firstFailure?.collision_cell;
+    if (collisionCell) {
+      return `${collisionCell.mx}, ${collisionCell.my}`;
+    }
+
+    const bounds = firstFailure?.bounding_box_cells;
+    if (bounds) {
+      return `mx ${bounds.min_mx}..${bounds.max_mx}, my ${bounds.min_my}..${bounds.max_my}`;
+    }
+
+    return '--';
+  }
+
+  function formatValidationCellWorld(firstFailure) {
+    const collisionCell = firstFailure?.collision_cell;
+    if (collisionCell && collisionCell.world_x !== null && collisionCell.world_y !== null && collisionCell.world_x !== undefined && collisionCell.world_y !== undefined) {
+      return `${Number(collisionCell.world_x).toFixed(2)}, ${Number(collisionCell.world_y).toFixed(2)} m`;
+    }
+
+    const bounds = firstFailure?.bounding_box_cells;
+    if (bounds) {
+      return `bbox: mx ${bounds.min_mx}..${bounds.max_mx}, my ${bounds.min_my}..${bounds.max_my}`;
+    }
+
+    return '--';
+  }
+
+  function clearValidationFailureDetails() {
+    if (validationDetailsCard) {
+      validationDetailsCard.hidden = true;
+    }
+    setText('validation-detail-path', '--');
+    setText('validation-detail-code', '--');
+    setText('validation-detail-reason', '--');
+    setText('validation-detail-pose-index', '--');
+    setText('validation-detail-pose-xy', '--');
+    setText('validation-detail-pose-yaw', '--');
+    setText('validation-detail-cell', '--');
+    setText('validation-detail-cell-world', '--');
+    setText('validation-detail-message', '--');
+  }
+
+  function showValidationFailureDetails(validation) {
+    if (!validationDetailsCard || !validation || validation.valid || !validation.first_failure) {
+      clearValidationFailureDetails();
+      return;
+    }
+
+    const firstFailure = validation.first_failure;
+    validationDetailsCard.hidden = false;
+    setText('validation-detail-path', formatValidationPathLabel(validation.validated_path));
+    setText('validation-detail-code', validation.error_code || '--');
+    setText('validation-detail-reason', formatValidationReason(firstFailure.reason));
+    setText('validation-detail-pose-index', firstFailure.pose?.index ?? '--');
+    setText('validation-detail-pose-xy', formatValidationPose(firstFailure.pose));
+    setText('validation-detail-pose-yaw', formatRadians(firstFailure.pose?.yaw));
+    setText('validation-detail-cell', formatValidationCell(firstFailure));
+    setText('validation-detail-cell-world', formatValidationCellWorld(firstFailure));
+    setText('validation-detail-message', validation.message || '--');
   }
 
   function buildCapsuleCenterOffsets(limitX, radius, tolerance) {
@@ -550,6 +643,15 @@ document.addEventListener('DOMContentLoaded', () => {
     statusMsg.textContent = message;
     statusMsg.className = 'status-msg ' + className;
     setText('hero-status', message);
+  }
+
+  function formatApiError(payload, fallbackMessage) {
+    const code = payload?.error?.code;
+    const message = payload?.message || payload?.error?.message || fallbackMessage;
+    if (code) {
+      return `[${code}] ${message}`;
+    }
+    return message;
   }
 
   function clonePoint(point) {
@@ -1572,13 +1674,34 @@ document.addEventListener('DOMContentLoaded', () => {
         : `${data.optimizer_label || 'The selected optimizer'} failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
     );
 
-    const validation = data.final_rectangle_validation;
-    if (validation) {
-      const statusText = validation.collision_free
-        ? `Rectangle validation passed on all ${data.num_returned_pts ?? data.num_opt_pts ?? 0} returned poses.`
-        : `Rectangle validation found ${validation.collision_count} colliding pose(s). First indices: ${(validation.colliding_indices || []).join(', ') || '--'}.`;
+    const candidateValidation = data.candidate_rectangle_validation;
+    const returnedValidation = data.final_rectangle_validation;
+    const failureValidation = candidateValidation && !candidateValidation.valid
+      ? candidateValidation
+      : returnedValidation && !returnedValidation.valid
+        ? returnedValidation
+        : null;
+    if (candidateValidation && !candidateValidation.valid) {
+      const candidateCode = candidateValidation.error_code ? ` [${candidateValidation.error_code}]` : '';
+      const returnedSummary = !returnedValidation
+        ? ''
+        : returnedValidation.collision_free
+          ? ' Returned reference path rectangle validation passed.'
+          : ` Returned reference path rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
+      setText(
+        'footprint-validation-summary',
+        `Rejected smoothed path${candidateCode}. ${candidateValidation.message || ''}${returnedSummary}`.trim()
+      );
+    } else if (returnedValidation) {
+      const pathLabel = returnedValidation.validated_path === 'reference_fallback'
+        ? 'Returned reference path'
+        : 'Returned path';
+      const statusText = returnedValidation.collision_free
+        ? `${pathLabel} rectangle validation passed on all ${data.num_returned_pts ?? data.num_opt_pts ?? 0} pose(s).`
+        : `${pathLabel} rectangle validation failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`.trim();
       setText('footprint-validation-summary', statusText);
     }
+    showValidationFailureDetails(failureValidation);
 
     drawFootprintPreview(data);
     drawCurvatureChart();
@@ -1589,6 +1712,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('smooth-state', 'idle');
     setText('run-note', 'Set a start and goal to generate path metrics.');
     setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+    clearValidationFailureDetails();
     drawFootprintPreview();
     clearCurvatureChart();
   }
@@ -2339,7 +2463,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.hoverOptimizedPoint = null;
         updateOptimizedPointInspector();
         clearRunInfo();
-        setStatus(data.message || 'Planning failed.', 'error');
+        setStatus(formatApiError(data, 'Planning failed.'), 'error');
         draw();
         return;
       }
@@ -2353,10 +2477,11 @@ document.addEventListener('DOMContentLoaded', () => {
       updateOptimizedPointInspector();
       updateRunInfo(data);
       const optimizerLabel = data.optimizer_label || 'Optimizer';
+      const smoothErrorLabel = data.smooth_error?.code ? ` [${data.smooth_error.code}]` : '';
       setStatus(
         data.smooth_success
           ? `${optimizerLabel} complete. A* ${data.astar_time_ms} ms, smoothing ${data.smooth_time_ms} ms.`
-          : `A* succeeded in ${data.astar_time_ms} ms, but ${optimizerLabel} failed so the reference path is shown.`,
+          : `A* succeeded in ${data.astar_time_ms} ms, but ${optimizerLabel} failed${smoothErrorLabel} so the reference path is shown. ${data.smooth_message || ''}`.trim(),
         data.smooth_success ? 'ok' : 'error'
       );
       draw();
@@ -2394,7 +2519,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (!payload.success) {
-        setStatus(payload.message || 'Failed to update obstacles.', 'error');
+        setStatus(formatApiError(payload, 'Failed to update obstacles.'), 'error');
         return;
       }
 

@@ -170,6 +170,39 @@ optimized_knot_count = smoother.get_last_optimized_knot_count()
 
 # On output, smoothed[i][2] is yaw in radians.
 print(optimized_knot_count, float(smoothed[0][2]))
+
+safe_result = smoother.try_smooth(path, start_dir, end_dir, costmap, params)
+if not safe_result["ok"]:
+		print(safe_result["error_code"], safe_result["error_message"])
+```
+
+## Error Codes
+
+The standalone project now uses stable error codes instead of relying on free-form messages alone.
+
+- C++ exceptions expose `code()` and `codeString()`.
+- Python bindings expose `ErrorCode`, `error_code_to_string(...)`, and `ERROR_*` constants.
+- For Python callers that want structured failures without exception handling, prefer `try_smooth(...)` and `try_smooth_with_planner_esdf(...)`.
+	- These methods return a dict with `ok`, `path`, `error_code`, and `error_message`.
+- The pure Python SciPy helper in `include/constrained_smoother/kinematic_smoother.py` now also exposes `try_optimize(...)`.
+	- It returns `ok`, `states`, `optimizer_result`, `error_code`, and `error_message`.
+- The Flask web API returns an `error` object on failures:
+- `POST /api/plan` also performs one final rectangle-footprint validation on the smoothed candidate before accepting it.
+	- If that post-validation fails, the API sets `smooth_success=false`, fills `smooth_error`, includes `candidate_rectangle_validation`, and falls back to the reference path.
+	- `final_rectangle_validation` always describes the path that is actually returned to the frontend.
+
+See `ERROR_CODES.md` for the full catalog and handling guidance.
+
+```json
+{
+	"success": false,
+	"message": "A* could not find a path.",
+	"error": {
+		"code": "CS_ASTAR_NO_PATH",
+		"message": "A* could not find a path.",
+		"source": "planner"
+	}
+}
 ```
 
 ## Web Lab
@@ -207,10 +240,14 @@ When launched from `my/constrained_smoother`, `web/app.py` adds both the package
 	- Returns the current costmap grid, optional ESDF grid, and map metadata.
 - `POST /api/obstacles`
 	- Accepts `obstacle_rects_cells` and rebuilds the scene costmap.
+	- Validation failures return `success=false` plus a structured `error.code`.
 - `POST /api/plan`
 	- Runs A* and then the constrained smoother.
 	- Accepts start and goal positions, start and goal yaw constraints, footprint mode, planner penalty settings, and solver parameters.
 	- Returns raw A* points, downsampled reference points, smoothed points, `opt_theta`, timing, lengths, and optimized knot counts.
+	- Hard failures return `success=false` plus a structured `error` object.
+	- Smoother-only failures keep `success=true` so the UI can fall back to the reference path, and additionally populate `smooth_error`.
+	- If the optimizer returns a path but final rectangle-footprint validation rejects it, the response also includes `candidate_rectangle_validation` with the exact rejection reason.
 
 The smoother route currently derives its planner safe distance from the shared hinge-loss threshold, and in point-robot mode it adds the point-robot radius on top of that shared threshold.
 The standalone A* now also performs hard footprint feasibility checks: point-robot mode rejects cells whose ESDF clearance is smaller than the configured radius, and rectangle mode rejects any axis-aligned pose whose box footprint overlaps lethal cells. Rectangle A* checking intentionally ignores yaw.

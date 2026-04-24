@@ -180,7 +180,8 @@ private:
       static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
     if (precomputed_esdf != nullptr) {
       if (precomputed_esdf->size() != expected_esdf_size) {
-        throw std::runtime_error("Precomputed ESDF size does not match costmap dimensions");
+        throw PrecomputedEsdfSizeMismatch(
+                "Precomputed ESDF size does not match costmap dimensions");
       }
       esdf_values_ = *precomputed_esdf;
     } else {

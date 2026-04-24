@@ -245,6 +245,68 @@ body {
   margin-bottom: 0.8rem;
 }
 
+.validation-details-card {
+  margin-top: 0.75rem;
+  border: 1px solid rgba(196, 78, 54, 0.16);
+  border-radius: 16px;
+  background: rgba(196, 78, 54, 0.06);
+  padding: 0.75rem;
+}
+
+.validation-details-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.validation-details-card__header span {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.validation-details-card__header strong {
+  font-size: 0.76rem;
+  line-height: 1.35;
+  color: rgba(102, 36, 24, 0.92);
+  text-align: right;
+}
+
+.validation-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.validation-details-item {
+  border-radius: 14px;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 252, 246, 0.86);
+  border: 1px solid rgba(100, 85, 60, 0.10);
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.validation-details-item--wide {
+  grid-column: 1 / -1;
+}
+
+.validation-details-item strong {
+  font-size: 0.88rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.validation-details-message {
+  margin-top: 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: rgba(102, 36, 24, 0.94);
+}
+
 .param-group + .param-group {
   margin-top: 0.75rem;
 }

@@ -13,6 +13,7 @@
 #include "Eigen/Core"
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/esdf.hpp"
+#include "constrained_smoother/exceptions.hpp"
 
 namespace constrained_smoother
 {
@@ -76,7 +77,7 @@ public:
     const AStarPlannerParams & params)
   {
     if (costmap == nullptr) {
-      throw std::runtime_error("AStarPlanner requires a valid costmap");
+      throw InvalidCostmap("AStarPlanner requires a valid costmap");
     }
 
     const int size_x = static_cast<int>(costmap->getSizeInCellsX());

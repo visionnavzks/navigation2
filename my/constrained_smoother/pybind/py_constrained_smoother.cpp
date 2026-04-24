@@ -18,9 +18,71 @@
 
 namespace py = pybind11;
 
+namespace
+{
+
+template<typename ErrorT>
+py::dict make_error_result(const ErrorT & error)
+{
+  py::dict result;
+  result["ok"] = false;
+  result["path"] = py::none();
+  result["error_code"] = py::str(error.codeString());
+  result["error_message"] = py::str(error.what());
+  return result;
+}
+
+template<typename Fn>
+py::dict invoke_with_result(Fn && fn)
+{
+  try {
+    py::dict result;
+    result["ok"] = true;
+    result["path"] = fn();
+    result["error_code"] = py::none();
+    result["error_message"] = py::none();
+    return result;
+  } catch (const constrained_smoother::InvalidPath & error) {
+    return make_error_result(error);
+  } catch (const constrained_smoother::FailedToSmoothPath & error) {
+    return make_error_result(error);
+  } catch (const constrained_smoother::InvalidCostmap & error) {
+    return make_error_result(error);
+  } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
+    return make_error_result(error);
+  }
+}
+
+}  // namespace
+
 PYBIND11_MODULE(py_constrained_smoother, m)
 {
   m.doc() = "Python bindings for the constrained_smoother C++ library";
+
+  py::enum_<constrained_smoother::ErrorCode>(m, "ErrorCode")
+    .value("INVALID_PATH", constrained_smoother::ErrorCode::InvalidPath)
+    .value("FAILED_TO_SMOOTH_PATH", constrained_smoother::ErrorCode::FailedToSmoothPath)
+    .value("INVALID_COSTMAP", constrained_smoother::ErrorCode::InvalidCostmap)
+    .value(
+      "PRECOMPUTED_ESDF_SIZE_MISMATCH",
+      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch);
+
+  m.def(
+    "error_code_to_string",
+    [](constrained_smoother::ErrorCode code) {
+      return constrained_smoother::toErrorCodeString(code);
+    },
+    py::arg("code"));
+
+  m.attr("ERROR_INVALID_PATH") = py::str(
+    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidPath));
+  m.attr("ERROR_FAILED_TO_SMOOTH_PATH") = py::str(
+    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::FailedToSmoothPath));
+  m.attr("ERROR_INVALID_COSTMAP") = py::str(
+    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidCostmap));
+  m.attr("ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH") = py::str(
+    constrained_smoother::toErrorCodeString(
+      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
 
   // --- Costmap2D ---
   py::class_<constrained_smoother::Costmap2D>(m, "Costmap2D")
@@ -171,6 +233,23 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::arg("costmap"), py::arg("params"),
     "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
+    "try_smooth",
+    [](constrained_smoother::Smoother & self,
+    std::vector<Eigen::Vector3d> path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const constrained_smoother::Costmap2D & costmap,
+    const constrained_smoother::SmootherParams & params) -> py::dict
+    {
+      return invoke_with_result([&]() {
+        self.smooth(path, start_dir, end_dir, &costmap, params);
+        return path;
+      });
+    },
+    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
+    py::arg("costmap"), py::arg("params"),
+    "Try to smooth a path and return a structured result with ok/path/error_code/error_message.")
+    .def(
     "smooth_with_planner_esdf",
     [](constrained_smoother::Smoother & self,
     std::vector<Eigen::Vector3d> path,
@@ -185,7 +264,25 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"), py::arg("planner"),
-    "Smooth a path while reusing the ESDF previously computed by an A* planner.");
+    "Smooth a path while reusing the ESDF previously computed by an A* planner.")
+    .def(
+    "try_smooth_with_planner_esdf",
+    [](constrained_smoother::Smoother & self,
+    std::vector<Eigen::Vector3d> path,
+    const Eigen::Vector2d & start_dir,
+    const Eigen::Vector2d & end_dir,
+    const constrained_smoother::Costmap2D & costmap,
+    const constrained_smoother::SmootherParams & params,
+    const constrained_smoother::AStarPlanner & planner) -> py::dict
+    {
+      return invoke_with_result([&]() {
+        self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF());
+        return path;
+      });
+    },
+    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
+    py::arg("costmap"), py::arg("params"), py::arg("planner"),
+    "Try to smooth a path with a planner ESDF and return a structured result.");
 
   py::class_<constrained_smoother::KinematicSmoother>(m, "KinematicSmoother")
     .def(py::init<>())
@@ -209,6 +306,23 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       py::arg("costmap"), py::arg("params"),
       "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
+      "try_smooth",
+      [](constrained_smoother::KinematicSmoother & self,
+      std::vector<Eigen::Vector3d> path,
+      const Eigen::Vector2d & start_dir,
+      const Eigen::Vector2d & end_dir,
+      const constrained_smoother::Costmap2D & costmap,
+      const constrained_smoother::SmootherParams & params) -> py::dict
+      {
+        return invoke_with_result([&]() {
+          self.smooth(path, start_dir, end_dir, &costmap, params);
+          return path;
+        });
+      },
+      py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
+      py::arg("costmap"), py::arg("params"),
+      "Try to smooth a path with the kinematic backend and return a structured result.")
+    .def(
       "smooth_with_planner_esdf",
       [](constrained_smoother::KinematicSmoother & self,
       std::vector<Eigen::Vector3d> path,
@@ -223,9 +337,31 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),
-      "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner.");
+      "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner.")
+    .def(
+      "try_smooth_with_planner_esdf",
+      [](constrained_smoother::KinematicSmoother & self,
+      std::vector<Eigen::Vector3d> path,
+      const Eigen::Vector2d & start_dir,
+      const Eigen::Vector2d & end_dir,
+      const constrained_smoother::Costmap2D & costmap,
+      const constrained_smoother::SmootherParams & params,
+      const constrained_smoother::AStarPlanner & planner) -> py::dict
+      {
+        return invoke_with_result([&]() {
+          self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF());
+          return path;
+        });
+      },
+      py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
+      py::arg("costmap"), py::arg("params"), py::arg("planner"),
+      "Try to smooth a path with the kinematic backend and planner ESDF, returning a structured result.");
 
   // --- Exceptions ---
   py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");
   py::register_exception<constrained_smoother::FailedToSmoothPath>(m, "FailedToSmoothPathError");
+  py::register_exception<constrained_smoother::InvalidCostmap>(m, "InvalidCostmapError");
+  py::register_exception<constrained_smoother::PrecomputedEsdfSizeMismatch>(
+    m,
+    "PrecomputedEsdfSizeMismatchError");
 }

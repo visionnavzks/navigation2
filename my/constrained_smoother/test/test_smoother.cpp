@@ -184,6 +184,38 @@ TEST(SmootherTest, PathTooShortThrows)
     constrained_smoother::InvalidPath);
 }
 
+TEST(ErrorTest, InvalidPathCarriesStableCode)
+{
+  const constrained_smoother::InvalidPath error("test invalid path");
+
+  EXPECT_EQ(error.code(), constrained_smoother::ErrorCode::InvalidPath);
+  EXPECT_STREQ(error.codeString(), "CS_INVALID_PATH");
+  EXPECT_STREQ(error.what(), std::string("test invalid path").c_str());
+}
+
+TEST(SmootherTest, PrecomputedEsdfSizeMismatchThrowsStructuredError)
+{
+  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
+  std::vector<Eigen::Vector3d> path = {
+    Eigen::Vector3d(0.0, 0.0, 1.0),
+    Eigen::Vector3d(0.5, 0.0, 1.0),
+  };
+
+  Eigen::Vector2d start_dir(1.0, 0.0);
+  Eigen::Vector2d end_dir(1.0, 0.0);
+
+  constrained_smoother::SmootherParams params;
+  constrained_smoother::OptimizerParams opt_params;
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  const std::vector<double> bad_esdf(8, 0.0);
+
+  EXPECT_THROW(
+    smoother.smooth(path, start_dir, end_dir, &costmap, params, &bad_esdf),
+    constrained_smoother::PrecomputedEsdfSizeMismatch);
+}
+
 TEST(KinematicSmootherTest, SmoothStraightPath)
 {
   constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);

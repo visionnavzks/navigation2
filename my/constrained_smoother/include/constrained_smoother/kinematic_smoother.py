@@ -2,6 +2,26 @@ import numpy as np
 from scipy.optimize import OptimizeResult, least_squares
 
 
+ERROR_INVALID_RAW_PATH = "CS_INVALID_RAW_PATH"
+ERROR_EMPTY_RAW_PATH = "CS_EMPTY_RAW_PATH"
+ERROR_INVALID_GEAR_DIRECTIONS = "CS_INVALID_GEAR_DIRECTIONS"
+ERROR_KINEMATIC_OPTIMIZATION_FAILED = "CS_KINEMATIC_OPTIMIZATION_FAILED"
+
+
+class KinematicSmootherError(RuntimeError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = str(code)
+        self.message = str(message)
+
+
+class KinematicSmootherValidationError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = str(code)
+        self.message = str(message)
+
+
 def normalize_angle(angle):
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
@@ -32,35 +52,83 @@ class KinematicSmoother:
         self.max_iter = max_iter
 
     def optimize(self, raw_path, gear_directions=None, return_result=False, verbose=1):
+        states, result = self._optimize_impl(
+            raw_path,
+            gear_directions=gear_directions,
+            verbose=verbose,
+        )
+
+        if return_result:
+            return result
+
+        if not result.success:
+            raise KinematicSmootherError(
+                ERROR_KINEMATIC_OPTIMIZATION_FAILED,
+                result.message or "Kinematic smoothing did not converge.",
+            )
+
+        return states
+
+    def try_optimize(self, raw_path, gear_directions=None, return_result=False, verbose=1):
+        try:
+            states, result = self._optimize_impl(
+                raw_path,
+                gear_directions=gear_directions,
+                verbose=verbose,
+            )
+        except (KinematicSmootherError, KinematicSmootherValidationError) as exc:
+            return self._error_result(exc.code, exc.message)
+
+        if not result.success:
+            return self._error_result(
+                ERROR_KINEMATIC_OPTIMIZATION_FAILED,
+                result.message or "Kinematic smoothing did not converge.",
+                states=states,
+                optimizer_result=result if return_result else None,
+            )
+
+        return self._success_result(
+            states,
+            optimizer_result=result if return_result else None,
+        )
+
+    def _optimize_impl(self, raw_path, gear_directions=None, verbose=1):
         raw_path = np.asarray(raw_path, dtype=float)
         if raw_path.ndim != 2 or raw_path.shape[1] not in (2, 3):
-            raise ValueError("raw_path must have shape (N, 2) or (N, 3)")
+            raise KinematicSmootherValidationError(
+                ERROR_INVALID_RAW_PATH,
+                "raw_path must have shape (N, 2) or (N, 3)",
+            )
 
         num_points = len(raw_path)
         if num_points == 0:
-            raise ValueError("raw_path must contain at least one pose")
+            raise KinematicSmootherValidationError(
+                ERROR_EMPTY_RAW_PATH,
+                "raw_path must contain at least one pose",
+            )
 
         if num_points == 1:
             theta0 = raw_path[0, 2] if raw_path.shape[1] == 3 else 0.0
             single_state = np.array([[raw_path[0, 0], raw_path[0, 1], theta0, 0.0, 0.0]])
-            if return_result:
-                return OptimizeResult(
-                    x=single_state.flatten(),
-                    success=True,
-                    status=0,
-                    message="Single-point path requires no optimization.",
-                    cost=0.0,
-                    fun=np.zeros(0),
-                    nfev=0,
-                )
-            return single_state
+            return single_state, OptimizeResult(
+                x=single_state.flatten(),
+                success=True,
+                status=0,
+                message="Single-point path requires no optimization.",
+                cost=0.0,
+                fun=np.zeros(0),
+                nfev=0,
+            )
 
         if gear_directions is None:
             gear_directions = np.ones(num_points - 1, dtype=float)
         else:
             gear_directions = np.asarray(gear_directions, dtype=float)
             if gear_directions.shape != (num_points - 1,):
-                raise ValueError("gear_directions must have shape (N-1,)")
+                raise KinematicSmootherValidationError(
+                    ERROR_INVALID_GEAR_DIRECTIONS,
+                    "gear_directions must have shape (N-1,)",
+                )
 
         processed_path = [raw_path[0]]
         processed_gears = []
@@ -149,10 +217,27 @@ class KinematicSmoother:
             x_scale="jac",
         )
 
-        if return_result:
-            return result
+        return result.x.reshape((state_count, 5)), result
 
-        return result.x.reshape((state_count, 5))
+    @staticmethod
+    def _success_result(states, optimizer_result=None):
+        return {
+            "ok": True,
+            "states": states,
+            "optimizer_result": optimizer_result,
+            "error_code": None,
+            "error_message": None,
+        }
+
+    @staticmethod
+    def _error_result(code, message, states=None, optimizer_result=None):
+        return {
+            "ok": False,
+            "states": states,
+            "optimizer_result": optimizer_result,
+            "error_code": str(code),
+            "error_message": str(message),
+        }
 
     def _residuals(self, variables, ref_path, gears, is_cusp, start_pose, end_pose):
         state = variables.reshape((len(ref_path), 5))

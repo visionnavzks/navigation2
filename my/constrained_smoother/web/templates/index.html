@@ -292,6 +292,43 @@
             <canvas id="footprint-preview-canvas" width="220" height="160"></canvas>
             <p id="robot-config-summary" class="param-hint">Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.</p>
             <p id="footprint-validation-summary" class="param-hint">Rectangle validation status will appear after each plan.</p>
+            <div id="footprint-validation-details-card" class="validation-details-card" hidden>
+              <div class="validation-details-card__header">
+                <span>Validation Failure Details</span>
+                <strong id="validation-detail-path">--</strong>
+              </div>
+              <div class="validation-details-grid">
+                <div class="validation-details-item">
+                  <span class="metric-label">Failure Code</span>
+                  <strong id="validation-detail-code">--</strong>
+                </div>
+                <div class="validation-details-item">
+                  <span class="metric-label">Failure Reason</span>
+                  <strong id="validation-detail-reason">--</strong>
+                </div>
+                <div class="validation-details-item">
+                  <span class="metric-label">Pose Index</span>
+                  <strong id="validation-detail-pose-index">--</strong>
+                </div>
+                <div class="validation-details-item">
+                  <span class="metric-label">Pose XY</span>
+                  <strong id="validation-detail-pose-xy">--</strong>
+                </div>
+                <div class="validation-details-item">
+                  <span class="metric-label">Pose Heading</span>
+                  <strong id="validation-detail-pose-yaw">--</strong>
+                </div>
+                <div class="validation-details-item">
+                  <span class="metric-label">Collision / Bounds</span>
+                  <strong id="validation-detail-cell">--</strong>
+                </div>
+                <div class="validation-details-item validation-details-item--wide">
+                  <span class="metric-label">Cell / Bounds World Context</span>
+                  <strong id="validation-detail-cell-world">--</strong>
+                </div>
+              </div>
+              <p id="validation-detail-message" class="validation-details-message">--</p>
+            </div>
           </div>
         </details>
 
