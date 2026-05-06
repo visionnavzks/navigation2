@@ -23,14 +23,26 @@
 namespace constrained_smoother
 {
 
+/**
+ * @class constrained_smoother::KinematicSmoother
+ * @brief 基于简化运动学状态的路径平滑器。
+ *
+ * 与几何版 smoother 不同，这个版本把每个状态显式表示为
+ * (x, y, theta, kappa, ds)，并通过相邻状态之间的运动学过渡残差来约束
+ * 路径演化。方向切换处会显式插入 cusp 段，并在求解后进行硬性后验校验。
+ */
 class KinematicSmoother
 {
 public:
   KinematicSmoother() = default;
   ~KinematicSmoother() = default;
 
+  /**
+   * @brief 初始化后续求解共用的 Ceres 配置。
+   */
   void initialize(const OptimizerParams & params)
   {
+    // 第 1 步：同步调试开关、迭代次数和收敛容差。
     debug_ = params.debug;
     options_.max_num_iterations = params.max_iterations;
     options_.function_tolerance = params.fn_tol;
@@ -46,11 +58,15 @@ public:
     }
   }
 
+  /// 返回最近一次运动学优化中参与求解的状态数量。
   size_t getLastOptimizedKnotCount() const
   {
     return last_optimized_knot_count_;
   }
 
+  /**
+   * @brief 使用内部生成的 ESDF 对路径做运动学平滑。
+   */
   bool smooth(
     std::vector<Eigen::Vector3d> & path,
     const Eigen::Vector2d & start_dir,
@@ -70,12 +86,15 @@ public:
     const std::vector<double> * precomputed_esdf,
     SmoothingFailureInfo * failure = nullptr)
   {
+    // 第 1 步：校验输入至少包含起点和终点。
     if (path.size() < 2) {
       throw InvalidPath("Kinematic smoother: Path must have at least 2 points");
     }
 
+    // 第 2 步：写入本次求解允许使用的最大时间。
     options_.max_solver_time_in_seconds = params.max_time;
 
+    // 第 3 步：构建或接收与 costmap 尺寸一致的 ESDF。
     const size_t expected_esdf_size =
       static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
     if (precomputed_esdf != nullptr) {
@@ -91,19 +110,24 @@ public:
         params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
     }
 
+      // 第 4 步：把原始路径展开为运动学状态链，并在换向处插入 cusp 段。
     const ProcessedPath processed = buildProcessedPath(path, start_dir, end_dir, params, costmap);
     std::vector<double> variables = processed.initial_variables;
 
     ceres::Problem problem;
+      // 第 5 步：连接过渡、边界、参考路径和障碍物残差。
     buildProblem(processed, costmap, params, variables, problem);
 
+      // 第 6 步：对曲率和弧长施加显式边界。
     applyBounds(problem, variables.data(), processed.state_count, params.max_curvature);
 
+      // 第 7 步：执行 Ceres 求解，并在调试模式下输出收敛报告。
     ceres::Solver::Summary summary;
     ceres::Solve(options_, &problem, &summary);
     if (debug_) {
       std::cout << summary.FullReport() << std::endl;
     }
+    // 第 8 步：检查结果是否可用，以及目标函数是否真正下降。
     if (!summary.IsSolutionUsable()) {
       return throwOrStoreSmoothingFailure(
         failure,
@@ -117,6 +141,7 @@ public:
         "Kinematic smoother did not improve the objective cost");
     }
 
+    // 第 9 步：执行硬性后验校验，确认边界、换向一致性和净空都成立。
     if (!validator_.validateKinematicSolution(
         {
           variables,
@@ -134,6 +159,7 @@ public:
       return false;
     }
 
+    // 第 10 步：把内部状态链压缩回对外暴露的 (x, y, yaw) 轨迹。
     path = unpackPath(variables, processed.state_count);
     last_optimized_knot_count_ = processed.state_count;
     return true;
@@ -142,9 +168,13 @@ public:
 private:
   struct ProcessedPath
   {
+    /// 展开后的参考点序列，cusp 会被复制成零长度过渡状态。
     std::vector<Eigen::Vector2d> reference_points{};
+    /// 每个状态转移段的档位方向，前进为 1，倒车为 -1，cusp 为 0。
     std::vector<double> gears{};
+    /// 标记哪些状态转移段是 cusp 保持段。
     std::vector<bool> is_cusp_segment{};
+    /// 求解器初始变量，按 (x, y, theta, kappa, ds) 展平。
     std::vector<double> initial_variables{};
     size_t state_count{0};
     double start_theta{0.0};
@@ -196,6 +226,7 @@ private:
       const T next_kappa = next[3];
 
       if (is_cusp_segment_) {
+        // cusp 段不允许产生位移，只允许作为换向处的停驻过渡。
         residual[0] = T(fix_weight_) * (next_x - x);
         residual[1] = T(fix_weight_) * (next_y - y);
         residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);
@@ -210,6 +241,7 @@ private:
       const T y_pred = y + direction * ds * sinValue(theta_mid);
       const T denom = ds > T(1e-3) ? sqrtValue(ds) : T(0.03);
 
+      // 常规段同时约束模型一致性、曲率变化平滑性和目标步长。
       residual[0] = T(model_weight_) * (next_x - x_pred);
       residual[1] = T(model_weight_) * (next_y - y_pred);
       residual[2] = T(model_weight_) * angleDiff(next_theta, theta_pred);
@@ -289,6 +321,7 @@ private:
     template<typename T>
     bool operator()(const T * const state, T * residuals) const
     {
+      // 边界残差固定起终点位置，并可选固定朝向及终点停驻状态。
       residuals[0] = T(fix_weight_) * (state[0] - T(reference_point_.x()));
       residuals[1] = T(fix_weight_) * (state[1] - T(reference_point_.y()));
       residuals[2] =
@@ -336,6 +369,7 @@ private:
     template<typename T>
     bool operator()(const T * const state, T * residuals) const
     {
+      // 参考路径项只拉回平面位置，不直接约束姿态和曲率。
       const T dx = state[0] - T(reference_point_.x());
       const T dy = state[1] - T(reference_point_.y());
       residuals[0] = T(reference_weight_) * dx;
@@ -394,10 +428,12 @@ private:
       const T pose_weight = T(is_cusp_pose_ ? cusp_obstacle_weight_ : obstacle_weight_);
 
       if (cost_check_points_.empty()) {
+        // 未提供足迹采样点时，把状态中心当作唯一检查点。
         residuals[0] = pose_weight * obstaclePenalty(x, y);
         return true;
       }
 
+      // 否则把局部足迹采样点旋转到世界坐标后逐点做净空惩罚。
       const T cos_theta = cosValue(theta);
       const T sin_theta = sinValue(theta);
       int residual_index = 0;
@@ -421,6 +457,7 @@ private:
       if (grid_x < T(0.0) || grid_y < T(0.0) ||
         grid_x >= T(static_cast<double>(size_x_)) || grid_y >= T(static_cast<double>(size_y_)))
       {
+        // 越界点直接按最大惩罚处理，避免路径逃出地图。
         return T(1.0);
       }
 
@@ -431,6 +468,7 @@ private:
         return T(0.0);
       }
 
+      // 安全距离以内采用平方 hinge 损失，越接近障碍物惩罚越大。
       const T normalized_gap =
         (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
       return normalized_gap * normalized_gap;
@@ -485,15 +523,18 @@ private:
     const Costmap2D * costmap) const
   {
     ProcessedPath processed;
+    // 第 1 步：先把首尾切向方向转换成角度，作为边界姿态参考。
     processed.start_theta = std::atan2(start_dir.y(), start_dir.x());
     processed.end_theta = std::atan2(end_dir.y(), end_dir.x());
 
+    // 第 2 步：从原始路径第三个分量提取每一段的前进/倒车方向。
     std::vector<double> gear_directions;
     gear_directions.reserve(path.size() - 1);
     for (size_t index = 0; index + 1 < path.size(); ++index) {
       gear_directions.push_back(path[index].z() < 0.0 ? -1.0 : 1.0);
     }
 
+    // 第 3 步：构建展开后的参考路径；遇到换向时插入 cusp 停驻状态。
     processed.reference_points.emplace_back(path.front().x(), path.front().y());
     for (size_t index = 0; index + 1 < path.size(); ++index) {
       const double current_gear = gear_directions[index];
@@ -515,12 +556,14 @@ private:
     std::vector<double> kappa(processed.state_count, 0.0);
     std::vector<double> ds(processed.state_count, 0.0);
 
+    // 第 4 步：用参考几何初始化姿态和步长，给非线性求解提供稳定初值。
     double spacing_sum = 0.0;
     size_t spacing_count = 0;
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
       const Eigen::Vector2d delta = processed.reference_points[index + 1] - processed.reference_points[index];
       const double segment_norm = delta.norm();
       if (processed.is_cusp_segment[index]) {
+        // 第 4.1 步：cusp 段是零位移保持段，只继承前一姿态。
         theta[index] = index > 0 ? theta[index - 1] : processed.start_theta;
         ds[index] = 0.0;
         continue;
@@ -540,6 +583,7 @@ private:
       }
     }
 
+    // 第 5 步：若启用端点朝向约束，则显式覆盖首尾姿态初值。
     theta.back() = theta.size() > 1 ? theta[theta.size() - 2] : processed.start_theta;
     if (params.keep_start_orientation) {
       theta.front() = processed.start_theta;
@@ -552,6 +596,7 @@ private:
       spacing_sum / static_cast<double>(spacing_count) :
       std::max(costmap->getResolution(), 1e-3);
 
+    // 第 6 步：按 (x, y, theta, kappa, ds) 顺序展平，供 Ceres 直接优化。
     processed.initial_variables.reserve(processed.state_count * 5);
     for (size_t index = 0; index < processed.state_count; ++index) {
       processed.initial_variables.push_back(processed.reference_points[index].x());
@@ -571,6 +616,7 @@ private:
     std::vector<double> & variables,
     ceres::Problem & problem) const
   {
+    // 第 1 步：先根据当前参数折算各类残差的实际权重。
     const double model_weight = std::max(params.smooth_weight_sqrt, 1.0);
     const double smooth_weight =
       std::max(std::max(params.curvature_rate_weight_sqrt, params.curvature_weight_sqrt), 1.0);
@@ -579,6 +625,7 @@ private:
     const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);
     const bool has_obstacle_cost = std::max(params.costmap_weight_sqrt, 0.0) > 1e-9;
 
+    // 第 2 步：为每一对相邻状态连接运动学过渡残差。
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
       auto * transition_cost = new TransitionCostFunctor(
         processed.gears[index],
@@ -595,6 +642,7 @@ private:
         stateData(variables, index + 1));
     }
 
+      // 第 3 步：连接起终点边界残差，固定位置并按需固定朝向。
     auto * start_boundary_cost = new BoundaryCostFunctor(
       processed.reference_points.front(),
       processed.start_theta,
@@ -615,6 +663,7 @@ private:
       stateData(variables, processed.state_count - 1));
 
     if (reference_weight > 1e-9) {
+      // 第 4 步：若启用参考路径项，则把解轻柔地拉回原始几何。
       for (size_t index = 0; index < processed.state_count; ++index) {
         auto * reference_cost = new ReferenceCostFunctor(processed.reference_points[index], reference_weight);
         problem.AddResidualBlock(reference_cost->AutoDiff(), nullptr, stateData(variables, index));
@@ -622,6 +671,7 @@ private:
     }
 
     if (has_obstacle_cost) {
+      // 第 5 步：若启用障碍物项，则逐状态连接净空残差。
       for (size_t index = 0; index < processed.state_count; ++index) {
         const bool is_cusp_pose =
           (index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index]) ||
@@ -638,6 +688,7 @@ private:
     size_t state_count,
     double max_curvature) const
   {
+    // 第 1 步：显式限制曲率上下界，并保证弧长非负。
     const double clamped_max_curvature = std::max(max_curvature, 1e-6);
     for (size_t index = 0; index < state_count; ++index) {
       double * state = variables + 5 * index;
@@ -654,6 +705,7 @@ private:
 
   static std::vector<Eigen::Vector3d> unpackPath(const std::vector<double> & variables, size_t state_count)
   {
+    // 第 1 步：只恢复对外可见的平面位置和 yaw；内部的 kappa、ds 不直接暴露。
     std::vector<Eigen::Vector3d> path;
     path.reserve(state_count);
     for (size_t index = 0; index < state_count; ++index) {

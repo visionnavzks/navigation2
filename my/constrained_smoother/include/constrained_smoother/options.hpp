@@ -27,35 +27,57 @@ namespace constrained_smoother
 
 /**
  * @struct constrained_smoother::SmootherParams
- * @brief Parameters for the smoother cost function
+ * @brief 几何约束平滑器的运行时配置。
+ *
+ * 独立版平滑器会在二维路径点上最小化一个非线性最小二乘目标。
+ * 大多数权重采用平方根形式，是因为它们会先直接乘到残差上，随后再由
+ * Ceres 在目标函数中完成平方。
  */
 struct SmootherParams
 {
   SmootherParams() {}
 
+  /// 三点平滑残差的平方根权重。
   double smooth_weight_sqrt{0.0};
+  /// 障碍物净空残差的基础平方根权重。
   double costmap_weight_sqrt{0.0};
+  /// cusp 邻域内使用的增强障碍物权重。
   double cusp_costmap_weight_sqrt{0.0};
+  /// cusp 周围用于过渡障碍物权重的弧长范围。
   double cusp_zone_length{0.0};
+  /// 约束优化后控制点贴近参考路径的平方根权重。
   double distance_weight_sqrt{0.0};
+  /// 曲率正则项的平方根权重。
   double curvature_weight_sqrt{0.0};
+  /// 可选四点曲率变化率代理项的平方根权重。
   double curvature_rate_weight_sqrt{0.0};
+  /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
+  /// 传给 Ceres 求解器的最大墙钟时间。
   double max_time{10.0};
+  /// 为 true 时使用精确有符号距离场后端。
   bool use_exact_esdf{true};
+  /// 对障碍物距离场期望满足的最小有符号净空。
   double obstacle_safe_distance{0.5};
+  /// 当 cost_check_points 为空时使用的圆形足迹采样半径。
   double cost_check_radius{0.0};
+  /// 在连接残差块之前应用的路径下采样步长。
   int path_downsampling_factor{1};
+  /// 重建最终路径时使用的插值倍数。
   int path_upsampling_factor{1};
+  /// 为保持 API 兼容而保留；当前独立版求解器并未实际使用。
   bool reversing_enabled{true};
+  /// 通过锚定终点前一个点来固定终点切向方向。
   bool keep_goal_orientation{true};
+  /// 通过锚定第二个点来固定起点切向方向。
   bool keep_start_orientation{true};
+  /// 用于障碍物足迹检查的局部坐标三元组 (x, y, weight)。
   std::vector<double> cost_check_points{};
 };
 
 /**
  * @struct constrained_smoother::OptimizerParams
- * @brief Parameters for the ceres optimizer
+ * @brief 传递给 Ceres 的求解器级配置。
  */
 struct OptimizerParams
 {
@@ -73,7 +95,9 @@ struct OptimizerParams
     {"DENSE_QR", ceres::DENSE_QR},
     {"SPARSE_NORMAL_CHOLESKY", ceres::SPARSE_NORMAL_CHOLESKY}};
 
+  /// 开启逐迭代详细日志和最终摘要输出。
   bool debug;
+  /// solver_types 中的键，用于选择 Ceres 线性求解器后端。
   std::string linear_solver_type;
   int max_iterations;     // Ceres default: 50
 

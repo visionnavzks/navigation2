@@ -52,6 +52,7 @@ class KinematicSmoother:
         self.max_iter = max_iter
 
     def optimize(self, raw_path, gear_directions=None, return_result=False, verbose=1):
+        # 第 1 步：执行统一求解流程。
         states, result = self._optimize_impl(
             raw_path,
             gear_directions=gear_directions,
@@ -59,9 +60,11 @@ class KinematicSmoother:
         )
 
         if return_result:
+            # 第 2 步：如果调用方要原始优化器结果，就直接返回。
             return result
 
         if not result.success:
+            # 第 2 步：默认接口对失败路径抛出异常，而不是返回半成品状态。
             raise KinematicSmootherError(
                 ERROR_KINEMATIC_OPTIMIZATION_FAILED,
                 result.message or "Kinematic smoothing did not converge.",
@@ -70,6 +73,7 @@ class KinematicSmoother:
         return states
 
     def try_optimize(self, raw_path, gear_directions=None, return_result=False, verbose=1):
+        # 第 1 步：执行与 optimize 相同的主流程。
         try:
             states, result = self._optimize_impl(
                 raw_path,
@@ -77,9 +81,11 @@ class KinematicSmoother:
                 verbose=verbose,
             )
         except (KinematicSmootherError, KinematicSmootherValidationError) as exc:
+            # 第 2 步：把异常统一包装成结构化失败结果。
             return self._error_result(exc.code, exc.message)
 
         if not result.success:
+            # 第 2 步：优化器失败时同样回包结构化错误，而不是抛异常。
             return self._error_result(
                 ERROR_KINEMATIC_OPTIMIZATION_FAILED,
                 result.message or "Kinematic smoothing did not converge.",
@@ -93,6 +99,7 @@ class KinematicSmoother:
         )
 
     def _optimize_impl(self, raw_path, gear_directions=None, verbose=1):
+        # 第 1 步：把输入规范化成 numpy 数组，并校验形状是否合法。
         raw_path = np.asarray(raw_path, dtype=float)
         if raw_path.ndim != 2 or raw_path.shape[1] not in (2, 3):
             raise KinematicSmootherValidationError(
@@ -108,6 +115,7 @@ class KinematicSmoother:
             )
 
         if num_points == 1:
+            # 第 2 步：单点路径不需要优化，直接返回退化状态链。
             theta0 = raw_path[0, 2] if raw_path.shape[1] == 3 else 0.0
             single_state = np.array([[raw_path[0, 0], raw_path[0, 1], theta0, 0.0, 0.0]])
             return single_state, OptimizeResult(
@@ -130,6 +138,7 @@ class KinematicSmoother:
                     "gear_directions must have shape (N-1,)",
                 )
 
+        # 第 3 步：展开原始路径；一旦检测到换向，就插入一个零位移 cusp 状态。
         processed_path = [raw_path[0]]
         processed_gears = []
         is_cusp_segment = []
@@ -152,6 +161,7 @@ class KinematicSmoother:
         is_cusp_segment = np.asarray(is_cusp_segment, dtype=bool)
         state_count = len(processed_path)
 
+        # 第 4 步：由参考几何初始化 x、y、theta、kappa、ds。
         x_init = processed_path[:, 0]
         y_init = processed_path[:, 1]
         theta_init = np.zeros(state_count)
@@ -160,6 +170,7 @@ class KinematicSmoother:
             dx = processed_path[index + 1, 0] - processed_path[index, 0]
             dy = processed_path[index + 1, 1] - processed_path[index, 1]
             if is_cusp_segment[index]:
+                # 第 4.1 步：cusp 段只继承上一姿态，不引入位移。
                 theta_init[index] = theta_init[index - 1] if index > 0 else 0.0
                 continue
 
@@ -172,6 +183,7 @@ class KinematicSmoother:
             else:
                 theta_init[index] = theta_init[index - 1] if index > 0 else 0.0
 
+        # 第 5 步：若输入已经提供 yaw，则优先用它们初始化边界姿态。
         theta_init[-1] = theta_init[-2]
         if raw_path.shape[1] == 3:
             theta_init[0] = raw_path[0, 2]
@@ -187,6 +199,7 @@ class KinematicSmoother:
                     processed_path[index + 1, 1] - processed_path[index, 1],
                 )
 
+            # 第 6 步：展平变量，并构造显式边界和曲率约束。
         initial_guess = np.column_stack((x_init, y_init, theta_init, kappa_init, ds_init)).flatten()
 
         start_pose = np.zeros(3)
@@ -207,6 +220,7 @@ class KinematicSmoother:
         lower_bounds[kappa_indices] = -self.max_kappa
         upper_bounds[kappa_indices] = self.max_kappa
 
+        # 第 7 步：把全部残差交给 least_squares 统一优化。
         result = least_squares(
             self._residuals,
             initial_guess,
@@ -240,6 +254,7 @@ class KinematicSmoother:
         }
 
     def _residuals(self, variables, ref_path, gears, is_cusp, start_pose, end_pose):
+        # 第 1 步：把展平变量恢复成逐状态矩阵。
         state = variables.reshape((len(ref_path), 5))
 
         x = state[:, 0]
@@ -248,6 +263,7 @@ class KinematicSmoother:
         kappa = state[:, 3]
         ds = state[:, 4]
 
+        # 第 2 步：按固定顺序拼接各类残差，方便优化器稳定工作。
         residuals = []
         residuals.extend(self._kinematic_residuals(x, y, theta, kappa, ds, gears, is_cusp))
         residuals.extend(self._smoothness_residuals(kappa, ds, is_cusp))
@@ -264,6 +280,7 @@ class KinematicSmoother:
         residuals = []
         for index in range(len(x) - 1):
             if is_cusp[index]:
+                # 第 1 步：cusp 段必须保持原地不动，只允许作为换向停驻点存在。
                 residuals.append(self.w_fix * (x[index + 1] - x[index]))
                 residuals.append(self.w_fix * (y[index + 1] - y[index]))
                 residuals.append(self.w_fix * angle_diff(theta[index + 1], theta[index]))
@@ -279,6 +296,7 @@ class KinematicSmoother:
             x_pred = x[index] + direction * step * np.cos(theta_mid)
             y_pred = y[index] + direction * step * np.sin(theta_mid)
 
+            # 第 2 步：常规段约束相邻状态满足离散运动学模型。
             residuals.append(self.w_model * (x[index + 1] - x_pred))
             residuals.append(self.w_model * (y[index + 1] - y_pred))
             residuals.append(self.w_model * angle_diff(theta[index + 1], theta_pred))
@@ -289,6 +307,7 @@ class KinematicSmoother:
         residuals = []
         for index in range(len(kappa) - 1):
             if is_cusp[index]:
+                # 第 1 步：不跨 cusp 惩罚曲率变化率，避免把换向点错误地拉平。
                 continue
 
             denom = np.sqrt(ds[index]) if ds[index] > 1e-3 else 0.03
@@ -301,13 +320,16 @@ class KinematicSmoother:
         scale = max(self.target_spacing, 1e-4)
         for index in range(len(ds) - 1):
             if is_cusp[index]:
+                # 第 1 步：cusp 段倾向于零步长，鼓励换向在同一点完成。
                 residuals.append(self.w_s * 10.0 * ds[index])
             else:
+                # 第 2 步：常规段尽量贴近目标步长，保持状态分布均匀。
                 residuals.append(self.w_s * (ds[index] - self.target_spacing) / scale)
 
         return residuals
 
     def _boundary_residuals(self, x, y, theta, ds, start_pose, end_pose):
+        # 第 1 步：固定起终点位置与姿态，并额外压制最后一个虚拟步长。
         return [
             self.w_fix * (x[0] - start_pose[0]),
             self.w_fix * (y[0] - start_pose[1]),

@@ -28,6 +28,15 @@ These are the most important behavior contracts in the current standalone implem
 	 - This means the standalone build can penalize curvature, but it cannot represent stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.
 	 - As a result, cusp-like features in this demo should be read as geometric direction-switch transitions, not as true in-place steering actions.
 
+## 实现导读
+
+如果你需要按“实际执行步骤”来理解内部数据流、残差连接方式、cusp 处理和后验校验流程，可以从下面两份文档开始：
+
+- [docs/SMOOTHER_DESIGN.md](docs/SMOOTHER_DESIGN.md)
+	- 对应几何版 `Smoother`，说明 `smoother.hpp` 中的 ESDF 准备、问题构建、cusp 重赋权、路径重建与后验校验。
+- [docs/KINEMATIC_SMOOTHER_DESIGN.md](docs/KINEMATIC_SMOOTHER_DESIGN.md)
+	- 对应 `KinematicSmoother` 的 C++ 与 Python 两个实现，说明状态展开、cusp 插入、残差拼接、变量边界和求解后校验。
+
 ## Dependencies
 
 - Ceres Solver

@@ -1,6 +1,8 @@
 // A* + Constrained Smoother — interactive map frontend
 document.addEventListener('DOMContentLoaded', () => {
   const formatScientific = value => Number(value).toExponential(1);
+  const LANGUAGE_STORAGE_KEY = 'constrained-smoother-ui-language';
+  const SUPPORTED_LANGUAGES = ['en', 'zh'];
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
   const ctx = canvas.getContext('2d');
@@ -17,15 +19,482 @@ document.addEventListener('DOMContentLoaded', () => {
   const footprintModeSelect = document.getElementById('footprint_mode');
   const optimizerTypeSelect = document.getElementById('optimizer_type');
   const linearSolverTypeSelect = document.getElementById('linear_solver_type');
+  const languageSwitch = document.getElementById('language-switch');
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
   const statusMsg = document.getElementById('status-msg');
   const validationDetailsCard = document.getElementById('footprint-validation-details-card');
 
+  const zhStaticTranslations = {
+    'hero.eyebrow': '独立版 Nav2 约束平滑器',
+    'hero.title': 'A* + 约束平滑实验台',
+    'hero.subtitle': '直接查看合成代价地图，对比原始路径与优化路径，并在接入完整 Nav2 插件前理解每个求解参数会改变什么。',
+    'language.label': '语言',
+    'hero.summary.mapLabel': '地图',
+    'hero.summary.mapCopy': '合成障碍场',
+    'hero.summary.resolutionLabel': '分辨率',
+    'hero.summary.resolutionCopy': '每格对应的米数',
+    'hero.summary.interactionLabel': '交互',
+    'session.title': '会话',
+    'session.start': '起点',
+    'session.goal': '终点',
+    'session.cursor': '光标',
+    'session.zoom': '缩放',
+    'session.gesture': '当前操作',
+    'session.startHeading': '起点朝向',
+    'session.goalHeading': '终点朝向',
+    'session.startConstraint': '起点约束',
+    'session.goalConstraint': '终点约束',
+    'session.enableStartConstraint': '启用起点朝向约束',
+    'session.enableGoalConstraint': '启用终点朝向约束',
+    'session.startHeadingLabel': '起点朝向: <span id="val_start_yaw_deg">45 deg</span>',
+    'session.startHeadingHint': '设置平滑时起点位姿使用的世界坐标系朝向约束。',
+    'session.goalHeadingLabel': '终点朝向: <span id="val_goal_yaw_deg">45 deg</span>',
+    'session.goalHeadingHint': '设置平滑时终点位姿使用的世界坐标系朝向约束。',
+    'session.reversingHint': '独立构建版本仍然定义了 <strong>reversing_enabled</strong>，但当前实现并不会读取它，因此刻意不在界面中显示。',
+    'session.knownLimitation': '已知限制：当前独立版平滑器不会单独优化转向状态。它先优化 <strong>x/y</strong> 几何，再根据局部切线重建 <strong>yaw</strong>，因此这里的尖点更像几何方向切换，而不是机器人原地不动、只改变转向角的真实停转机动。',
+    'session.mapNote': '地图现在显示世界坐标系叠加层，原点位于左下角，<strong>X</strong> 向右增大，<strong>Y</strong> 向上增大。可左键拖拽 <strong>起点</strong>、<strong>终点</strong> 或任意描边障碍块来编辑场景；左键拖拽空白画布可平移；在画布任意处双击可恢复整图视角。滑块变动仍会自动重新规划。',
+    'map.title': '地图概览',
+    'map.grid': '栅格',
+    'map.world': '世界尺寸',
+    'map.resolution': '分辨率',
+    'map.origin': '原点',
+    'map.obstacleBlocks': '障碍块',
+    'map.inflationRadius': '膨胀半径',
+    'map.freeCells': '空闲栅格',
+    'map.inflatedCells': '膨胀栅格',
+    'map.lethalCells': '致命栅格',
+    'loupe.title': '光标检查器',
+    'loupe.liveHover': '实时悬停',
+    'loupe.cellCost': '栅格代价值',
+    'loupe.esdfDistance': 'ESDF 距离',
+    'weights.title': '平滑权重',
+    'weights.smoothWeightLabel': '平滑权重: <span id="val_smooth_weight">20</span>',
+    'weights.smoothWeightHint': '惩罚局部锯齿。调高后优化曲线会更平滑。',
+    'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
+    'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
+    'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
+    'weights.cuspObstacleWeightHint': '在尖点邻域覆盖默认障碍权重，使方向切换区域能更强地远离障碍物。',
+    'weights.cuspZoneLengthLabel': '尖点区域长度 (m): <span id="val_cusp_zone_length">2.50</span>',
+    'weights.cuspZoneLengthHint': '设置方向切换前后尖点障碍权重渐变生效的完整弧长范围。',
+    'weights.distanceWeightLabel': '距离权重: <span id="val_distance_weight">0.0</span>',
+    'weights.distanceWeightHint': '当你不希望出现大绕路时，用它让优化结果更贴近 A* 参考路径。',
+    'weights.curvatureWeightLabel': '曲率权重: <span id="val_curvature_weight">30.0</span>',
+    'weights.curvatureWeightHint': '抑制高曲率转弯，尤其是靠近障碍物角点时。',
+    'weights.curvatureRateWeightLabel': '曲率变化率权重: <span id="val_curvature_rate_weight">5.0</span>',
+    'weights.curvatureRateWeightHint': '使用四点 D3 有限差分惩罚。调高它可以抑制曲率突变，但不会替代最大曲率约束。',
+    'weights.maxCurvatureLabel': '最大曲率 (1/m): <span id="val_max_curvature">2.5</span>',
+    'weights.maxCurvatureHint': '限制转弯曲率。值越小，最小转弯半径越大。',
+    'planner.title': '规划器',
+    'planner.penaltyWeightLabel': 'A* 惩罚权重: <span id="val_planner_penalty_weight">1.0</span>',
+    'planner.penaltyWeightHint': '缩放共享二次铰链损失下 A* 对低净空栅格的绕行强度。它只影响规划器，不影响平滑器的障碍权重。',
+    'planner.hingeThresholdLabel': '铰链损失阈值 (m): <span id="val_hinge_loss_threshold_m">0.50</span>',
+    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的铰链边界。ESDF 距离超过该阈值后不再产生惩罚。点机器人模式下，有效阈值等于该值加上机器人半径。',
+    'robot.title': '机器人',
+    'robot.footprintModel': '足迹模型',
+    'robot.footprintCapsule': '胶囊检查点',
+    'robot.footprintPoint': '单圆检查',
+    'robot.footprintHint': '规划和平滑现在共用同一套“检查点 + 半径”模型。矩形只保留给最终路径验证。',
+    'robot.singleCircleRadiusLabel': '单圆半径 (m): <span id="val_point_robot_radius_m">1.00</span>',
+    'robot.singleCircleRadiusHint': '仅在单圆模式下使用。胶囊模式会直接从机器人宽度推导圆半径。',
+    'robot.lengthLabel': '机器人长度 (m): <span id="val_robot_length_m">0.80</span>',
+    'robot.lengthHint': '用于构造胶囊检查点中心，并用真实矩形对最终路径做验证。',
+    'robot.widthLabel': '机器人宽度 (m): <span id="val_robot_width_m">0.50</span>',
+    'robot.widthHint': '胶囊半径默认取该宽度的一半。最终矩形验证也会使用同一宽度。',
+    'robot.previewTitle': '足迹预览',
+    'robot.validationDetails': '验证失败详情',
+    'robot.failureCode': '失败码',
+    'robot.failureReason': '失败原因',
+    'robot.poseIndex': '位姿索引',
+    'robot.poseXY': '位姿 XY',
+    'robot.poseHeading': '位姿朝向',
+    'robot.collisionBounds': '碰撞 / 越界',
+    'robot.cellWorldContext': '栅格 / 边界世界上下文',
+    'solver.title': '求解器',
+    'solver.backend': '优化后端',
+    'solver.constrained': '约束平滑器',
+    'solver.kinematic': '运动学平滑器',
+    'solver.linearSolver': '线性求解器',
+    'solver.debugLogging': '在 Flask 服务端启用逐迭代求解日志',
+    'solver.referenceSpacingLabel': '参考路径目标间距 (m): <span id="val_reference_spacing_target_m">0.30</span>',
+    'solver.referenceSpacingHint': '控制在成为参考路径 / 优化器输入前，对稠密 A* 路径做多强的降采样。间距越大，参考点通常越少。',
+    'solver.maxIterationsLabel': '最大迭代次数: <span id="val_max_iterations">50</span>',
+    'solver.maxIterationsHint': '优化器停止前允许的迭代上限。',
+    'solver.maxSolverTimeLabel': '最大求解时间 (s): <span id="val_max_time">10.0</span>',
+    'solver.maxSolverTimeHint': '非线性求解的墙钟时间上限。达到该限制或迭代上限后停止。',
+    'solver.parameterToleranceLabel': '参数容差: <span id="val_param_tol">1.0e-8</span>',
+    'solver.parameterToleranceHint': '当相邻迭代的参数更新足够小时停止。',
+    'solver.functionToleranceLabel': '函数容差: <span id="val_fn_tol">1.0e-6</span>',
+    'solver.functionToleranceHint': '当目标函数改善小于该阈值时停止。',
+    'solver.gradientToleranceLabel': '梯度容差: <span id="val_gradient_tol">1.0e-10</span>',
+    'solver.gradientToleranceHint': '当梯度范数足够小、接近驻点时停止。',
+    'solver.downsamplingFactorLabel': '降采样因子: <span id="val_path_downsampling_factor">1</span>',
+    'solver.downsamplingFactorHint': '在优化前丢弃中间参考点，减少问题规模。',
+    'solver.upsamplingFactorLabel': '上采样因子: <span id="val_path_upsampling_factor">1</span>',
+    'solver.upsamplingFactorHint': '在优化后重新插入点，恢复用于检查的路径密度。',
+    'layers.title': '图层',
+    'layers.toggleVisibility': '切换显示',
+    'layers.costmap': '代价地图',
+    'layers.costmapHint': '空闲、膨胀与致命栅格',
+    'layers.mapAxes': '地图坐标轴',
+    'layers.mapAxesHint': '世界坐标叠加层',
+    'layers.startGoal': '起点 / 终点',
+    'layers.startGoalHint': '已选择的端点',
+    'layers.astarRawPath': 'A* 原始路径',
+    'layers.astarRawPathHint': '稠密的栅格连通规划结果',
+    'layers.referencePath': '参考路径',
+    'layers.referencePathHint': '降采样后的优化器输入',
+    'layers.smoothedPath': '平滑路径',
+    'layers.smoothedPathHint': 'Ceres 输出，按前进 / 倒车方向着色',
+    'layers.robotProjection': '机器人投影',
+    'layers.robotProjectionHint': '沿平滑路径扫过的检查圆与虚线矩形验证轮廓',
+    'run.title': '运行统计',
+    'run.optimizer': '优化器',
+    'run.astarTime': 'A* 时间',
+    'run.smoothTime': '平滑时间',
+    'run.astarPoints': 'A* 点数',
+    'run.referencePoints': '参考点数',
+    'run.optimizationKnots': '优化结点数',
+    'run.returnedPathPoints': '返回路径点数',
+    'run.refSpacingTarget': '参考间距目标',
+    'run.rawLength': '原始长度',
+    'run.referenceLength': '参考长度',
+    'run.optimizedLength': '优化长度',
+    'run.optMinusRef': '优化 - 参考',
+    'toolbar.runPlanning': '执行规划',
+    'toolbar.resetScene': '重置场景',
+    'toolbar.resetView': '重置视图',
+    'toolbar.display': '显示',
+    'toolbar.originalCostmap': '原始代价地图',
+    'toolbar.esdfColormap': 'ESDF 配色',
+    'toolbar.diverging': '发散色图',
+    'toolbar.world': '世界尺寸',
+    'toolbar.inflation': '膨胀',
+    'popup.title': '优化点',
+    'popup.role': '角色',
+    'popup.world': '世界坐标',
+    'popup.poseHeading': '位姿朝向',
+    'popup.pathTangent': '路径切线',
+    'popup.arcLength': '弧长',
+    'popup.prevSegment': '上一段',
+    'popup.nextSegment': '下一段',
+    'popup.turnAngle': '转角',
+    'popup.approxCurvature': '近似曲率',
+    'popup.esdf': 'ESDF',
+    'popup.cellCost': '栅格代价',
+    'popup.cursorOffset': '光标偏移',
+    'curvature.title': '优化路径剖面',
+    'curvature.curvatureKs': '曲率 k(s)',
+    'curvature.segmentSpacing': '段间距 ds',
+    'curvature.curvatureRate': '曲率变化率 dk/ds',
+    'curvature.peak': '峰值 |曲率|',
+    'curvature.mean': '平均 |曲率|',
+    'curvature.signedMin': '有符号最小值',
+    'curvature.signedMax': '有符号最大值',
+    'footer.layersHint': '可在左侧面板单独切换各图层，以分别查看代价地图、稠密 A* 路径、降采样参考路径、最终优化轨迹，以及沿该轨迹采样得到的机器人投影。坐标轴叠加层会一直保留，以便在检查轨迹时保持世界坐标可读。',
+    'footer.sceneHint': '这张合成地图支持直接编辑场景：拖拽端点标记或描边障碍矩形，左键拖拽空白处可移动相机，双击或使用 <strong>重置视图</strong> 可返回整图视角。',
+  };
+
+  const messages = {
+    en: {
+      'document.title': 'A* + Constrained Smoother Demo',
+      'unit.degree': 'deg',
+      'unit.meter': 'm',
+      'unit.radian': 'rad',
+      'unit.curvature': '1/m',
+      'unit.curvatureRate': '1/m^2',
+      'unit.metersPerCell': 'm/cell',
+      'unit.cells': 'cells',
+      'unit.ms': 'ms',
+      'common.enabled': 'Enabled',
+      'common.disabled': 'Disabled',
+      'common.idle': 'idle',
+      'common.outsideMap': 'Outside map',
+      'common.chartReady': 'chart ready',
+      'common.plotlyMissing': 'plotly missing',
+      'status.parameterChangedReplanning': 'Parameter changed. Replanning…',
+      'status.manualPlanning': 'Planning with A* and constrained smoothing…',
+      'status.sliderPlanning': 'Replanning after parameter change…',
+      'status.dragPlanning': 'Endpoint moved. Replanning…',
+      'status.obstaclePlanning': 'Obstacle moved. Replanning…',
+      'status.initialPlanning': 'Computing the default route…',
+      'status.planningFailed': 'Planning failed.',
+      'status.networkError': 'Network error: {message}',
+      'status.obstacleRebuilding': 'Obstacle moved. Rebuilding costmap…',
+      'status.obstacleUpdateFailed': 'Failed to update obstacles.',
+      'status.obstacleUpdateError': 'Failed to update obstacles: {message}',
+      'status.markerMoved': '{marker} moved. Replanning…',
+      'status.viewReset': 'View reset to the full map extent.',
+      'status.sceneReset': 'Scene reset to the default layout. Rebuilding costmap…',
+      'status.loadingCostmap': 'Loading costmap…',
+      'status.costmapLoaded': 'Costmap loaded. Left-drag endpoints or obstacle rectangles to update the scene, or left-drag empty space to pan.',
+      'status.costmapLoadFailed': 'Failed to load costmap: {message}',
+      'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms.',
+      'status.planFallback': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix} so the reference path is shown. {smoothMessage}',
+      'selection.ready': 'Markers ready',
+      'selection.dragMarker': 'Dragging marker',
+      'selection.dragObstacle': 'Dragging obstacle',
+      'selection.dragScene': 'Drag scene',
+      'selection.panning': 'Panning view',
+      'selection.leftDrag': 'Left-drag',
+      'optimizer.constrained': 'Constrained Smoother',
+      'optimizer.kinematic': 'Kinematic Smoother',
+      'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
+      'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
+      'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
+      'optimizer.linear.kinematic': 'Only used by Constrained Smoother. Kinematic Smoother solves a single packed state vector with a dense backend.',
+      'robot.badge.capsule': 'Capsule',
+      'robot.badge.point': 'Single circle',
+      'robot.summary.previewPending': 'Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.',
+      'robot.validation.pending': 'Rectangle validation status will appear after each plan.',
+      'validation.path.smoothed_candidate': 'Rejected smoothed candidate',
+      'validation.path.reference_fallback': 'Returned reference path',
+      'validation.path.smoothed_path': 'Returned smoothed path',
+      'validation.reason.lethal_overlap': 'Lethal obstacle overlap',
+      'validation.reason.out_of_bounds': 'Footprint leaves map bounds',
+      'validation.reason.nonfinite_pose': 'Non-finite pose value',
+      'loupe.esdfEmpty': 'ESDF --',
+      'loupe.worldEmpty': 'World: --',
+      'loupe.cellEmpty': 'Cell: --',
+      'map.kind.default': 'Synthetic field',
+      'map.description.default': 'Fixed synthetic obstacle map used to inspect ESDF-based planner and smoother behavior.',
+      'popup.note.default': 'Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.',
+      'popup.role.startEndpoint': 'Start endpoint',
+      'popup.role.goalEndpoint': 'Goal endpoint',
+      'popup.role.startAnchor': 'Start anchor',
+      'popup.role.goalAnchor': 'Goal anchor',
+      'popup.role.interiorPoint': 'Interior point',
+      'curvature.note.pending': 'Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.',
+      'curvature.note.plotlyMissing': 'Plotly failed to load, so the profile charts could not be rendered.',
+      'curvature.note.plotlyReload': 'Plotly failed to load. Reload the page to render path profiles.',
+      'curvature.empty.curvature': 'Curvature chart will appear after a successful plan.',
+      'curvature.empty.spacing': 'Segment spacing ds will appear after a successful plan.',
+      'curvature.empty.rate': 'Curvature rate dk/ds will appear after a successful plan.',
+      'curvature.axis.arcLength': 'Arc length s (m)',
+      'curvature.axis.curvature': 'Curvature k (1/m)',
+      'curvature.axis.segmentMidpoint': 'Segment midpoint s (m)',
+      'curvature.axis.spacing': 'Spacing ds (m)',
+      'curvature.axis.rate': 'dk/ds (1/m^2)',
+      'run.note.success': '{optimizerLabel} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.',
+      'run.note.fallback': '{optimizerLabel} failed and the reference path is being shown instead. {smoothMessage}',
+      'run.pipeline.pending': 'Pipeline status will appear after each run.',
+      'run.pipeline.summary': 'Pipeline: {summary}',
+      'run.smoothState.success': '{optimizerLabel} success',
+      'run.smoothState.fallback': '{optimizerLabel} fallback',
+      'run.stage.status.ok': 'ok',
+      'run.stage.status.error': 'error',
+      'run.stage.status.fallback': 'fallback',
+      'run.stage.label.validate': 'Rectangle Validate',
+      'run.stage.label.web': 'Web',
+      'descriptor.outsideMap': 'Outside map',
+      'descriptor.unknownSpace': 'Unknown space',
+      'descriptor.lethalObstacle': 'Lethal obstacle',
+      'descriptor.inscribedObstacle': 'Inscribed inflated obstacle',
+      'descriptor.inflatedCost': 'Inflated cost',
+      'descriptor.freeSpace': 'Free space',
+      'marker.start': 'Start',
+      'marker.goal': 'Goal',
+      'canvas.obstacleLabel': 'Obs {index}',
+      'derived.minTurnRadius': 'Minimum turning radius: {value}',
+      'derived.minTurnRadiusEmpty': 'Minimum turning radius: --'
+    },
+    zh: {
+      'document.title': 'A* + 约束平滑演示',
+      'unit.degree': '度',
+      'unit.meter': '米',
+      'unit.radian': '弧度',
+      'unit.curvature': '1/米',
+      'unit.curvatureRate': '1/米^2',
+      'unit.metersPerCell': '米/格',
+      'unit.cells': '格',
+      'unit.ms': '毫秒',
+      'common.enabled': '已启用',
+      'common.disabled': '已禁用',
+      'common.idle': '空闲',
+      'common.outsideMap': '地图外',
+      'common.chartReady': '图表就绪',
+      'common.plotlyMissing': '缺少 Plotly',
+      'status.parameterChangedReplanning': '参数已变化，正在重新规划…',
+      'status.manualPlanning': '正在执行 A* 与约束平滑规划…',
+      'status.sliderPlanning': '参数变更后重新规划中…',
+      'status.dragPlanning': '端点已移动，正在重新规划…',
+      'status.obstaclePlanning': '障碍已移动，正在重新规划…',
+      'status.initialPlanning': '正在计算默认路径…',
+      'status.planningFailed': '规划失败。',
+      'status.networkError': '网络错误：{message}',
+      'status.obstacleRebuilding': '障碍已移动，正在重建代价地图…',
+      'status.obstacleUpdateFailed': '更新障碍失败。',
+      'status.obstacleUpdateError': '更新障碍失败：{message}',
+      'status.markerMoved': '{marker}已移动，正在重新规划…',
+      'status.viewReset': '视图已恢复到整图范围。',
+      'status.sceneReset': '场景已重置为默认布局，正在重建代价地图…',
+      'status.loadingCostmap': '正在加载代价地图…',
+      'status.costmapLoaded': '代价地图已加载。可左键拖拽端点或障碍矩形更新场景，或左键拖拽空白区域平移视图。',
+      'status.costmapLoadFailed': '加载代价地图失败：{message}',
+      'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。',
+      'status.planFallback': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}，因此当前显示参考路径。{smoothMessage}',
+      'selection.ready': '标记点就绪',
+      'selection.dragMarker': '正在拖拽标记点',
+      'selection.dragObstacle': '正在拖拽障碍',
+      'selection.dragScene': '拖拽场景',
+      'selection.panning': '正在平移视图',
+      'selection.leftDrag': '左键拖拽',
+      'optimizer.constrained': '约束平滑器',
+      'optimizer.kinematic': '运动学平滑器',
+      'optimizer.mode.constrained': '约束平滑器使用现有的 C++ Ceres 目标函数，包含曲率、尖点和 ESDF 障碍项。',
+      'optimizer.mode.kinematic': '运动学平滑器使用新的 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
+      'optimizer.linear.constrained': '选择每次非线性迭代内部使用的 Ceres 线性求解后端。',
+      'optimizer.linear.kinematic': '仅约束平滑器会使用该设置。运动学平滑器使用致密后端求解单个打包状态向量。',
+      'robot.badge.capsule': '胶囊',
+      'robot.badge.point': '单圆',
+      'robot.summary.previewPending': '琥珀色显示的是胶囊检查点；虚线矩形仅用于最终验证。',
+      'robot.validation.pending': '每次规划后会在这里显示矩形验证状态。',
+      'validation.path.smoothed_candidate': '被拒绝的平滑候选路径',
+      'validation.path.reference_fallback': '返回的参考路径',
+      'validation.path.smoothed_path': '返回的平滑路径',
+      'validation.reason.lethal_overlap': '与致命障碍重叠',
+      'validation.reason.out_of_bounds': '足迹超出地图边界',
+      'validation.reason.nonfinite_pose': '位姿值非有限',
+      'loupe.esdfEmpty': 'ESDF --',
+      'loupe.worldEmpty': '世界坐标：--',
+      'loupe.cellEmpty': '栅格：--',
+      'map.kind.default': '合成场景',
+      'map.description.default': '固定的合成障碍地图，用于观察基于 ESDF 的规划器和平滑器行为。',
+      'popup.note.default': '将鼠标悬停在玫瑰色平滑路径上的某个点，可查看它的几何、朝向、局部净空与相邻线段上下文。',
+      'popup.role.startEndpoint': '起点端点',
+      'popup.role.goalEndpoint': '终点端点',
+      'popup.role.startAnchor': '起点锚点',
+      'popup.role.goalAnchor': '终点锚点',
+      'popup.role.interiorPoint': '内部点',
+      'curvature.note.pending': '执行规划后，可按优化路径弧长绘制曲率、段间距和曲率变化率。',
+      'curvature.note.plotlyMissing': 'Plotly 加载失败，因此无法绘制剖面图。',
+      'curvature.note.plotlyReload': 'Plotly 加载失败。刷新页面后再渲染路径剖面。',
+      'curvature.empty.curvature': '成功规划后会在这里显示曲率图。',
+      'curvature.empty.spacing': '成功规划后会在这里显示段间距 ds。',
+      'curvature.empty.rate': '成功规划后会在这里显示曲率变化率 dk/ds。',
+      'curvature.axis.arcLength': '弧长 s (米)',
+      'curvature.axis.curvature': '曲率 k (1/米)',
+      'curvature.axis.segmentMidpoint': '段中点 s (米)',
+      'curvature.axis.spacing': '间距 ds (米)',
+      'curvature.axis.rate': 'dk/ds (1/米^2)',
+      'run.note.success': '{optimizerLabel}已生成平滑路径。切换图层并比较原始、参考和平滑路径长度，可以观察后端如何改变路径几何。',
+      'run.note.fallback': '{optimizerLabel}失败，因此当前显示参考路径。{smoothMessage}',
+      'run.pipeline.pending': '每次运行后会在这里显示流水线状态。',
+      'run.pipeline.summary': '流水线：{summary}',
+      'run.smoothState.success': '{optimizerLabel}成功',
+      'run.smoothState.fallback': '{optimizerLabel}回退',
+      'run.stage.status.ok': '正常',
+      'run.stage.status.error': '错误',
+      'run.stage.status.fallback': '回退',
+      'run.stage.label.validate': '矩形验证',
+      'run.stage.label.web': 'Web',
+      'descriptor.outsideMap': '地图外',
+      'descriptor.unknownSpace': '未知区域',
+      'descriptor.lethalObstacle': '致命障碍',
+      'descriptor.inscribedObstacle': '贴边膨胀障碍',
+      'descriptor.inflatedCost': '膨胀代价',
+      'descriptor.freeSpace': '空闲区域',
+      'marker.start': '起点',
+      'marker.goal': '终点',
+      'canvas.obstacleLabel': '障碍 {index}',
+      'derived.minTurnRadius': '最小转弯半径：{value}',
+      'derived.minTurnRadiusEmpty': '最小转弯半径：--'
+    }
+  };
+
+  const staticTextDefaults = new Map();
+  const staticHtmlDefaults = new Map();
+  const getInitialLanguage = () => {
+    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    if (SUPPORTED_LANGUAGES.includes(stored)) {
+      return stored;
+    }
+    const browserLanguage = (navigator.language || '').toLowerCase();
+    return browserLanguage.startsWith('zh') ? 'zh' : 'en';
+  };
+  let currentLanguage = getInitialLanguage();
+
+  const interpolateMessage = (template, params = {}) => String(template).replace(/\{(\w+)\}/g, (_, key) => {
+    if (Object.prototype.hasOwnProperty.call(params, key)) {
+      return params[key];
+    }
+    return `{${key}}`;
+  });
+
+  const t = (key, params = {}) => {
+    const dictionary = messages[currentLanguage] || messages.en;
+    const template = dictionary[key] ?? messages.en[key] ?? key;
+    return interpolateMessage(template, params);
+  };
+
+  const captureStaticDefaults = () => {
+    document.querySelectorAll('[data-i18n]').forEach(element => {
+      staticTextDefaults.set(element.dataset.i18n, element.textContent);
+    });
+    document.querySelectorAll('[data-i18n-html]').forEach(element => {
+      staticHtmlDefaults.set(element.dataset.i18nHtml, element.innerHTML);
+    });
+  };
+
+  const applyStaticTranslations = () => {
+    document.documentElement.lang = currentLanguage === 'zh' ? 'zh-CN' : 'en';
+    document.title = t('document.title');
+
+    document.querySelectorAll('[data-i18n]').forEach(element => {
+      const key = element.dataset.i18n;
+      const defaultValue = staticTextDefaults.get(key) ?? element.textContent;
+      element.textContent = currentLanguage === 'zh' ? (zhStaticTranslations[key] ?? defaultValue) : defaultValue;
+    });
+
+    document.querySelectorAll('[data-i18n-html]').forEach(element => {
+      const key = element.dataset.i18nHtml;
+      const defaultValue = staticHtmlDefaults.get(key) ?? element.innerHTML;
+      element.innerHTML = currentLanguage === 'zh' ? (zhStaticTranslations[key] ?? defaultValue) : defaultValue;
+    });
+  };
+
+  const localizeKnownText = (value, mapping) => {
+    if (!value) {
+      return value;
+    }
+    return mapping[value] || value;
+  };
+
+  const localizeOptimizerLabel = label => localizeKnownText(label, {
+    'Constrained Smoother': t('optimizer.constrained'),
+    'Kinematic Smoother': t('optimizer.kinematic'),
+  });
+
+  const syncAllControlReadouts = () => {
+    sliders.forEach(id => {
+      const input = document.getElementById(id);
+      const label = document.getElementById('val_' + id);
+      if (!input || !label) {
+        return;
+      }
+      label.textContent = sliderConfig[id](parseFloat(input.value));
+    });
+
+    numericInputs.forEach(id => {
+      const input = document.getElementById(id);
+      const label = document.getElementById('val_' + id);
+      if (!input || !label) {
+        return;
+      }
+      const value = parseFloat(input.value);
+      if (Number.isFinite(value)) {
+        label.textContent = numericInputConfig[id](value);
+      }
+    });
+  };
+
+  captureStaticDefaults();
+  applyStaticTranslations();
+
   const sliderConfig = {
-    start_yaw_deg: value => `${Math.round(value)} deg`,
-    goal_yaw_deg: value => `${Math.round(value)} deg`,
+    start_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
+    goal_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
     planner_penalty_weight: value => Number(value).toFixed(1),
     hinge_loss_threshold_m: value => Number(value).toFixed(2),
     point_robot_radius_m: value => Number(value).toFixed(2),
@@ -139,12 +608,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   sliders.forEach(id => {
     const input = document.getElementById(id);
-    const label = document.getElementById('val_' + id);
-    if (!input || !label) {
+    if (!input || !document.getElementById('val_' + id)) {
       return;
     }
 
     const sync = () => {
+      const label = document.getElementById('val_' + id);
+      if (!label) {
+        return;
+      }
       label.textContent = sliderConfig[id](parseFloat(input.value));
       if (id === 'start_yaw_deg' || id === 'goal_yaw_deg') {
         updateSelectionInfo();
@@ -164,12 +636,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   numericInputs.forEach(id => {
     const input = document.getElementById(id);
-    const label = document.getElementById('val_' + id);
-    if (!input || !label) {
+    if (!input || !document.getElementById('val_' + id)) {
       return;
     }
 
     const sync = () => {
+      const label = document.getElementById('val_' + id);
+      if (!label) {
+        return;
+      }
       const value = parseFloat(input.value);
       if (!Number.isFinite(value)) {
         return;
@@ -256,8 +731,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setText(
       'val_min_turn_radius',
       minTurnRadius === null || Number.isNaN(minTurnRadius)
-        ? 'Minimum turning radius: --'
-        : `Minimum turning radius: ${minTurnRadius.toFixed(2)} m`
+        ? t('derived.minTurnRadiusEmpty')
+        : t('derived.minTurnRadius', {value: `${minTurnRadius.toFixed(2)} ${t('unit.meter')}`})
     );
   }
 
@@ -306,14 +781,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setText(
       'optimizer-mode-hint',
       isConstrainedSmoother
-        ? 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.'
-        : 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.'
+        ? t('optimizer.mode.constrained')
+        : t('optimizer.mode.kinematic')
     );
     setText(
       'linear-solver-hint',
       isConstrainedSmoother
-        ? 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.'
-        : 'Only used by Constrained Smoother. Kinematic Smoother solves a single packed state vector with a dense backend.'
+        ? t('optimizer.linear.constrained')
+        : t('optimizer.linear.kinematic')
     );
   }
 
@@ -327,10 +802,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const config = getRobotFootprintConfig();
-    const badgeText = config.mode === 'capsule' ? 'Capsule' : 'Single circle';
+    const badgeText = config.mode === 'capsule' ? t('robot.badge.capsule') : t('robot.badge.point');
     const summaryText = config.mode === 'capsule'
-      ? `Planning and smoothing use ${config.localCheckPoints.length} capsule checkpoints with ${config.checkRadiusM.toFixed(2)} m radius. The dashed ${config.lengthM.toFixed(2)} m × ${config.widthM.toFixed(2)} m rectangle is final validation only.`
-      : `Planning and smoothing use one ${config.checkRadiusM.toFixed(2)} m check circle. The dashed ${config.lengthM.toFixed(2)} m × ${config.widthM.toFixed(2)} m rectangle still validates the final path.`;
+      ? currentLanguage === 'zh'
+        ? `规划和平滑使用 ${config.localCheckPoints.length} 个胶囊检查点，半径为 ${formatMeters(config.checkRadiusM)}。虚线 ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} 矩形仅用于最终验证。`
+        : `Planning and smoothing use ${config.localCheckPoints.length} capsule checkpoints with ${formatMeters(config.checkRadiusM)} radius. The dashed ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} rectangle is final validation only.`
+      : currentLanguage === 'zh'
+        ? `规划和平滑使用一个半径为 ${formatMeters(config.checkRadiusM)} 的检查圆。虚线 ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} 矩形仍用于最终路径验证。`
+        : `Planning and smoothing use one ${formatMeters(config.checkRadiusM)} check circle. The dashed ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} rectangle still validates the final path.`;
 
     setText('footprint-preview-badge', badgeText);
     setText(
@@ -338,7 +817,7 @@ document.addEventListener('DOMContentLoaded', () => {
       summaryText
     );
     if (!state.paths?.final_rectangle_validation) {
-      setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+      setText('footprint-validation-summary', t('robot.validation.pending'));
       clearValidationFailureDetails();
     }
     drawFootprintPreview();
@@ -349,48 +828,48 @@ document.addEventListener('DOMContentLoaded', () => {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
     }
-    return `${Number(value).toFixed(digits)} m`;
+    return `${Number(value).toFixed(digits)} ${t('unit.meter')}`;
   }
 
   function formatDegrees(value, digits = 1) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
     }
-    return `${Number(value).toFixed(digits)} deg`;
+    return `${Number(value).toFixed(digits)} ${t('unit.degree')}`;
   }
 
   function formatRadians(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
     }
-    return `${Number(value).toFixed(digits)} rad`;
+    return `${Number(value).toFixed(digits)} ${t('unit.radian')}`;
   }
 
   function formatCurvature(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
     }
-    return `${Number(value).toFixed(digits)} 1/m`;
+    return `${Number(value).toFixed(digits)} ${t('unit.curvature')}`;
   }
 
   function formatValidationPathLabel(validatedPath) {
     if (validatedPath === 'smoothed_candidate') {
-      return 'Rejected smoothed candidate';
+      return t('validation.path.smoothed_candidate');
     }
     if (validatedPath === 'reference_fallback') {
-      return 'Returned reference path';
+      return t('validation.path.reference_fallback');
     }
     if (validatedPath === 'smoothed_path') {
-      return 'Returned smoothed path';
+      return t('validation.path.smoothed_path');
     }
     return '--';
   }
 
   function formatValidationReason(reason) {
     const reasonLabels = {
-      lethal_overlap: 'Lethal obstacle overlap',
-      out_of_bounds: 'Footprint leaves map bounds',
-      nonfinite_pose: 'Non-finite pose value',
+      lethal_overlap: t('validation.reason.lethal_overlap'),
+      out_of_bounds: t('validation.reason.out_of_bounds'),
+      nonfinite_pose: t('validation.reason.nonfinite_pose'),
     };
     return reasonLabels[reason] || '--';
   }
@@ -399,7 +878,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!pose || pose.x === null || pose.y === null || pose.x === undefined || pose.y === undefined) {
       return '--';
     }
-    return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} m`;
+    return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} ${t('unit.meter')}`;
   }
 
   function formatValidationCell(firstFailure) {
@@ -592,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!point) {
       return '--';
     }
-    return `${point.x.toFixed(2)}, ${point.y.toFixed(2)} m`;
+    return `${point.x.toFixed(2)}, ${point.y.toFixed(2)} ${t('unit.meter')}`;
   }
 
   function normalizeAngleDeg(angleDeg) {
@@ -746,26 +1225,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function describeCost(cost) {
     if (cost === null || cost === undefined) {
-      return {text: 'Outside map', kind: 'outside'};
+      return {text: t('descriptor.outsideMap'), kind: 'outside'};
     }
 
     if (cost === 255) {
-      return {text: 'Unknown space', kind: 'unknown'};
+      return {text: t('descriptor.unknownSpace'), kind: 'unknown'};
     }
 
     if (cost >= 254) {
-      return {text: 'Lethal obstacle', kind: 'lethal'};
+      return {text: t('descriptor.lethalObstacle'), kind: 'lethal'};
     }
 
     if (cost === 253) {
-      return {text: 'Inscribed inflated obstacle', kind: 'inscribed'};
+      return {text: t('descriptor.inscribedObstacle'), kind: 'inscribed'};
     }
 
     if (cost > 0) {
-      return {text: 'Inflated cost', kind: 'inflated'};
+      return {text: t('descriptor.inflatedCost'), kind: 'inflated'};
     }
 
-    return {text: 'Free space', kind: 'free'};
+    return {text: t('descriptor.freeSpace'), kind: 'free'};
   }
 
   function cloneObstacleRect(rect) {
@@ -832,7 +1311,7 @@ document.addEventListener('DOMContentLoaded', () => {
       window.clearTimeout(state.pendingAutoPlanTimer);
     }
 
-    setStatus('Parameter changed. Replanning…', '');
+    setStatus(t('status.parameterChangedReplanning'), '');
     state.pendingAutoPlanTimer = window.setTimeout(() => {
       state.pendingAutoPlanTimer = null;
       runPlanning({reason: 'slider'});
@@ -840,12 +1319,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function syncPhaseUi() {
-    setText('phase-indicator', 'Markers ready');
+    setText('phase-indicator', t('selection.ready'));
     const pillText = state.draggingMarker
-      ? 'Dragging marker'
+      ? t('selection.dragMarker')
       : state.draggingObstacleIndex !== null
-        ? 'Dragging obstacle'
-        : 'Drag scene';
+        ? t('selection.dragObstacle')
+        : t('selection.dragScene');
     setText('selection-pill', pillText);
   }
 
@@ -854,32 +1333,32 @@ document.addEventListener('DOMContentLoaded', () => {
     const goalHeading = getHeadingValue('goal_yaw_deg', DEFAULT_HEADINGS_DEG.goal);
     const keepStartOrientation = getConstraintEnabled('keep_start_orientation', true);
     const keepGoalOrientation = getConstraintEnabled('keep_goal_orientation', true);
-    setText('start-coord', `${formatCoord(state.start)} | ${Math.round(startHeading)} deg`);
-    setText('goal-coord', `${formatCoord(state.goal)} | ${Math.round(goalHeading)} deg`);
-    setText('start-heading-readout', `${Math.round(startHeading)} deg`);
-    setText('goal-heading-readout', `${Math.round(goalHeading)} deg`);
-    setText('start-constraint-readout', keepStartOrientation ? 'Enabled' : 'Disabled');
-    setText('goal-constraint-readout', keepGoalOrientation ? 'Enabled' : 'Disabled');
+    setText('start-coord', `${formatCoord(state.start)} | ${Math.round(startHeading)} ${t('unit.degree')}`);
+    setText('goal-coord', `${formatCoord(state.goal)} | ${Math.round(goalHeading)} ${t('unit.degree')}`);
+    setText('start-heading-readout', `${Math.round(startHeading)} ${t('unit.degree')}`);
+    setText('goal-heading-readout', `${Math.round(goalHeading)} ${t('unit.degree')}`);
+    setText('start-constraint-readout', keepStartOrientation ? t('common.enabled') : t('common.disabled'));
+    setText('goal-constraint-readout', keepGoalOrientation ? t('common.enabled') : t('common.disabled'));
     setText('cursor-coord', formatCoord(state.hover));
     setText('zoom-level', `${state.viewScale.toFixed(2)}x`);
     const gestureText = state.draggingMarker
-      ? 'Dragging marker'
+      ? t('selection.dragMarker')
       : state.draggingObstacleIndex !== null
-        ? 'Dragging obstacle'
+        ? t('selection.dragObstacle')
         : state.dragging
-          ? 'Panning view'
-          : 'Left-drag';
+          ? t('selection.panning')
+          : t('selection.leftDrag');
     setText('view-mode-label', gestureText);
     syncPhaseUi();
   }
 
   function hideLoupe() {
-    setText('loupe-cost-value', 'ESDF --');
+    setText('loupe-cost-value', t('loupe.esdfEmpty'));
     setText('loupe-cell-cost', '--');
     setText('loupe-esdf-distance', '--');
-    setText('loupe-world', 'World: --');
-    setText('loupe-cell', 'Cell: --');
-    setText('loupe-kind', 'Outside map');
+    setText('loupe-world', t('loupe.worldEmpty'));
+    setText('loupe-cell', t('loupe.cellEmpty'));
+    setText('loupe-kind', t('common.outsideMap'));
     document.getElementById('loupe-kind')?.setAttribute('data-kind', 'outside');
   }
 
@@ -989,15 +1468,19 @@ document.addEventListener('DOMContentLoaded', () => {
     drawLoupe(sample);
     setText(
       'loupe-cost-value',
-      sample.esdfDistance === null ? 'ESDF --' : `ESDF ${sample.esdfDistance.toFixed(2)} m`
+      sample.esdfDistance === null
+        ? t('loupe.esdfEmpty')
+        : `ESDF ${sample.esdfDistance.toFixed(2)} ${t('unit.meter')}`
     );
     setText('loupe-cell-cost', String(sample.cost));
     setText(
       'loupe-esdf-distance',
-      sample.esdfDistance === null ? '--' : `${sample.esdfDistance.toFixed(2)} m`
+      sample.esdfDistance === null ? '--' : `${sample.esdfDistance.toFixed(2)} ${t('unit.meter')}`
     );
-    setText('loupe-world', `World: ${sample.worldX.toFixed(2)}, ${sample.worldY.toFixed(2)} m`);
-    setText('loupe-cell', `Cell: (${sample.mx}, ${sample.my})`);
+    setText('loupe-world', currentLanguage === 'zh'
+      ? `世界坐标：${sample.worldX.toFixed(2)}, ${sample.worldY.toFixed(2)} ${t('unit.meter')}`
+      : `World: ${sample.worldX.toFixed(2)}, ${sample.worldY.toFixed(2)} ${t('unit.meter')}`);
+    setText('loupe-cell', currentLanguage === 'zh' ? `栅格：(${sample.mx}, ${sample.my})` : `Cell: (${sample.mx}, ${sample.my})`);
     setText('loupe-kind', descriptor.text);
     document.getElementById('loupe-kind')?.setAttribute('data-kind', descriptor.kind);
   }
@@ -1014,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ].forEach(id => setText(id, '--'));
     setText(
       'opt-point-note',
-      'Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.'
+      t('popup.note.default')
     );
   }
 
@@ -1050,18 +1533,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const keepStartOrientation = getConstraintEnabled('keep_start_orientation', true);
     const keepGoalOrientation = getConstraintEnabled('keep_goal_orientation', true);
     if (index === 0) {
-      return 'Start endpoint';
+      return t('popup.role.startEndpoint');
     }
     if (index === pointCount - 1) {
-      return 'Goal endpoint';
+      return t('popup.role.goalEndpoint');
     }
     if (keepStartOrientation && index === 1) {
-      return 'Start anchor';
+      return t('popup.role.startAnchor');
     }
     if (keepGoalOrientation && index === pointCount - 2) {
-      return 'Goal anchor';
+      return t('popup.role.goalAnchor');
     }
-    return 'Interior point';
+    return t('popup.role.interiorPoint');
   }
 
   function buildOptimizedPointHoverInfo(index, distancePx) {
@@ -1172,7 +1655,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setText('opt-point-role', info.role);
     setText('opt-point-index', `${info.index + 1} / ${info.pointCount}`);
-    setText('opt-point-world', `${info.worldX.toFixed(2)}, ${info.worldY.toFixed(2)} m`);
+    setText('opt-point-world', `${info.worldX.toFixed(2)}, ${info.worldY.toFixed(2)} ${t('unit.meter')}`);
     setText(
       'opt-point-heading',
       info.thetaRad === null
@@ -1203,7 +1686,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('opt-point-cursor-offset', `${formatMeters(info.cursorOffset)} / ${info.distancePx.toFixed(1)} px`);
     setText(
       'opt-point-note',
-      `Point ${info.index + 1} is ${info.role.toLowerCase()}. Turn angle and curvature are estimated from the local three-point geometry around this optimized pose.`
+      currentLanguage === 'zh'
+        ? `点 ${info.index + 1} 的角色为${info.role}。转角与曲率由该优化位姿附近的局部三点几何近似得到。`
+        : `Point ${info.index + 1} is ${info.role.toLowerCase()}. Turn angle and curvature are estimated from the local three-point geometry around this optimized pose.`
     );
     positionOptimizedPointPopup();
   }
@@ -1299,21 +1784,34 @@ document.addEventListener('DOMContentLoaded', () => {
     const worldWidth = meta.world_width_m ?? (costmap.size_x * costmap.resolution);
     const worldHeight = meta.world_height_m ?? (costmap.size_y * costmap.resolution);
 
-    setText('hero-map-size', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} m`);
-    setText('hero-resolution', `${costmap.resolution.toFixed(2)} m/cell`);
+    setText('hero-map-size', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} ${t('unit.meter')}`);
+    setText('hero-resolution', `${costmap.resolution.toFixed(2)} ${t('unit.metersPerCell')}`);
     setText('map-grid', `${costmap.size_x} x ${costmap.size_y}`);
-    setText('map-world-size', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} m`);
-    setText('map-world-size-toolbar', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} m`);
-    setText('map-resolution', `${costmap.resolution.toFixed(2)} m/cell`);
-    setText('map-origin', `${costmap.origin_x.toFixed(1)}, ${costmap.origin_y.toFixed(1)} m`);
+    setText('map-world-size', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} ${t('unit.meter')}`);
+    setText('map-world-size-toolbar', `${worldWidth.toFixed(1)} x ${worldHeight.toFixed(1)} ${t('unit.meter')}`);
+    setText('map-resolution', `${costmap.resolution.toFixed(2)} ${t('unit.metersPerCell')}`);
+    setText('map-origin', `${costmap.origin_x.toFixed(1)}, ${costmap.origin_y.toFixed(1)} ${t('unit.meter')}`);
     setText('map-obstacles', String(meta.obstacle_count ?? '--'));
-    setText('map-inflation', `${(meta.inflation_radius_m ?? 0).toFixed(2)} m / ${meta.inflation_radius_cells ?? '--'} cells`);
-    setText('map-inflation-toolbar', `${(meta.inflation_radius_m ?? 0).toFixed(2)} m`);
+    setText('map-inflation', `${(meta.inflation_radius_m ?? 0).toFixed(2)} ${t('unit.meter')} / ${meta.inflation_radius_cells ?? '--'} ${t('unit.cells')}`);
+    setText('map-inflation-toolbar', `${(meta.inflation_radius_m ?? 0).toFixed(2)} ${t('unit.meter')}`);
     setText('map-free-cells', `${meta.free_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
     setText('map-inflated-cells', `${meta.inflated_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
     setText('map-lethal-cells', `${meta.lethal_cells ?? '--'} / ${meta.cell_count ?? '--'}`);
-    setText('map-description', meta.description || 'Fixed synthetic obstacle map used to inspect ESDF-based planner and smoother behavior.');
-    setText('map-kind', meta.name || 'Synthetic field');
+    const description = localizeKnownText(
+      meta.description || t('map.description.default'),
+      {
+        'Fixed synthetic obstacle map used to inspect ESDF-based planner and smoother behavior.': t('map.description.default'),
+        'A draggable 20m x 20m obstacle map with rectangular lethal obstacles and a 5-cell inflated safety buffer for visualization. The C++ A* planner and constrained smoother both optimize ESDF-derived obstacle penalties.': currentLanguage === 'zh'
+          ? '一个可拖拽编辑的 20 米 × 20 米障碍地图，包含矩形致命障碍物和 5 格膨胀安全缓冲区，便于可视化。C++ A* 规划器与约束平滑器都会优化基于 ESDF 的障碍惩罚。'
+          : 'A draggable 20m x 20m obstacle map with rectangular lethal obstacles and a 5-cell inflated safety buffer for visualization. The C++ A* planner and constrained smoother both optimize ESDF-derived obstacle penalties.',
+      }
+    );
+    const kind = localizeKnownText(meta.name || t('map.kind.default'), {
+      'Synthetic field': t('map.kind.default'),
+      'Synthetic obstacle field': currentLanguage === 'zh' ? '合成障碍场' : 'Synthetic obstacle field',
+    });
+    setText('map-description', description);
+    setText('map-kind', kind);
   }
 
   function computeCurvatureProfile(pathData) {
@@ -1442,12 +1940,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearCurvatureChart() {
     state.curvatureProfile = null;
-    setText('curvature-state', 'idle');
+    setText('curvature-state', t('common.idle'));
     setText('curvature-peak', '--');
     setText('curvature-mean', '--');
     setText('curvature-min', '--');
     setText('curvature-max', '--');
-    setText('curvature-note', 'Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.');
+    setText('curvature-note', t('curvature.note.pending'));
 
     const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
     if (!chartElements.length) {
@@ -1456,7 +1954,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!window.Plotly) {
       chartElements.forEach(element => {
-        element.textContent = 'Plotly failed to load. Reload the page to render path profiles.';
+        element.textContent = t('curvature.note.plotlyReload');
       });
       return;
     }
@@ -1499,19 +1997,19 @@ document.addEventListener('DOMContentLoaded', () => {
     window.Plotly.react(
       curvatureChart,
       [],
-      createEmptyLayout(260, 'Curvature chart will appear after a successful plan.'),
+      createEmptyLayout(260, t('curvature.empty.curvature')),
       config
     );
     window.Plotly.react(
       dsChart,
       [],
-      createEmptyLayout(220, 'Segment spacing ds will appear after a successful plan.'),
+      createEmptyLayout(220, t('curvature.empty.spacing')),
       config
     );
     window.Plotly.react(
       dkdsChart,
       [],
-      createEmptyLayout(220, 'Curvature rate dk/ds will appear after a successful plan.'),
+      createEmptyLayout(220, t('curvature.empty.rate')),
       config
     );
   }
@@ -1528,10 +2026,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (!window.Plotly) {
-      setText('curvature-state', 'plotly missing');
-      setText('curvature-note', 'Plotly failed to load, so the profile charts could not be rendered.');
+      setText('curvature-state', t('common.plotlyMissing'));
+      setText('curvature-note', t('curvature.note.plotlyMissing'));
       [curvatureChart, dsChart, dkdsChart].forEach(element => {
-        element.textContent = 'Plotly failed to load. Reload the page to render path profiles.';
+        element.textContent = t('curvature.note.plotlyReload');
       });
       return;
     }
@@ -1571,7 +2069,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
-    const curvatureLayout = makeLayout(260, 'Arc length s (m)', 'Curvature k (1/m)');
+    const curvatureLayout = makeLayout(260, t('curvature.axis.arcLength'), t('curvature.axis.curvature'));
     if (maxCurvatureLimit > 0) {
       curvatureLayout.shapes = [maxCurvatureLimit, -maxCurvatureLimit].map(limit => ({
         type: 'line',
@@ -1612,7 +2110,7 @@ document.addEventListener('DOMContentLoaded', () => {
         marker: {size: 6, color: 'rgba(20, 122, 106, 0.95)'},
         hovertemplate: 's=%{x:.2f} m<br>ds=%{y:.3f} m<extra></extra>',
       }],
-      makeLayout(220, 'Segment midpoint s (m)', 'Spacing ds (m)'),
+      makeLayout(220, t('curvature.axis.segmentMidpoint'), t('curvature.axis.spacing')),
       config
     );
 
@@ -1626,26 +2124,29 @@ document.addEventListener('DOMContentLoaded', () => {
         line: {color: 'rgba(217, 122, 43, 0.95)', width: 2.4},
         hovertemplate: 's=%{x:.2f} m<br>dk/ds=%{y:.3f} 1/m^2<extra></extra>',
       }],
-      makeLayout(220, 'Arc length s (m)', 'dk/ds (1/m^2)'),
+      makeLayout(220, t('curvature.axis.arcLength'), t('curvature.axis.rate')),
       config
     );
 
-    setText('curvature-state', 'chart ready');
+    setText('curvature-state', t('common.chartReady'));
     setText('curvature-peak', formatCurvature(profile.curvatureStats.peakAbs));
     setText('curvature-mean', formatCurvature(profile.curvatureStats.meanAbs));
     setText('curvature-min', formatCurvature(profile.curvatureStats.signedMin));
     setText('curvature-max', formatCurvature(profile.curvatureStats.signedMax));
     setText(
       'curvature-note',
-      `Curvature k(s), returned-point spacing ds, and curvature rate dk/ds are estimated from consecutive optimized path samples. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} 1/m). Mean ds: ${profile.dsStats.mean.toFixed(3)} m, peak |dk/ds|: ${profile.dkDsStats.peakAbs.toFixed(3)} 1/m^2.`
+      currentLanguage === 'zh'
+        ? `曲率 k(s)、返回点间距 ds 和曲率变化率 dk/ds 都是由连续优化路径采样点估算得到。琥珀色虚线表示当前最大曲率限制（${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}）。平均 ds：${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}，峰值 |dk/ds|：${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}。`
+        : `Curvature k(s), returned-point spacing ds, and curvature rate dk/ds are estimated from consecutive optimized path samples. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}). Mean ds: ${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}, peak |dk/ds|: ${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}.`
     );
   }
 
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
-    setText('info-optimizer', data.optimizer_label || '--');
-    setText('info-astar-time', `${data.astar_time_ms} ms`);
-    setText('info-smooth-time', `${data.smooth_time_ms} ms`);
+    const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || '');
+    setText('info-optimizer', optimizerLabel || '--');
+    setText('info-astar-time', `${data.astar_time_ms} ${t('unit.ms')}`);
+    setText('info-smooth-time', `${data.smooth_time_ms} ${t('unit.ms')}`);
     setText('info-astar-pts', String(data.num_astar_pts));
     setText('info-ref-pts', String(data.num_ref_pts));
     setText('info-opt-knots', String(data.num_opt_knots));
@@ -1658,26 +2159,42 @@ document.addEventListener('DOMContentLoaded', () => {
     const deltaValue = Number(data.opt_vs_ref_delta_m);
     const deltaText = Number.isNaN(deltaValue)
       ? '--'
-      : `${deltaValue >= 0 ? '+' : ''}${deltaValue.toFixed(2)} m`;
+      : `${deltaValue >= 0 ? '+' : ''}${deltaValue.toFixed(2)} ${t('unit.meter')}`;
     setText('info-length-delta', deltaText);
 
     setText(
       'smooth-state',
       data.smooth_success
-        ? `${data.optimizer_label || 'optimizer'} success`
-        : `${data.optimizer_label || 'optimizer'} fallback`
+        ? t('run.smoothState.success', {optimizerLabel: optimizerLabel || 'optimizer'})
+        : t('run.smoothState.fallback', {optimizerLabel: optimizerLabel || 'optimizer'})
     );
     setText(
       'run-note',
       data.smooth_success
-        ? `${data.optimizer_label || 'The selected optimizer'} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.`
-        : `${data.optimizer_label || 'The selected optimizer'} failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
+        ? t('run.note.success', {optimizerLabel: optimizerLabel || 'The selected optimizer'})
+        : t('run.note.fallback', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
     );
     setText(
       'pipeline-summary',
-      data.pipeline?.summary
-        ? `Pipeline: ${data.pipeline.summary}`
-        : 'Pipeline status will appear after each run.'
+      data.pipeline?.stages?.length
+        ? t('run.pipeline.summary', {
+          summary: data.pipeline.stages.map(stage => {
+            const stageLabel = stage.key === 'validate'
+              ? t('run.stage.label.validate')
+              : stage.key === 'web'
+                ? t('run.stage.label.web')
+                : localizeOptimizerLabel(stage.label || '') || stage.label;
+            let stageSummary = `${stageLabel}: ${t(`run.stage.status.${stage.status}`)}`;
+            if (stage.path) {
+              stageSummary += ` (${formatValidationPathLabel(stage.path)})`;
+            }
+            if (stage.error_code) {
+              stageSummary += ` [${stage.error_code}]`;
+            }
+            return stageSummary;
+          }).join(' -> ')
+        })
+        : t('run.pipeline.pending')
     );
 
     const candidateValidation = data.candidate_rectangle_validation;
@@ -1692,19 +2209,27 @@ document.addEventListener('DOMContentLoaded', () => {
       const returnedSummary = !returnedValidation
         ? ''
         : returnedValidation.collision_free
-          ? ' Returned reference path rectangle validation passed.'
-          : ` Returned reference path rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
+          ? (currentLanguage === 'zh' ? ' 返回的参考路径矩形验证已通过。' : ' Returned reference path rectangle validation passed.')
+          : currentLanguage === 'zh'
+            ? ` 返回的参考路径矩形验证也失败了${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`
+            : ` Returned reference path rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
       setText(
         'footprint-validation-summary',
-        `Rejected smoothed path${candidateCode}. ${candidateValidation.message || ''}${returnedSummary}`.trim()
+        currentLanguage === 'zh'
+          ? `平滑路径被拒绝${candidateCode}。${candidateValidation.message || ''}${returnedSummary}`.trim()
+          : `Rejected smoothed path${candidateCode}. ${candidateValidation.message || ''}${returnedSummary}`.trim()
       );
     } else if (returnedValidation) {
       const pathLabel = returnedValidation.validated_path === 'reference_fallback'
-        ? 'Returned reference path'
-        : 'Returned path';
+        ? t('validation.path.reference_fallback')
+        : currentLanguage === 'zh' ? '返回路径' : 'Returned path';
       const statusText = returnedValidation.collision_free
-        ? `${pathLabel} rectangle validation passed on all ${data.num_returned_pts ?? data.num_opt_pts ?? 0} pose(s).`
-        : `${pathLabel} rectangle validation failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`.trim();
+        ? currentLanguage === 'zh'
+          ? `${pathLabel}的矩形验证已在全部 ${data.num_returned_pts ?? data.num_opt_pts ?? 0} 个位姿上通过。`
+          : `${pathLabel} rectangle validation passed on all ${data.num_returned_pts ?? data.num_opt_pts ?? 0} pose(s).`
+        : currentLanguage === 'zh'
+          ? `${pathLabel}的矩形验证失败${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`.trim()
+          : `${pathLabel} rectangle validation failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`.trim();
       setText('footprint-validation-summary', statusText);
     }
     showValidationFailureDetails(failureValidation);
@@ -1715,10 +2240,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearRunInfo() {
     planInfoIds.forEach(id => setText(id, '--'));
-    setText('smooth-state', 'idle');
-    setText('run-note', 'Set a start and goal to generate path metrics.');
-    setText('pipeline-summary', 'Pipeline status will appear after each run.');
-    setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
+    setText('smooth-state', t('common.idle'));
+    setText('run-note', currentLanguage === 'zh' ? '设置起点和终点后即可生成路径指标。' : 'Set a start and goal to generate path metrics.');
+    setText('pipeline-summary', t('run.pipeline.pending'));
+    setText('footprint-validation-summary', t('robot.validation.pending'));
     clearValidationFailureDetails();
     drawFootprintPreview();
     clearCurvatureChart();
@@ -2025,7 +2550,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.font = '700 12px "Avenir Next", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(`Obs ${index + 1}`, bounds.left + 6, bounds.top + 6);
+      ctx.fillText(t('canvas.obstacleLabel', {index: index + 1}), bounds.left + 6, bounds.top + 6);
       ctx.restore();
     });
   }
@@ -2437,11 +2962,11 @@ document.addEventListener('DOMContentLoaded', () => {
     activePlanAbortController = abortController;
 
     const statusByReason = {
-      manual: 'Planning with A* and constrained smoothing…',
-      slider: 'Replanning after parameter change…',
-      drag: 'Endpoint moved. Replanning…',
-      obstacle: 'Obstacle moved. Replanning…',
-      initial: 'Computing the default route…',
+      manual: t('status.manualPlanning'),
+      slider: t('status.sliderPlanning'),
+      drag: t('status.dragPlanning'),
+      obstacle: t('status.obstaclePlanning'),
+      initial: t('status.initialPlanning'),
     };
     setStatus(statusByReason[reason] || statusByReason.manual, '');
     runBtn.disabled = true;
@@ -2470,7 +2995,7 @@ document.addEventListener('DOMContentLoaded', () => {
         state.hoverOptimizedPoint = null;
         updateOptimizedPointInspector();
         clearRunInfo();
-        setStatus(formatApiError(data, 'Planning failed.'), 'error');
+        setStatus(formatApiError(data, t('status.planningFailed')), 'error');
         draw();
         return;
       }
@@ -2483,12 +3008,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       updateOptimizedPointInspector();
       updateRunInfo(data);
-      const optimizerLabel = data.optimizer_label || 'Optimizer';
+      const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || 'Optimizer');
       const smoothErrorLabel = data.smooth_error?.code ? ` [${data.smooth_error.code}]` : '';
       setStatus(
         data.smooth_success
-          ? `${optimizerLabel} complete. A* ${data.astar_time_ms} ms, smoothing ${data.smooth_time_ms} ms.`
-          : `A* succeeded in ${data.astar_time_ms} ms, but ${optimizerLabel} failed${smoothErrorLabel} so the reference path is shown. ${data.smooth_message || ''}`.trim(),
+          ? t('status.planSuccess', {
+            optimizerLabel,
+            astarTimeMs: data.astar_time_ms,
+            smoothTimeMs: data.smooth_time_ms,
+          })
+          : t('status.planFallback', {
+            astarTimeMs: data.astar_time_ms,
+            optimizerLabel,
+            errorCodeSuffix: smoothErrorLabel,
+            smoothMessage: data.smooth_message || '',
+          }).trim(),
         data.smooth_success ? 'ok' : 'error'
       );
       draw();
@@ -2500,7 +3034,7 @@ document.addEventListener('DOMContentLoaded', () => {
       state.hoverOptimizedPoint = null;
       updateOptimizedPointInspector();
       clearRunInfo();
-      setStatus(`Network error: ${error.message}`, 'error');
+      setStatus(t('status.networkError', {message: error.message}), 'error');
       draw();
     } finally {
       if (activePlanAbortController === abortController) {
@@ -2512,7 +3046,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function updateObstacleLayout() {
     const requestId = ++activeObstacleUpdateRequestId;
-    setStatus('Obstacle moved. Rebuilding costmap…', '');
+    setStatus(t('status.obstacleRebuilding'), '');
     runBtn.disabled = true;
 
     try {
@@ -2526,7 +3060,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       if (!payload.success) {
-        setStatus(formatApiError(payload, 'Failed to update obstacles.'), 'error');
+        setStatus(formatApiError(payload, t('status.obstacleUpdateFailed')), 'error');
         return;
       }
 
@@ -2538,7 +3072,7 @@ document.addEventListener('DOMContentLoaded', () => {
       draw();
       runPlanning({reason: 'obstacle'});
     } catch (error) {
-      setStatus(`Failed to update obstacles: ${error.message}`, 'error');
+      setStatus(t('status.obstacleUpdateError', {message: error.message}), 'error');
       runBtn.disabled = false;
     }
   }
@@ -2684,7 +3218,10 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCanvasCursor();
 
     if (didMoveMarker) {
-      setStatus(`${draggedMarker === 'start' ? 'Start' : 'Goal'} moved. Replanning…`, '');
+      setStatus(
+        t('status.markerMoved', {marker: t(draggedMarker === 'start' ? 'marker.start' : 'marker.goal')}),
+        ''
+      );
       updateSelectionInfo();
       draw();
       runPlanning({reason: 'drag'});
@@ -2704,7 +3241,7 @@ document.addEventListener('DOMContentLoaded', () => {
   canvas.addEventListener('dblclick', event => {
     event.preventDefault();
     resetView();
-    setStatus('View reset to the full map extent.', '');
+    setStatus(t('status.viewReset'), '');
   });
 
   canvas.addEventListener('wheel', event => {
@@ -2736,7 +3273,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.hoverObstacleIndex = null;
     runBtn.disabled = false;
     clearRunInfo();
-    setStatus('Scene reset to the default layout. Rebuilding costmap…', '');
+    setStatus(t('status.sceneReset'), '');
     updateSelectionInfo();
     resetView();
     draw();
@@ -2747,11 +3284,69 @@ document.addEventListener('DOMContentLoaded', () => {
 
   resetViewBtn.addEventListener('click', () => {
     resetView();
-    setStatus('View reset to the full map extent.', '');
+    setStatus(t('status.viewReset'), '');
   });
 
+  function refreshLocalizedUi() {
+    applyStaticTranslations();
+    syncAllControlReadouts();
+    syncDerivedParameterInfo();
+    updateOptimizerUi();
+    updateRobotConfigUi();
+    updateSelectionInfo();
+    if (state.costmap) {
+      updateMapInfo(state.costmap);
+    }
+    if (state.paths) {
+      updateRunInfo(state.paths);
+      const optimizerLabel = localizeOptimizerLabel(state.paths.optimizer_label || 'Optimizer');
+      const smoothErrorLabel = state.paths.smooth_error?.code ? ` [${state.paths.smooth_error.code}]` : '';
+      setStatus(
+        state.paths.smooth_success
+          ? t('status.planSuccess', {
+            optimizerLabel,
+            astarTimeMs: state.paths.astar_time_ms,
+            smoothTimeMs: state.paths.smooth_time_ms,
+          })
+          : t('status.planFallback', {
+            astarTimeMs: state.paths.astar_time_ms,
+            optimizerLabel,
+            errorCodeSuffix: smoothErrorLabel,
+            smoothMessage: state.paths.smooth_message || '',
+          }).trim(),
+        state.paths.smooth_success ? 'ok' : 'error'
+      );
+    } else {
+      clearRunInfo();
+    }
+    if (state.hoverSample) {
+      updateLoupe();
+    } else {
+      hideLoupe();
+    }
+    if (state.hoverOptimizedPoint) {
+      updateOptimizedPointInspector();
+    } else {
+      clearOptimizedPointInspector();
+    }
+    draw();
+  }
+
+  if (languageSwitch) {
+    languageSwitch.value = currentLanguage;
+    languageSwitch.addEventListener('change', () => {
+      const nextLanguage = languageSwitch.value;
+      if (!SUPPORTED_LANGUAGES.includes(nextLanguage)) {
+        return;
+      }
+      currentLanguage = nextLanguage;
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, currentLanguage);
+      refreshLocalizedUi();
+    });
+  }
+
   async function loadCostmap() {
-    setStatus('Loading costmap…', '');
+    setStatus(t('status.loadingCostmap'), '');
     try {
       const response = await fetch('/api/costmap');
       state.costmap = await response.json();
@@ -2764,10 +3359,10 @@ document.addEventListener('DOMContentLoaded', () => {
       runBtn.disabled = false;
       resetView();
       hideLoupe();
-      setStatus('Costmap loaded. Left-drag endpoints or obstacle rectangles to update the scene, or left-drag empty space to pan.', '');
+      setStatus(t('status.costmapLoaded'), '');
       runPlanning({reason: 'initial'});
     } catch (error) {
-      setStatus(`Failed to load costmap: ${error.message}`, 'error');
+      setStatus(t('status.costmapLoadFailed', {message: error.message}), 'error');
     }
   }
 
