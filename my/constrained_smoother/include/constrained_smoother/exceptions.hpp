@@ -47,6 +47,7 @@ enum class SmoothingFailureReason : uint16_t
   MotionDirectionConstraint = 11,
   PathOutOfBounds = 12,
   FootprintCollision = 13,
+  CurvatureConstraint = 14,
 };
 
 inline const char * toErrorCodeString(ErrorCode code)
@@ -94,6 +95,8 @@ inline const char * toSmoothingFailureReasonString(SmoothingFailureReason reason
       return "path_out_of_bounds";
     case SmoothingFailureReason::FootprintCollision:
       return "footprint_collision";
+    case SmoothingFailureReason::CurvatureConstraint:
+      return "curvature_constraint";
     case SmoothingFailureReason::Unknown:
     default:
       return "unknown";

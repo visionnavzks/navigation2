@@ -87,7 +87,8 @@ bool is_known_smoothing_reason(const std::string & reason)
     reason == "collapsed_segment" ||
     reason == "motion_direction_constraint" ||
     reason == "path_out_of_bounds" ||
-    reason == "footprint_collision";
+    reason == "footprint_collision" ||
+    reason == "curvature_constraint";
 }
 
 ParsedSmoothingFailure parse_smoothing_failure_message(const std::string & raw_message)

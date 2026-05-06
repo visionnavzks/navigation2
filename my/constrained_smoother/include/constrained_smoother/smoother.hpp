@@ -29,6 +29,7 @@
 #include "constrained_smoother/smoother_cost_function.hpp"
 #include "constrained_smoother/utils.hpp"
 #include "constrained_smoother/exceptions.hpp"
+#include "constrained_smoother/smoother_validator.hpp"
 
 #include "ceres/ceres.h"
 #include "Eigen/Core"
@@ -109,6 +110,8 @@ public:
       throw InvalidPath("Constrained smoother: Path must have at least 2 points");
     }
 
+    const std::vector<Eigen::Vector3d> reference_path = path;
+
     options_.max_solver_time_in_seconds = params.max_time;
 
     ceres::Problem problem;
@@ -145,6 +148,12 @@ public:
     }
 
     upsampleAndPopulate(path_optim, optimized, start_dir, end_dir, params, path);
+
+    if (!validator_.validateSmoothedPath(
+        {path, reference_path, start_dir, end_dir, costmap, params, esdf_values_}, failure))
+    {
+      return false;
+    }
 
     return true;
   }
@@ -395,19 +404,12 @@ private:
       return;
     }
 
-    const auto normalized_dir = [](const Eigen::Vector2d & dir) -> Eigen::Vector2d {
-        const double norm = dir.norm();
-        if (norm <= EPSILON) {
-          return Eigen::Vector2d(1.0, 0.0);
-        }
-        return Eigen::Vector2d(dir / norm);
-      };
-
     if (params.keep_start_orientation) {
       const double start_segment_len =
         (path_optim[1] - path_optim[0]).template block<2, 1>(0, 0).norm();
       path_optim[1].template block<2, 1>(0, 0) =
-        path_optim[0].template block<2, 1>(0, 0) + normalized_dir(start_dir) * start_segment_len;
+        path_optim[0].template block<2, 1>(0, 0) +
+        SmootherValidator::normalizedDirection(start_dir) * start_segment_len;
     }
 
     if (params.keep_goal_orientation) {
@@ -416,7 +418,8 @@ private:
       const double goal_segment_len =
         (path_optim[goal_index] - path_optim[pregoal_index]).template block<2, 1>(0, 0).norm();
       Eigen::Vector2d anchored_pregoal =
-        path_optim[goal_index].template block<2, 1>(0, 0) - normalized_dir(end_dir) * goal_segment_len;
+        path_optim[goal_index].template block<2, 1>(0, 0) -
+        SmootherValidator::normalizedDirection(end_dir) * goal_segment_len;
 
       if (params.keep_start_orientation && pregoal_index == 1) {
         path_optim[pregoal_index].template block<2, 1>(0, 0) =
@@ -549,6 +552,7 @@ private:
   ceres::Solver::Options options_;
   std::vector<double> esdf_values_;
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;
+  SmootherValidator validator_{};
   size_t last_optimized_knot_count_{0};
 };
 

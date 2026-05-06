@@ -248,6 +248,118 @@ TEST(SmootherTest, PrecomputedEsdfSizeMismatchThrowsStructuredError)
     constrained_smoother::PrecomputedEsdfSizeMismatch);
 }
 
+TEST(SmootherTest, FootprintCollisionFailsPostValidation)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+  for (unsigned int y = 35; y < 45; ++y) {
+    for (unsigned int x = 36; x < 42; ++x) {
+      costmap.setCost(x, y, constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
+    }
+  }
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {1.5, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(1000.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = std::sqrt(1.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.cost_check_radius = 0.18;
+  params.cost_check_points = {0.0, 0.0, 1.0};
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 20;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  const std::string error_message = expectFailedToSmoothPath(
+    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
+
+  EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
+}
+
+TEST(SmootherTest, PathOutOfBoundsFailsPostValidation)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {1.5, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(1000.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = std::sqrt(1.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.cost_check_radius = 0.1;
+  params.cost_check_points = {4.0, 0.0, 1.0};
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 20;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  const std::string error_message = expectFailedToSmoothPath(
+    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
+
+  EXPECT_NE(error_message.find("path_out_of_bounds@"), std::string::npos);
+}
+
+TEST(SmootherTest, CurvatureConstraintFailsPostValidation)
+{
+  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 1.0, 1.0},
+    {1.1, 1.0, 1.0},
+    {1.1, 1.1, 1.0},
+    {1.2, 1.1, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = 0.0;
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = 0.0;
+  params.max_curvature = 1.0;
+  params.max_time = 1.0;
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 5;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(0.0, 1.0);
+
+  const std::string error_message = expectFailedToSmoothPath(
+    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
+
+  EXPECT_NE(error_message.find("curvature_constraint@"), std::string::npos);
+}
+
 TEST(KinematicSmootherTest, SmoothStraightPath)
 {
   constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);

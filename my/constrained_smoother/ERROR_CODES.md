@@ -47,6 +47,7 @@ The code stays stable as `CS_SMOOTHING_FAILED`, but the backend now also reports
 | `motion_direction_constraint` | Segment displacement contradicted the input gear or endpoint orientation constraints. |
 | `path_out_of_bounds` | A footprint checkpoint left the map during post-solve validation. |
 | `footprint_collision` | A footprint checkpoint had clearance smaller than the configured collision radius. |
+| `curvature_constraint` | The returned path exceeded the configured maximum curvature during post-solve validation. |
 
 When available, `error_details.failed_index` identifies the state or segment index that failed.
 

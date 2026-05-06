@@ -1673,6 +1673,12 @@ document.addEventListener('DOMContentLoaded', () => {
         ? `${data.optimizer_label || 'The selected optimizer'} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.`
         : `${data.optimizer_label || 'The selected optimizer'} failed and the reference path is being shown instead. ${data.smooth_message || ''}`.trim()
     );
+    setText(
+      'pipeline-summary',
+      data.pipeline?.summary
+        ? `Pipeline: ${data.pipeline.summary}`
+        : 'Pipeline status will appear after each run.'
+    );
 
     const candidateValidation = data.candidate_rectangle_validation;
     const returnedValidation = data.final_rectangle_validation;
@@ -1711,6 +1717,7 @@ document.addEventListener('DOMContentLoaded', () => {
     planInfoIds.forEach(id => setText(id, '--'));
     setText('smooth-state', 'idle');
     setText('run-note', 'Set a start and goal to generate path metrics.');
+    setText('pipeline-summary', 'Pipeline status will appear after each run.');
     setText('footprint-validation-summary', 'Rectangle validation status will appear after each plan.');
     clearValidationFailureDetails();
     drawFootprintPreview();
