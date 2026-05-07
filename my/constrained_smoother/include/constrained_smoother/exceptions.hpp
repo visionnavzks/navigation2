@@ -23,6 +23,8 @@
 namespace constrained_smoother
 {
 
+// ---- Stable public codes and reason enums ----
+
 enum class ErrorCode : uint16_t
 {
   InvalidPath = 1001,
@@ -116,6 +118,10 @@ inline std::string buildSmoothingFailureMessage(
   return formatted;
 }
 
+/// 求解或后验校验失败的结构化回传槽。
+///
+/// 当调用方选择 `smooth(..., failure)` 这条非异常路径时，失败信息会先写进这里，
+/// 然后由上层决定如何记录、展示或降级处理。
 struct SmoothingFailureInfo
 {
   SmoothingFailureReason reason{SmoothingFailureReason::Unknown};
@@ -127,6 +133,8 @@ struct SmoothingFailureInfo
     return buildSmoothingFailureMessage(reason, message, failed_index);
   }
 };
+
+// ---- Input / setup exceptions ----
 
 /**
  * @class InvalidPath
@@ -149,6 +157,8 @@ public:
   }
 };
 
+// ---- Solver / post-validation failure surface ----
+
 /**
  * @class FailedToSmoothPath
  * @brief Thrown when the optimizer fails to produce a usable solution.
@@ -170,6 +180,11 @@ public:
   }
 };
 
+/// 在“异常路径”和“结构化 failure 回传路径”之间做统一分发。
+///
+/// 这是求解失败和后验校验失败的唯一出口之一：
+/// - `failure != nullptr` 时写入 `SmoothingFailureInfo` 并返回 false；
+/// - `failure == nullptr` 时抛 `FailedToSmoothPath`。
 inline bool throwOrStoreSmoothingFailure(
   SmoothingFailureInfo * failure,
   SmoothingFailureReason reason,
@@ -185,6 +200,8 @@ inline bool throwOrStoreSmoothingFailure(
 
   throw FailedToSmoothPath(buildSmoothingFailureMessage(reason, message, failed_index));
 }
+
+// ---- Additional setup exceptions ----
 
 class InvalidCostmap : public std::runtime_error
 {

@@ -16,7 +16,9 @@
 #include <cmath>
 #include <string>
 
+#include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
 #include "constrained_smoother/kinematic_smoother.hpp"
+#include "constrained_smoother/smoother_path_ops.hpp"
 #include "gtest/gtest.h"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/smoother_cost_function.hpp"
@@ -41,6 +43,14 @@ std::string expectFailedToSmoothPath(CallableT && callable)
 }
 
 }  // namespace
+
+// NOTE: This file currently keeps helper-layer, backend-behavior, and stable-error
+// contract tests together because the standalone project still validates most slices
+// through one executable target. If it grows further, the cleanest split boundary is:
+//   1. math / cost-function / helper tests,
+//   2. geometric smoother behavior and failure-surface tests,
+//   3. kinematic smoother behavior and failure-surface tests,
+//   4. shared error-code / costmap sanity tests.
 
 // ---- Testable subclass to expose protected methods ----
 
@@ -75,7 +85,7 @@ public:
   }
 };
 
-// ---- Tests ----
+// ---- Low-level math and cost-function tests ----
 
 TEST(CostFunctionTest, CurvatureResidual)
 {
@@ -151,6 +161,145 @@ TEST(UtilsTest, ArcCenterAndTangent)
   EXPECT_NEAR(tangent[1], 0, 1e-10);
 }
 
+// ---- Extracted helper-layer tests ----
+
+TEST(SmootherPathOpsTest, InitializeOptimizationPathAnchorsEndpoints)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+    {2.0, 0.0, 1.0},
+    {3.0, 0.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  const Eigen::Vector2d start_dir(0.0, 1.0);
+  const Eigen::Vector2d end_dir(0.0, 1.0);
+  constrained_smoother::SmootherPathOps path_ops(start_dir, end_dir, params);
+
+  std::vector<Eigen::Vector3d> path_optim;
+  std::vector<bool> optimized;
+  path_ops.initializeOptimizationPath(path, path_optim, optimized);
+
+  ASSERT_EQ(path_optim.size(), path.size());
+  ASSERT_EQ(optimized.size(), path.size());
+  EXPECT_TRUE(optimized.front());
+  EXPECT_FALSE(optimized[1]);
+  EXPECT_NEAR(path_optim[1].x(), 0.0, 1e-9);
+  EXPECT_NEAR(path_optim[1].y(), 1.0, 1e-9);
+  EXPECT_NEAR(path_optim[2].x(), 3.0, 1e-9);
+  EXPECT_NEAR(path_optim[2].y(), -1.0, 1e-9);
+}
+
+TEST(SmootherPathOpsTest, PopulateOutputRestoresStraightYaw)
+{
+  const std::vector<Eigen::Vector3d> path_optim = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+    {2.0, 0.0, 1.0},
+    {3.0, 0.0, 1.0},
+  };
+  const std::vector<bool> optimized = {true, true, true, true};
+
+  constrained_smoother::SmootherParams params;
+  params.path_upsampling_factor = 1;
+  params.keep_start_orientation = false;
+  params.keep_goal_orientation = false;
+
+  constrained_smoother::SmootherPathOps path_ops(
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(1.0, 0.0),
+    params);
+
+  std::vector<Eigen::Vector3d> output;
+  path_ops.populateOutput(path_optim, optimized, output);
+
+  ASSERT_EQ(output.size(), path_optim.size());
+  for (const auto & pose : output) {
+    EXPECT_NEAR(pose.z(), 0.0, 1e-9);
+  }
+}
+
+TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathInsertsCuspState)
+{
+  constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, -1.0},
+    {0.5, 0.0, -1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  const auto processed = constrained_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(-1.0, 0.0),
+    params,
+    &costmap);
+
+  EXPECT_EQ(processed.state_count, 4u);
+  ASSERT_EQ(processed.gears.size(), 3u);
+  ASSERT_EQ(processed.is_cusp_segment.size(), 3u);
+  EXPECT_DOUBLE_EQ(processed.gears[0], 1.0);
+  EXPECT_DOUBLE_EQ(processed.gears[1], 0.0);
+  EXPECT_DOUBLE_EQ(processed.gears[2], -1.0);
+  EXPECT_FALSE(processed.is_cusp_segment[0]);
+  EXPECT_TRUE(processed.is_cusp_segment[1]);
+  EXPECT_FALSE(processed.is_cusp_segment[2]);
+  EXPECT_NEAR(processed.reference_points[1].x(), 1.0, 1e-9);
+  EXPECT_NEAR(processed.reference_points[2].x(), 1.0, 1e-9);
+  EXPECT_EQ(processed.initial_variables.size(), processed.state_count * 5);
+}
+
+TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryBlocks)
+{
+  constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(1.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = 0.0;
+  params.curvature_rate_weight_sqrt = 0.0;
+
+  std::vector<double> esdf_values;
+  constrained_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
+  builder.initializeEsdfValues(&costmap, params, nullptr);
+  const auto processed = constrained_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(1.0, 0.0),
+    params,
+    &costmap);
+
+  std::vector<double> variables = processed.initial_variables;
+  ceres::Problem problem;
+  builder.buildProblem(processed, &costmap, params, variables, problem);
+
+  EXPECT_EQ(problem.NumParameterBlocks(), static_cast<int>(processed.state_count));
+  EXPECT_EQ(problem.NumResidualBlocks(), 4);
+
+  const auto unpacked = constrained_smoother::KinematicSmootherProblemBuilder::unpackPath(
+    variables, processed.state_count);
+  ASSERT_EQ(unpacked.size(), processed.state_count);
+  EXPECT_NEAR(unpacked.front().x(), path.front().x(), 1e-9);
+  EXPECT_NEAR(unpacked.back().x(), path.back().x(), 1e-9);
+}
+
+// ---- Geometric smoother behavior and error-surface tests ----
+
 TEST(SmootherTest, SmoothStraightPath)
 {
   // Create a small costmap with all free space
@@ -205,6 +354,29 @@ TEST(SmootherTest, PathTooShortThrows)
     smoother.smooth(path, start_dir, end_dir, &costmap, params),
     constrained_smoother::InvalidPath);
 }
+
+TEST(SmootherTest, NullCostmapThrowsStructuredError)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+  };
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  constrained_smoother::SmootherParams params;
+  constrained_smoother::OptimizerParams opt_params;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  EXPECT_THROW(
+    smoother.smooth(path, start_dir, end_dir, nullptr, params),
+    constrained_smoother::InvalidCostmap);
+}
+
+// ---- Stable error-code and failure-message contract tests ----
 
 TEST(ErrorTest, InvalidPathCarriesStableCode)
 {
@@ -360,6 +532,8 @@ TEST(SmootherTest, CurvatureConstraintFailsPostValidation)
   EXPECT_NE(error_message.find("curvature_constraint@"), std::string::npos);
 }
 
+// ---- Kinematic smoother behavior and error-surface tests ----
+
 TEST(KinematicSmootherTest, SmoothStraightPath)
 {
   constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
@@ -394,6 +568,26 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, &costmap, params));
   EXPECT_GE(path.size(), 2u);
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
+}
+
+TEST(KinematicSmootherTest, NullCostmapThrowsStructuredError)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+  };
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  constrained_smoother::SmootherParams params;
+  constrained_smoother::OptimizerParams opt_params;
+  constrained_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  EXPECT_THROW(
+    smoother.smooth(path, start_dir, end_dir, nullptr, params),
+    constrained_smoother::InvalidCostmap);
 }
 
 TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
@@ -560,6 +754,8 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
 
   EXPECT_NE(error_message.find("path_out_of_bounds@"), std::string::npos);
 }
+
+// ---- Basic costmap sanity test ----
 
 TEST(CostmapTest, BasicCostmapOperations)
 {

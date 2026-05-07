@@ -22,12 +22,16 @@ namespace py = pybind11;
 namespace
 {
 
+// ---- Structured error parsing helpers ----
+
 struct ParsedSmoothingFailure
 {
   py::object reason{py::none()};
   py::object details{py::none()};
   std::string message;
 };
+
+// ---- Python input normalization helpers ----
 
 py::sequence require_sequence(const py::handle & handle, const char * argument_name)
 {
@@ -71,6 +75,20 @@ std::vector<Eigen::Vector3d> copy_path3d(const py::handle & handle, const char *
 
   return path;
 }
+
+// ---- Failure parsing / folding helpers ----
+
+// Structured result schema used by all try_* bindings:
+//   {
+//     "ok": bool,
+//     "path": list | None,
+//     "error_code": str | None,
+//     "error_message": str | None,
+//     "error_reason": str | None,
+//     "error_details": {"failed_index": int} | None,
+//   }
+// The goal is to keep Python and web callers on one stable error surface even though
+// native failures may originate as C++ exceptions or SmoothingFailureInfo payloads.
 
 bool is_known_smoothing_reason(const std::string & reason)
 {
@@ -183,6 +201,8 @@ PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFa
   return nullptr;
 }
 
+// ---- Exception-safe result wrapper for try_* style APIs ----
+
 template<typename Fn>
 py::dict invoke_with_result(Fn && fn)
 {
@@ -237,6 +257,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
 {
   m.doc() = "Python bindings for the constrained_smoother C++ library";
 
+  // ---- Stable error-code surface ----
+
   py::enum_<constrained_smoother::ErrorCode>(m, "ErrorCode")
     .value("INVALID_PATH", constrained_smoother::ErrorCode::InvalidPath)
     .value("FAILED_TO_SMOOTH_PATH", constrained_smoother::ErrorCode::FailedToSmoothPath)
@@ -262,7 +284,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     constrained_smoother::toErrorCodeString(
       constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
 
-  // --- Costmap2D ---
+  // ---- Core value types and planning utilities ----
+
   py::class_<constrained_smoother::Costmap2D>(m, "Costmap2D")
     .def(py::init<>())
     .def(
@@ -390,7 +413,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE,
     py::arg("use_exact") = true);
 
-  // --- Smoother ---
+  // ---- Geometric smoother bindings ----
+
   py::class_<constrained_smoother::Smoother>(m, "Smoother")
     .def(py::init<>())
     .def("initialize", &constrained_smoother::Smoother::initialize)
@@ -416,6 +440,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::return_value_policy::take_ownership,
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"),
+    // 异常式接口：失败时抛 Python 异常，成功时直接返回平滑后的路径。
     "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
     "try_smooth",
@@ -464,6 +489,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"),
+    // 结构化接口：把 native 失败统一折叠成 ok/error_* 字段，适合脚本和服务层。
     "Try to smooth a path and return a structured result with ok/path/error_code/error_message.")
     .def(
     "smooth_with_planner_esdf",
@@ -487,6 +513,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::return_value_policy::take_ownership,
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"), py::arg("planner"),
+    // 异常式接口：复用 planner 已算好的 ESDF，失败时抛 Python 异常。
     "Smooth a path while reusing the ESDF previously computed by an A* planner.")
     .def(
     "try_smooth_with_planner_esdf",
@@ -536,7 +563,14 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
     py::arg("costmap"), py::arg("params"), py::arg("planner"),
+    // 结构化接口：复用 planner ESDF，同时保持稳定的 ok/error_* 返回面。
     "Try to smooth a path with a planner ESDF and return a structured result.");
+
+  // ---- Kinematic smoother bindings ----
+  // These bindings intentionally mirror the geometric smoother API above:
+  // same exception-style entrypoints, same try_* methods, and the same
+  // ok/error_* structured result schema. That keeps Python and web callers
+  // backend-agnostic even though the underlying optimizer model differs.
 
   py::class_<constrained_smoother::KinematicSmoother>(m, "KinematicSmoother")
     .def(py::init<>())
@@ -565,6 +599,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"),
+      // 异常式接口：失败时抛 Python 异常，成功时返回运动学平滑后的路径。
       "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
       "try_smooth",
@@ -613,6 +648,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"),
+      // 结构化接口：把运动学后端失败统一折叠成 ok/error_* 字段。
       "Try to smooth a path with the kinematic backend and return a structured result.")
     .def(
       "smooth_with_planner_esdf",
@@ -636,6 +672,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),
+      // 异常式接口：复用 planner 已算好的 ESDF，失败时抛 Python 异常。
       "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner.")
     .def(
       "try_smooth_with_planner_esdf",
@@ -685,9 +722,11 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),
+      // 结构化接口：复用 planner ESDF，同时保持稳定的 ok/error_* 返回面。
       "Try to smooth a path with the kinematic backend and planner ESDF, returning a structured result.");
 
-  // --- Exceptions ---
+  // ---- Native exception translation ----
+
   py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");
   py::register_exception<constrained_smoother::FailedToSmoothPath>(m, "FailedToSmoothPathError");
   py::register_exception<constrained_smoother::InvalidCostmap>(m, "InvalidCostmapError");

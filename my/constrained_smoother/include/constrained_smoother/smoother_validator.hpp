@@ -33,6 +33,10 @@
 namespace constrained_smoother
 {
 
+/// 求解后统一执行的硬性校验器。
+///
+/// 这个对象故意放在求解器之外，目的是把“数值上收敛”与“工程上可交付”分开：
+/// builder 负责构建优化问题，validator 负责决定解是否真的能被接受。
 class SmootherValidator
 {
 public:
@@ -47,29 +51,51 @@ public:
 
   struct SmoothedPathRequest
   {
+    /// 求解并重建后的公共路径表示，第三个分量已经是 yaw。
     const std::vector<Eigen::Vector3d> & path;
+    /// 进入优化前的参考路径快照，用于固定边界位置与拓扑语义。
     const std::vector<Eigen::Vector3d> & reference_path;
+    /// 起点目标切向方向，仅在启用起点朝向约束时参与校验。
     const Eigen::Vector2d & start_dir;
+    /// 终点目标切向方向，仅在启用终点朝向约束时参与校验。
     const Eigen::Vector2d & end_dir;
+    /// 与本次平滑对应的 costmap；用于坐标容差和障碍物净空检查。
     const Costmap2D * costmap;
+    /// 本次平滑的约束和权重参数。
     const SmootherParams & params;
+    /// 与优化阶段共享的 ESDF 扁平化存储。
     const std::vector<double> & esdf_values;
   };
 
+  /// 运动学版后验校验所需的状态视图。
   struct KinematicRequest
   {
+    /// 展平后的 (x, y, theta, kappa, ds) 状态数组。
     const std::vector<double> & variables;
+    /// 展开后的参考点链，与状态索引一一对应。
     const std::vector<Eigen::Vector2d> & reference_points;
+    /// 每个状态转移段的 gear 方向，前进为 1，倒车为 -1，cusp 为 0。
     const std::vector<double> & gears;
+    /// 标记哪些状态转移段是 cusp 保持段。
     const std::vector<bool> & is_cusp_segment;
+    /// 当前状态链长度，调用方需保证与 variables 维度一致。
     size_t state_count;
+    /// 起点边界姿态目标值。
     double start_theta;
+    /// 终点边界姿态目标值。
     double end_theta;
+    /// 与本次平滑对应的 costmap；用于坐标容差和障碍物净空检查。
     const Costmap2D * costmap;
+    /// 本次平滑的约束和权重参数。
     const SmootherParams & params;
+    /// 与优化阶段共享的 ESDF 扁平化存储。
     const std::vector<double> & esdf_values;
   };
 
+  /// 几何版 smoother 的总校验入口。
+  ///
+  /// 这里按“有限值 -> 边界 -> 曲率 -> 障碍物净空”的顺序短路执行，
+  /// 一旦发现首个不可接受条件，就通过 failure 或异常向上层汇报。
   bool validateSmoothedPath(
     const SmoothedPathRequest & request,
     SmoothingFailureInfo * failure) const
@@ -90,6 +116,9 @@ public:
     return true;
   }
 
+  /// 运动学版 smoother 的总校验入口。
+  ///
+  /// 它先检查状态向量形状和有限值，再检查边界、段一致性和障碍物净空。
   bool validateKinematicSolution(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
@@ -118,6 +147,8 @@ public:
   }
 
 private:
+  // ---- Shared numeric helpers ----
+
   static double normalizeAngle(double angle)
   {
     return std::atan2(std::sin(angle), std::cos(angle));
@@ -187,6 +218,8 @@ private:
     }
     return true;
   }
+
+  // ---- Geometric smoother validation ----
 
   bool validateFinitePath(
     const std::vector<Eigen::Vector3d> & path,
@@ -368,6 +401,8 @@ private:
 
     return true;
   }
+
+  // ---- Kinematic smoother validation ----
 
   bool validateFiniteStates(
     const std::vector<double> & variables,

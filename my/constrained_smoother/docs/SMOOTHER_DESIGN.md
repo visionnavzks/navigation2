@@ -10,7 +10,8 @@
 - 由规划器与平滑器共享的 ESDF 生成工具。
 - 用于可视化路径结果的小型规划器和 Web 演示界面。
 
-本文聚焦于实现于 `include/constrained_smoother/smoother.hpp` 中的核心 C++ 平滑器。
+本文聚焦于几何版 smoother 当前的 C++ 分层实现。
+现在顶层编排位于 `include/constrained_smoother/smoother.hpp`，而路径准备与重建、问题构建、共享执行骨架分别被拆到独立头文件中。
 文中流程顺序与代码里新增的“第 1 步 / 第 2 步”注释保持一致，方便你在文档和实现之间来回对照。
 
 ## 核心约定
@@ -62,26 +63,63 @@
    - 检查曲率限制。
    - 检查是否满足和优化阶段一致的 ESDF 净空要求。
 
+## 当前代码分层
+
+当前几何版实现已经不再是“一个头文件包办全部细节”，而是分成四层：
+
+1. 顶层对象：`include/constrained_smoother/smoother.hpp`
+   - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
+   - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化点数。
+2. 单次执行对象：`Smoother::Run`
+   - 表示一次 `smooth()` 调用的生命周期。
+   - 持有本次请求、参考路径快照、工作路径、副本问题对象和优化标记。
+3. 路径侧 helper：`include/constrained_smoother/smoother_path_ops.hpp`
+   - 负责端点朝向锚定、上采样和 yaw 重建。
+4. 问题构建 helper：`include/constrained_smoother/smoother_problem_builder.hpp`
+   - 负责 ESDF 准备、主残差连接、cusp 邻域重赋权和边界冻结。
+
+共享层还包括：
+
+- `include/constrained_smoother/smoother_base.hpp`
+  - 统一 solver 配置、调试状态和公共输入校验。
+- `include/constrained_smoother/smoother_request.hpp`
+  - 统一单次调用请求结构。
+- `include/constrained_smoother/smoother_run_base.hpp`
+  - 统一 `prepare -> solve -> finalize` 执行骨架。
+
 ## 按代码阅读的主线
 
 如果你是从 `smoother.hpp` 直接往下读，建议按下面顺序理解：
 
-1. `smooth(...)`
-   - 这是总入口，负责把“输入校验、问题构建、求解、路径重建、后验校验”串成一条主线。
-2. `buildProblem(...)`
-   - 这是问题构建阶段的编排函数。
-   - 它依次调用 ESDF 初始化、路径初始化、残差连接和端点冻结。
-3. `initializeOptimizationPath(...)`
-   - 这里先复制参考路径，再施加起终点朝向锚定。
-4. `addPathResidualBlocks(...)`
-   - 这是几何版 smoother 的核心。
-   - cusp 检测、下采样跳过、历史障碍物残差回溯重赋权、三点主残差和四点曲率变化率残差都在这里发生。
-5. `finalizeOptimizationProblem(...)`
-   - 在所有残差都连接完成后，统一冻结起点、终点和可选的朝向锚点。
-6. `upsampleAndPopulate(...)`
-   - 负责把优化后的稀疏控制点恢复成对外输出路径，并重建所有 yaw。
+1. `smooth(...)` in `smoother.hpp`
+   - 这是总入口，负责把请求对象交给内部 `Run`。
+2. `Smoother::Run`
+   - 这是单次执行对象，负责把“路径准备、问题构建、求解、路径重建、后验校验”串成一条主线。
+3. `SmootherPathOps`
+   - 这里处理参考路径副本、端点朝向锚定和输出重建。
+4. `SmootherProblemBuilder`
+   - 这里处理 ESDF 初始化、残差连接、cusp 邻域回溯重赋权和边界冻结。
+5. `SmootherValidator`
+   - 这里统一做求解后的硬性校验。
 
 如果你先建立这条主线，再回头看具体 cost functor，会更容易理解每一段代码为什么出现在那个位置。
+
+## 最短阅读路径
+
+如果你只想用最少跳转快速建立实现心智模型，建议按下面顺序读：
+
+1. `include/constrained_smoother/smoother.hpp`
+   - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
+2. `include/constrained_smoother/smoother_request.hpp`
+   - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
+3. `include/constrained_smoother/smoother_path_ops.hpp`
+   - 理解端点锚定、关键点链和输出 yaw 是怎么重建出来的。
+4. `include/constrained_smoother/smoother_problem_builder.hpp`
+   - 理解 ESDF、下采样、cusp 重赋权和残差连接是怎么进入求解问题的。
+5. `include/constrained_smoother/smoother_validator.hpp`
+   - 最后确认哪些条件只是优化目标，哪些条件会在求解后被硬性拒绝。
+
+如果你接下来要改失败处理或对外错误语义，再补读 [ERROR_CODES.md](../ERROR_CODES.md) 和 [README.md](../README.md) 里的“失败传播路径”小节。
 
 ## 为什么求解器只优化二维位置
 
@@ -95,7 +133,7 @@
 
 ## 残差模型
 
-主残差来自 `SmootherCostFunction`，由 `addPathResidualBlocks(...)` 负责连接。
+主残差来自 `SmootherCostFunction`，由 `SmootherProblemBuilder` 负责连接。
 
 主要项包括：
 
@@ -160,7 +198,7 @@ Cusp 之所以重要，有两个原因：
 
 ## 路径重建
 
-优化结束后，求解器并不会直接返回最终对外路径，`upsampleAndPopulate(...)` 还会执行第二阶段重建。
+优化结束后，求解器并不会直接返回最终对外路径，`SmootherPathOps::populateOutput(...)` 还会执行第二阶段重建。
 
 - 只遍历保留下来的优化控制点。
 - 当 `path_upsampling_factor > 1` 时，使用三次 Bezier 曲线为被跳过的区间补点。
@@ -203,6 +241,8 @@ Cusp 之所以重要，有两个原因：
 如果你要改行为，这几个文件构成了最小且足够有用的阅读集合：
 
 - `include/constrained_smoother/smoother.hpp`
+- `include/constrained_smoother/smoother_path_ops.hpp`
+- `include/constrained_smoother/smoother_problem_builder.hpp`
 - `include/constrained_smoother/smoother_cost_function.hpp`
 - `include/constrained_smoother/smoother_validator.hpp`
 - `include/constrained_smoother/options.hpp`
@@ -219,6 +259,19 @@ Cusp 之所以重要，有两个原因：
 - `reversing_enabled` 只是为了兼容而保留，当前独立版平滑器并未实际使用。
 - 即使 Ceres 返回成功，结果仍然要通过显式后验校验。
 - cusp 表示方向符号翻转，而不是原地打方向盘的动作。
+
+## 常见误改点
+
+如果你准备改实现，最容易把行为改坏的地方通常有这些：
+
+- 误把输入路径第三个分量当成 yaw。
+   - 对几何版来说，优化前它仍然是 `direction_sign`，过早按 yaw 解释会破坏 cusp 检测和重建逻辑。
+- 在 `SmootherPathOps` 里修改残差或 ESDF 逻辑。
+   - 这个 helper 只负责路径副本和输出重建；残差连接应留在 `SmootherProblemBuilder`。
+- 在 `SmootherProblemBuilder` 里直接写后验拒绝策略。
+   - 求解后是否接受结果应继续收口在 `SmootherValidator`，不要把“优化目标”和“交付门槛”混在一起。
+- 新增 failure reason 时只改抛错文本，不改稳定 reason / code 文档。
+   - 相关改动至少要同步 `exceptions.hpp`、`ERROR_CODES.md`，必要时同步 README 的失败传播说明。
 
 ## 建议扩展点
 

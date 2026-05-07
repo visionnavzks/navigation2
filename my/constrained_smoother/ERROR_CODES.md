@@ -8,6 +8,11 @@ This file is the reference catalog for the standalone constrained smoother proje
 - Messages may be refined over time for clarity.
 - High-level APIs should prefer structured return payloads over uncaught native exceptions.
 
+For the high-level C++ failure flow, also see the “失败传播路径” section in [README.md](README.md):
+
+- README explains when failures are thrown immediately vs stored in `SmoothingFailureInfo`.
+- This file explains what the stable `code` and `reason` values mean once a failure is surfaced.
+
 ## Core Smoother Codes
 
 | Code | Layer | Meaning | Typical Trigger | Recommended Handling |
@@ -16,6 +21,19 @@ This file is the reference catalog for the standalone constrained smoother proje
 | `CS_SMOOTHING_FAILED` | C++, pybind `try_*`, web `smooth_error` | Optimizer ran but did not produce a usable solution. | Non-usable solution, no cost decrease, backend convergence failure, or post-solve validation finding boundary / motion-direction / footprint violations. | Fall back to the reference path, and inspect `error_reason` or `smooth_error.details.failure_reason` to see which condition failed. |
 | `CS_INVALID_COSTMAP` | C++, pybind `try_*` | Planner or smoother received no valid costmap. | Null or otherwise invalid costmap object. | Rebuild or reinitialize the costmap before retrying. |
 | `CS_PRECOMPUTED_ESDF_SIZE_MISMATCH` | C++, pybind `try_*` | The supplied ESDF does not match costmap dimensions. | Reusing planner ESDF with mismatched map dimensions. | Discard cached ESDF and recompute from the active map. |
+
+## Error Surface Mapping
+
+This table is the quickest way to understand how one backend failure shows up at different public layers.
+
+| Situation | C++ surface | pybind `try_*` surface | web surface |
+| --- | --- | --- | --- |
+| Invalid path / costmap / ESDF dimensions | Throws `InvalidPath`, `InvalidCostmap`, or `PrecomputedEsdfSizeMismatch` immediately | Returns `ok=false` with the corresponding stable `error_code` | Reported as request or smoother setup failure depending on endpoint |
+| Solver unusable / no cost improvement | `throwOrStoreSmoothingFailure(...)` -> `FailedToSmoothPath` or `failure` payload | Returns `ok=false`, `error_code=CS_SMOOTHING_FAILED`, plus `error_reason` / `error_details` | Usually appears under `smooth_error` with reason/details |
+| Post-validation boundary / collision / curvature rejection | Same `throwOrStoreSmoothingFailure(...)` path as solver failure | Same `CS_SMOOTHING_FAILED` surface, differentiated by `error_reason` | `smooth_error` and rectangle-validation fields may both expose the rejection |
+| Web-only request validation failure | Not applicable | Not applicable | Endpoint returns `CS_INVALID_REQUEST` or another web-specific code |
+
+Use the README failure-flow section to understand when errors are thrown vs stored, and use the tables below to interpret the stable `code` / `reason` values once the failure reaches you.
 
 ## Web API Codes
 

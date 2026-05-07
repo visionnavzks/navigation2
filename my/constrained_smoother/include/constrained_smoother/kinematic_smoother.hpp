@@ -1,23 +1,17 @@
 #ifndef CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 #define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 
-#include <algorithm>
-#include <array>
-#include <cmath>
-#include <limits>
-#include <memory>
-#include <numeric>
-#include <stdexcept>
-#include <string>
 #include <vector>
 
 #include "ceres/ceres.h"
-#include "ceres/cubic_interpolation.h"
 #include "Eigen/Core"
 
-#include "constrained_smoother/esdf.hpp"
 #include "constrained_smoother/exceptions.hpp"
+#include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
 #include "constrained_smoother/options.hpp"
+#include "constrained_smoother/smoother_base.hpp"
+#include "constrained_smoother/smoother_request.hpp"
+#include "constrained_smoother/smoother_run_base.hpp"
 #include "constrained_smoother/smoother_validator.hpp"
 
 namespace constrained_smoother
@@ -30,8 +24,15 @@ namespace constrained_smoother
  * 与几何版 smoother 不同，这个版本把每个状态显式表示为
  * (x, y, theta, kappa, ds)，并通过相邻状态之间的运动学过渡残差来约束
  * 路径演化。方向切换处会显式插入 cusp 段，并在求解后进行硬性后验校验。
+ *
+ * 当前实现同样分成三层：
+ * - `KinematicSmoother` 持有跨多次调用复用的长期状态，例如 ESDF 缓存、
+ *   validator 和最近一次优化状态数。
+ * - 内部 `Run` 表示单次 `smooth()` 调用的生命周期。
+ * - `KinematicSmootherProblemBuilder` 负责 ESDF 准备、状态展开、问题拼接和
+ *   输出解包。
  */
-class KinematicSmoother
+class KinematicSmoother : public SolverBackedSmootherBase
 {
 public:
   KinematicSmoother() = default;
@@ -42,20 +43,7 @@ public:
    */
   void initialize(const OptimizerParams & params)
   {
-    // 第 1 步：同步调试开关、迭代次数和收敛容差。
-    debug_ = params.debug;
-    options_.max_num_iterations = params.max_iterations;
-    options_.function_tolerance = params.fn_tol;
-    options_.gradient_tolerance = params.gradient_tol;
-    options_.parameter_tolerance = params.param_tol;
-    options_.linear_solver_type = params.solver_types.at(params.linear_solver_type);
-
-    if (debug_) {
-      options_.minimizer_progress_to_stdout = true;
-      options_.logging_type = ceres::PER_MINIMIZER_ITERATION;
-    } else {
-      options_.logging_type = ceres::SILENT;
-    }
+    initializeOptimizer(params);
   }
 
   /// 返回最近一次运动学优化中参与求解的状态数量。
@@ -86,642 +74,98 @@ public:
     const std::vector<double> * precomputed_esdf,
     SmoothingFailureInfo * failure = nullptr)
   {
-    // 第 1 步：校验输入至少包含起点和终点。
-    if (path.size() < 2) {
-      throw InvalidPath("Kinematic smoother: Path must have at least 2 points");
-    }
-
-    // 第 2 步：写入本次求解允许使用的最大时间。
-    options_.max_solver_time_in_seconds = params.max_time;
-
-    // 第 3 步：构建或接收与 costmap 尺寸一致的 ESDF。
-    const size_t expected_esdf_size =
-      static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
-    if (precomputed_esdf != nullptr) {
-      if (precomputed_esdf->size() != expected_esdf_size) {
-        throw PrecomputedEsdfSizeMismatch(
-                "Precomputed ESDF size does not match costmap dimensions");
-      }
-      esdf_values_ = *precomputed_esdf;
-    } else {
-      esdf_values_ = ESDF::ComputeESDF(
-        costmap,
-        Costmap2D::LETHAL_OBSTACLE,
-        params.use_exact_esdf ? ESDFAlgorithm::Exact : ESDFAlgorithm::Approximate);
-    }
-
-      // 第 4 步：把原始路径展开为运动学状态链，并在换向处插入 cusp 段。
-    const ProcessedPath processed = buildProcessedPath(path, start_dir, end_dir, params, costmap);
-    std::vector<double> variables = processed.initial_variables;
-
-    ceres::Problem problem;
-      // 第 5 步：连接过渡、边界、参考路径和障碍物残差。
-    buildProblem(processed, costmap, params, variables, problem);
-
-      // 第 6 步：对曲率和弧长施加显式边界。
-    applyBounds(problem, variables.data(), processed.state_count, params.max_curvature);
-
-      // 第 7 步：执行 Ceres 求解，并在调试模式下输出收敛报告。
-    ceres::Solver::Summary summary;
-    ceres::Solve(options_, &problem, &summary);
-    if (debug_) {
-      std::cout << summary.FullReport() << std::endl;
-    }
-    // 第 8 步：检查结果是否可用，以及目标函数是否真正下降。
-    if (!summary.IsSolutionUsable()) {
-      return throwOrStoreSmoothingFailure(
-        failure,
-        SmoothingFailureReason::SolverRejectedSolution,
-        "Kinematic smoother rejected the Ceres solution as unusable");
-    }
-    if (summary.initial_cost - summary.final_cost < 0.0) {
-      return throwOrStoreSmoothingFailure(
-        failure,
-        SmoothingFailureReason::NoCostImprovement,
-        "Kinematic smoother did not improve the objective cost");
-    }
-
-    // 第 9 步：执行硬性后验校验，确认边界、换向一致性和净空都成立。
-    if (!validator_.validateKinematicSolution(
-        {
-          variables,
-          processed.reference_points,
-          processed.gears,
-          processed.is_cusp_segment,
-          processed.state_count,
-          processed.start_theta,
-          processed.end_theta,
-          costmap,
-          params,
-          esdf_values_,
-        }, failure))
-    {
-      return false;
-    }
-
-    // 第 10 步：把内部状态链压缩回对外暴露的 (x, y, yaw) 轨迹。
-    path = unpackPath(variables, processed.state_count);
-    last_optimized_knot_count_ = processed.state_count;
-    return true;
-  }
+    const SmootherRequest request{path, start_dir, end_dir, costmap, params, precomputed_esdf, failure};
+    return Run(*this, request).execute();
+  };
 
 private:
-  struct ProcessedPath
-  {
-    /// 展开后的参考点序列，cusp 会被复制成零长度过渡状态。
-    std::vector<Eigen::Vector2d> reference_points{};
-    /// 每个状态转移段的档位方向，前进为 1，倒车为 -1，cusp 为 0。
-    std::vector<double> gears{};
-    /// 标记哪些状态转移段是 cusp 保持段。
-    std::vector<bool> is_cusp_segment{};
-    /// 求解器初始变量，按 (x, y, theta, kappa, ds) 展平。
-    std::vector<double> initial_variables{};
-    size_t state_count{0};
-    double start_theta{0.0};
-    double end_theta{0.0};
-    double target_spacing{0.2};
-  };
+  using ProcessedPath = KinematicProcessedPath;
 
-  class TransitionCostFunctor
+  /// 运动学版 smoother 的单次执行对象。
+  ///
+  /// 它持有一次优化的展开状态、变量数组和问题对象，并把 prepare / solve /
+  /// finalize 三段生命周期与顶层长期状态分离开。
+  class Run : public SmootherRunBase<Run, KinematicSmoother, SmootherRequest>
   {
   public:
-    TransitionCostFunctor(
-      double gear,
-      bool is_cusp_segment,
-      double model_weight,
-      double smooth_weight,
-      double spacing_weight,
-      double fix_weight,
-      double target_spacing)
-    : gear_(gear),
-      is_cusp_segment_(is_cusp_segment),
-      model_weight_(model_weight),
-      smooth_weight_(smooth_weight),
-      spacing_weight_(spacing_weight),
-      fix_weight_(fix_weight),
-      target_spacing_(target_spacing)
+    Run(KinematicSmoother & smoother, const SmootherRequest & request)
+    : SmootherRunBase<Run, KinematicSmoother, SmootherRequest>(smoother, request)
     {
     }
 
-    ceres::CostFunction * AutoDiff()
+    /// 第 1 阶段：准备 ESDF、展开状态链，并构建运动学优化问题。
+    void prepare()
     {
-      return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 5, 5, 5>(this);
+      auto builder = this->owner().makeProblemBuilder();
+      this->owner().validateCommonInputs(this->request().path, this->request().costmap, "Kinematic smoother");
+      this->owner().setMaxSolverTime(this->request().params.max_time);
+      builder.initializeEsdfValues(
+        this->request().costmap, this->request().params, this->request().precomputed_esdf);
+      processed_ = KinematicSmootherProblemBuilder::buildProcessedPath(
+        this->request().path,
+        this->request().start_dir,
+        this->request().end_dir,
+        this->request().params,
+        this->request().costmap);
+      variables_ = processed_.initial_variables;
+      builder.buildProblem(
+        processed_, this->request().costmap, this->request().params, variables_, problem_);
+      KinematicSmootherProblemBuilder::applyBounds(
+        problem_,
+        variables_.data(),
+        processed_.state_count,
+        this->request().params.max_curvature);
+      this->owner().last_optimized_knot_count_ = processed_.state_count;
     }
 
-    template<typename T>
-    bool operator()(const T * const current, const T * const next, T * residuals) const
+    /// 第 2 阶段：调用共享求解器执行运动学状态优化。
+    bool solve() const
     {
-      Eigen::Map<Eigen::Matrix<T, 5, 1>> residual(residuals);
-      residual.setZero();
-
-      const T x = current[0];
-      const T y = current[1];
-      const T theta = current[2];
-      const T kappa = current[3];
-      const T ds = current[4];
-
-      const T next_x = next[0];
-      const T next_y = next[1];
-      const T next_theta = next[2];
-      const T next_kappa = next[3];
-
-      if (is_cusp_segment_) {
-        // cusp 段不允许产生位移，只允许作为换向处的停驻过渡。
-        residual[0] = T(fix_weight_) * (next_x - x);
-        residual[1] = T(fix_weight_) * (next_y - y);
-        residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);
-        residual[4] = T(spacing_weight_) * T(10.0) * ds;
-        return true;
-      }
-
-      const T direction = gear_ >= 0.0 ? T(1.0) : T(-1.0);
-      const T theta_pred = theta + direction * ds * (kappa + next_kappa) * T(0.5);
-      const T theta_mid = theta + direction * ds * kappa * T(0.5);
-      const T x_pred = x + direction * ds * cosValue(theta_mid);
-      const T y_pred = y + direction * ds * sinValue(theta_mid);
-      const T denom = ds > T(1e-3) ? sqrtValue(ds) : T(0.03);
-
-      // 常规段同时约束模型一致性、曲率变化平滑性和目标步长。
-      residual[0] = T(model_weight_) * (next_x - x_pred);
-      residual[1] = T(model_weight_) * (next_y - y_pred);
-      residual[2] = T(model_weight_) * angleDiff(next_theta, theta_pred);
-      residual[3] = T(smooth_weight_) * (next_kappa - kappa) / denom;
-      residual[4] = T(spacing_weight_) * (ds - T(target_spacing_)) / T(target_spacing_);
-      return true;
+      return this->owner().solvePreparedProblem(
+        problem_, "Kinematic smoother", this->request().failure);
     }
 
-  private:
-    template<typename T>
-    static T normalizeAngle(T angle)
+    /// 第 3 阶段：执行硬性后验校验，并把状态链回写成公共路径表示。
+    bool finalize()
     {
-      using std::atan2;
-      using std::cos;
-      using std::sin;
-      return atan2(sin(angle), cos(angle));
-    }
-
-    template<typename T>
-    static T angleDiff(T a, T b)
-    {
-      return normalizeAngle(a - b);
-    }
-
-    template<typename T>
-    static T sinValue(T value)
-    {
-      using std::sin;
-      return sin(value);
-    }
-
-    template<typename T>
-    static T cosValue(T value)
-    {
-      using std::cos;
-      return cos(value);
-    }
-
-    template<typename T>
-    static T sqrtValue(T value)
-    {
-      using std::sqrt;
-      return sqrt(value);
-    }
-
-    double gear_;
-    bool is_cusp_segment_;
-    double model_weight_;
-    double smooth_weight_;
-    double spacing_weight_;
-    double fix_weight_;
-    double target_spacing_;
-  };
-
-  class BoundaryCostFunctor
-  {
-  public:
-    BoundaryCostFunctor(
-      const Eigen::Vector2d & reference_point,
-      double target_theta,
-      bool keep_orientation,
-      double fix_weight,
-      bool constrain_stop)
-    : reference_point_(reference_point),
-      target_theta_(target_theta),
-      keep_orientation_(keep_orientation),
-      fix_weight_(fix_weight),
-      constrain_stop_(constrain_stop)
-    {
-    }
-
-    ceres::CostFunction * AutoDiff()
-    {
-      return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(this);
-    }
-
-    template<typename T>
-    bool operator()(const T * const state, T * residuals) const
-    {
-      // 边界残差固定起终点位置，并可选固定朝向及终点停驻状态。
-      residuals[0] = T(fix_weight_) * (state[0] - T(reference_point_.x()));
-      residuals[1] = T(fix_weight_) * (state[1] - T(reference_point_.y()));
-      residuals[2] =
-        keep_orientation_ ? T(fix_weight_) * angleDiff(state[2], T(target_theta_)) : T(0.0);
-      residuals[3] = constrain_stop_ ? T(fix_weight_) * state[4] : T(0.0);
-      return true;
-    }
-
-  private:
-    template<typename T>
-    static T normalizeAngle(T angle)
-    {
-      using std::atan2;
-      using std::cos;
-      using std::sin;
-      return atan2(sin(angle), cos(angle));
-    }
-
-    template<typename T>
-    static T angleDiff(T a, T b)
-    {
-      return normalizeAngle(a - b);
-    }
-
-    Eigen::Vector2d reference_point_;
-    double target_theta_;
-    bool keep_orientation_;
-    double fix_weight_;
-    bool constrain_stop_;
-  };
-
-  class ReferenceCostFunctor
-  {
-  public:
-    ReferenceCostFunctor(const Eigen::Vector2d & reference_point, double reference_weight)
-    : reference_point_(reference_point), reference_weight_(reference_weight)
-    {
-    }
-
-    ceres::CostFunction * AutoDiff()
-    {
-      return new ceres::AutoDiffCostFunction<ReferenceCostFunctor, 2, 5>(this);
-    }
-
-    template<typename T>
-    bool operator()(const T * const state, T * residuals) const
-    {
-      // 参考路径项只拉回平面位置，不直接约束姿态和曲率。
-      const T dx = state[0] - T(reference_point_.x());
-      const T dy = state[1] - T(reference_point_.y());
-      residuals[0] = T(reference_weight_) * dx;
-      residuals[1] = T(reference_weight_) * dy;
-      return true;
-    }
-
-  private:
-    Eigen::Vector2d reference_point_;
-    double reference_weight_;
-  };
-
-  class ObstacleCostFunctor
-  {
-  public:
-    ObstacleCostFunctor(
-      bool is_cusp_pose,
-      const Costmap2D * costmap,
-      const SmootherParams & params,
-      const std::vector<double> & esdf_values)
-    : costmap_origin_(costmap->getOriginX(), costmap->getOriginY()),
-      costmap_resolution_(costmap->getResolution()),
-      size_x_(costmap->getSizeInCellsX()),
-      size_y_(costmap->getSizeInCellsY()),
-      obstacle_safe_distance_(std::max(params.obstacle_safe_distance, 1e-6)),
-      cost_check_radius_(std::max(params.cost_check_radius, 0.0)),
-      obstacle_weight_(std::max(params.costmap_weight_sqrt, 0.0)),
-      cusp_obstacle_weight_(std::max(params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt)),
-      is_cusp_pose_(is_cusp_pose),
-      cost_check_points_(params.cost_check_points),
-      esdf_grid_(std::make_shared<ceres::Grid2D<double>>(esdf_values.data(), 0, size_y_, 0, size_x_)),
-      esdf_interpolator_(std::make_shared<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(*esdf_grid_))
-    {
-    }
-
-    int numResiduals() const
-    {
-      return cost_check_points_.empty() ? 1 : static_cast<int>(cost_check_points_.size() / 3);
-    }
-
-    ceres::CostFunction * AutoDiff()
-    {
-      auto * cost_function = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(this);
-      cost_function->AddParameterBlock(5);
-      cost_function->SetNumResiduals(numResiduals());
-      return cost_function;
-    }
-
-    template<typename T>
-    bool operator()(const T * const * parameters, T * residuals) const
-    {
-      const T * state = parameters[0];
-      const T x = state[0];
-      const T y = state[1];
-      const T theta = state[2];
-      const T pose_weight = T(is_cusp_pose_ ? cusp_obstacle_weight_ : obstacle_weight_);
-
-      if (cost_check_points_.empty()) {
-        // 未提供足迹采样点时，把状态中心当作唯一检查点。
-        residuals[0] = pose_weight * obstaclePenalty(x, y);
-        return true;
-      }
-
-      // 否则把局部足迹采样点旋转到世界坐标后逐点做净空惩罚。
-      const T cos_theta = cosValue(theta);
-      const T sin_theta = sinValue(theta);
-      int residual_index = 0;
-      for (size_t offset = 0; offset + 2 < cost_check_points_.size(); offset += 3) {
-        const T local_x = T(cost_check_points_[offset + 0]);
-        const T local_y = T(cost_check_points_[offset + 1]);
-        const T point_weight = T(cost_check_points_[offset + 2]);
-        const T world_x = x + cos_theta * local_x - sin_theta * local_y;
-        const T world_y = y + sin_theta * local_x + cos_theta * local_y;
-        residuals[residual_index++] = pose_weight * point_weight * obstaclePenalty(world_x, world_y);
-      }
-      return true;
-    }
-
-  private:
-    template<typename T>
-    T obstaclePenalty(T world_x, T world_y) const
-    {
-      const T grid_x = (world_x - T(costmap_origin_.x())) / T(costmap_resolution_);
-      const T grid_y = (world_y - T(costmap_origin_.y())) / T(costmap_resolution_);
-      if (grid_x < T(0.0) || grid_y < T(0.0) ||
-        grid_x >= T(static_cast<double>(size_x_)) || grid_y >= T(static_cast<double>(size_y_)))
+      if (!this->owner().validator_.validateKinematicSolution(
+          {
+            variables_,
+            processed_.reference_points,
+            processed_.gears,
+            processed_.is_cusp_segment,
+            processed_.state_count,
+            processed_.start_theta,
+            processed_.end_theta,
+            this->request().costmap,
+            this->request().params,
+            this->owner().esdf_values_,
+          }, this->request().failure))
       {
-        // 越界点直接按最大惩罚处理，避免路径逃出地图。
-        return T(1.0);
+        return false;
       }
 
-      T distance = T(0.0);
-      esdf_interpolator_->Evaluate(grid_y - T(0.5), grid_x - T(0.5), &distance);
-      const T surface_distance = distance - T(cost_check_radius_);
-      if (surface_distance >= T(obstacle_safe_distance_)) {
-        return T(0.0);
-      }
-
-      // 安全距离以内采用平方 hinge 损失，越接近障碍物惩罚越大。
-      const T normalized_gap =
-        (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
-      return normalized_gap * normalized_gap;
+      this->request().path =
+        KinematicSmootherProblemBuilder::unpackPath(variables_, processed_.state_count);
+      return true;
     }
 
-    template<typename T>
-    static T sinValue(T value)
-    {
-      using std::sin;
-      return sin(value);
-    }
-
-    template<typename T>
-    static T cosValue(T value)
-    {
-      using std::cos;
-      return cos(value);
-    }
-
-    Eigen::Vector2d costmap_origin_;
-    double costmap_resolution_;
-    unsigned int size_x_;
-    unsigned int size_y_;
-    double obstacle_safe_distance_;
-    double cost_check_radius_;
-    double obstacle_weight_;
-    double cusp_obstacle_weight_;
-    bool is_cusp_pose_;
-    std::vector<double> cost_check_points_;
-    std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;
-    std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_;
+    ProcessedPath processed_{};
+    std::vector<double> variables_{};
+    mutable ceres::Problem problem_{};
   };
 
-  static double normalizeAngle(double angle)
-  {
-    return std::atan2(std::sin(angle), std::cos(angle));
-  }
-
-  static Eigen::Vector2d normalizedDirection(const Eigen::Vector2d & dir)
-  {
-    if (dir.norm() <= 1e-9) {
-      return Eigen::Vector2d(1.0, 0.0);
-    }
-    return dir.normalized();
-  }
-
-  ProcessedPath buildProcessedPath(
-    const std::vector<Eigen::Vector3d> & path,
-    const Eigen::Vector2d & start_dir,
-    const Eigen::Vector2d & end_dir,
-    const SmootherParams & params,
-    const Costmap2D * costmap) const
-  {
-    ProcessedPath processed;
-    // 第 1 步：先把首尾切向方向转换成角度，作为边界姿态参考。
-    processed.start_theta = std::atan2(start_dir.y(), start_dir.x());
-    processed.end_theta = std::atan2(end_dir.y(), end_dir.x());
-
-    // 第 2 步：从原始路径第三个分量提取每一段的前进/倒车方向。
-    std::vector<double> gear_directions;
-    gear_directions.reserve(path.size() - 1);
-    for (size_t index = 0; index + 1 < path.size(); ++index) {
-      gear_directions.push_back(path[index].z() < 0.0 ? -1.0 : 1.0);
-    }
-
-    // 第 3 步：构建展开后的参考路径；遇到换向时插入 cusp 停驻状态。
-    processed.reference_points.emplace_back(path.front().x(), path.front().y());
-    for (size_t index = 0; index + 1 < path.size(); ++index) {
-      const double current_gear = gear_directions[index];
-      const double next_gear = index + 1 < gear_directions.size() ? gear_directions[index + 1] : current_gear;
-
-      processed.gears.push_back(current_gear);
-      processed.is_cusp_segment.push_back(false);
-      processed.reference_points.emplace_back(path[index + 1].x(), path[index + 1].y());
-
-      if (index + 2 < path.size() && current_gear != next_gear) {
-        processed.gears.push_back(0.0);
-        processed.is_cusp_segment.push_back(true);
-        processed.reference_points.emplace_back(path[index + 1].x(), path[index + 1].y());
-      }
-    }
-
-    processed.state_count = processed.reference_points.size();
-    std::vector<double> theta(processed.state_count, 0.0);
-    std::vector<double> kappa(processed.state_count, 0.0);
-    std::vector<double> ds(processed.state_count, 0.0);
-
-    // 第 4 步：用参考几何初始化姿态和步长，给非线性求解提供稳定初值。
-    double spacing_sum = 0.0;
-    size_t spacing_count = 0;
-    for (size_t index = 0; index + 1 < processed.state_count; ++index) {
-      const Eigen::Vector2d delta = processed.reference_points[index + 1] - processed.reference_points[index];
-      const double segment_norm = delta.norm();
-      if (processed.is_cusp_segment[index]) {
-        // 第 4.1 步：cusp 段是零位移保持段，只继承前一姿态。
-        theta[index] = index > 0 ? theta[index - 1] : processed.start_theta;
-        ds[index] = 0.0;
-        continue;
-      }
-
-      if (segment_norm > 1e-6) {
-        double heading = std::atan2(delta.y(), delta.x());
-        if (processed.gears[index] < 0.0) {
-          heading += M_PI;
-        }
-        theta[index] = normalizeAngle(heading);
-        ds[index] = segment_norm;
-        spacing_sum += segment_norm;
-        ++spacing_count;
-      } else {
-        theta[index] = index > 0 ? theta[index - 1] : processed.start_theta;
-      }
-    }
-
-    // 第 5 步：若启用端点朝向约束，则显式覆盖首尾姿态初值。
-    theta.back() = theta.size() > 1 ? theta[theta.size() - 2] : processed.start_theta;
-    if (params.keep_start_orientation) {
-      theta.front() = processed.start_theta;
-    }
-    if (params.keep_goal_orientation) {
-      theta.back() = processed.end_theta;
-    }
-
-    processed.target_spacing = spacing_count > 0 ?
-      spacing_sum / static_cast<double>(spacing_count) :
-      std::max(costmap->getResolution(), 1e-3);
-
-    // 第 6 步：按 (x, y, theta, kappa, ds) 顺序展平，供 Ceres 直接优化。
-    processed.initial_variables.reserve(processed.state_count * 5);
-    for (size_t index = 0; index < processed.state_count; ++index) {
-      processed.initial_variables.push_back(processed.reference_points[index].x());
-      processed.initial_variables.push_back(processed.reference_points[index].y());
-      processed.initial_variables.push_back(theta[index]);
-      processed.initial_variables.push_back(kappa[index]);
-      processed.initial_variables.push_back(ds[index]);
-    }
-
-    return processed;
-  }
-
-  void buildProblem(
-    const ProcessedPath & processed,
-    const Costmap2D * costmap,
-    const SmootherParams & params,
-    std::vector<double> & variables,
-    ceres::Problem & problem) const
-  {
-    // 第 1 步：先根据当前参数折算各类残差的实际权重。
-    const double model_weight = std::max(params.smooth_weight_sqrt, 1.0);
-    const double smooth_weight =
-      std::max(std::max(params.curvature_rate_weight_sqrt, params.curvature_weight_sqrt), 1.0);
-    const double spacing_weight = 1.0;
-    const double fix_weight = 100.0;
-    const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);
-    const bool has_obstacle_cost = std::max(params.costmap_weight_sqrt, 0.0) > 1e-9;
-
-    // 第 2 步：为每一对相邻状态连接运动学过渡残差。
-    for (size_t index = 0; index + 1 < processed.state_count; ++index) {
-      auto * transition_cost = new TransitionCostFunctor(
-        processed.gears[index],
-        processed.is_cusp_segment[index],
-        model_weight,
-        smooth_weight,
-        spacing_weight,
-        fix_weight,
-        processed.target_spacing);
-      problem.AddResidualBlock(
-        transition_cost->AutoDiff(),
-        nullptr,
-        stateData(variables, index),
-        stateData(variables, index + 1));
-    }
-
-      // 第 3 步：连接起终点边界残差，固定位置并按需固定朝向。
-    auto * start_boundary_cost = new BoundaryCostFunctor(
-      processed.reference_points.front(),
-      processed.start_theta,
-      params.keep_start_orientation,
-      fix_weight,
-      false);
-    problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
-
-    auto * goal_boundary_cost = new BoundaryCostFunctor(
-      processed.reference_points.back(),
-      processed.end_theta,
-      params.keep_goal_orientation,
-      fix_weight,
-      true);
-    problem.AddResidualBlock(
-      goal_boundary_cost->AutoDiff(),
-      nullptr,
-      stateData(variables, processed.state_count - 1));
-
-    if (reference_weight > 1e-9) {
-      // 第 4 步：若启用参考路径项，则把解轻柔地拉回原始几何。
-      for (size_t index = 0; index < processed.state_count; ++index) {
-        auto * reference_cost = new ReferenceCostFunctor(processed.reference_points[index], reference_weight);
-        problem.AddResidualBlock(reference_cost->AutoDiff(), nullptr, stateData(variables, index));
-      }
-    }
-
-    if (has_obstacle_cost) {
-      // 第 5 步：若启用障碍物项，则逐状态连接净空残差。
-      for (size_t index = 0; index < processed.state_count; ++index) {
-        const bool is_cusp_pose =
-          (index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index]) ||
-          (index > 0 && processed.is_cusp_segment[index - 1]);
-        auto * obstacle_cost = new ObstacleCostFunctor(is_cusp_pose, costmap, params, esdf_values_);
-        problem.AddResidualBlock(obstacle_cost->AutoDiff(), nullptr, stateData(variables, index));
-      }
-    }
-  }
-
-  void applyBounds(
-    ceres::Problem & problem,
-    double * variables,
-    size_t state_count,
-    double max_curvature) const
-  {
-    // 第 1 步：显式限制曲率上下界，并保证弧长非负。
-    const double clamped_max_curvature = std::max(max_curvature, 1e-6);
-    for (size_t index = 0; index < state_count; ++index) {
-      double * state = variables + 5 * index;
-      problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
-      problem.SetParameterUpperBound(state, 3, clamped_max_curvature);
-      problem.SetParameterLowerBound(state, 4, 0.0);
-    }
-  }
-
-  static double * stateData(std::vector<double> & variables, size_t index)
-  {
-    return variables.data() + 5 * index;
-  }
-
-  static std::vector<Eigen::Vector3d> unpackPath(const std::vector<double> & variables, size_t state_count)
-  {
-    // 第 1 步：只恢复对外可见的平面位置和 yaw；内部的 kappa、ds 不直接暴露。
-    std::vector<Eigen::Vector3d> path;
-    path.reserve(state_count);
-    for (size_t index = 0; index < state_count; ++index) {
-      path.emplace_back(
-        variables[5 * index + 0],
-        variables[5 * index + 1],
-        normalizeAngle(variables[5 * index + 2]));
-    }
-    return path;
-  }
-
-  bool debug_{false};
-  ceres::Solver::Options options_{};
   std::vector<double> esdf_values_{};
   SmootherValidator validator_{};
   size_t last_optimized_knot_count_{0};
+
+  /// 返回绑定到当前 KinematicSmoother 长期状态的运动学问题构建器。
+  ///
+  /// 这让 Run 只依赖一个稳定的构建入口，而不直接操作长期 ESDF 存储细节。
+  KinematicSmootherProblemBuilder makeProblemBuilder()
+  {
+    return KinematicSmootherProblemBuilder(esdf_values_);
+  }
 };
 
 }  // namespace constrained_smoother

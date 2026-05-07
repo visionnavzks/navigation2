@@ -121,6 +121,9 @@ def _exception_to_api_error(exc, *, default_status=400, default_source="server")
         )
 
     code = getattr(exc, "code", None)
+
+    # ---- API error normalization helpers ----
+
     numeric_code = getattr(exc, "numeric_code", None)
     if code:
         details = {"exception_type": type(exc).__name__}
@@ -202,6 +205,8 @@ def _build_smoother_error_payload(result):
     return error_payload
 
 
+# ---- Pipeline stage reporting helpers ----
+
 def _make_pipeline_stage(
     stage_key,
     label,
@@ -255,6 +260,8 @@ def _build_pipeline_payload(stages):
     }
 
 
+# ---- Planner / smoother / validation pipeline stages ----
+
 def _run_astar_stage(
     planner_costmap,
     footprint_model,
@@ -269,6 +276,17 @@ def _run_astar_stage(
     keep_start_orientation,
     keep_goal_orientation,
 ):
+    """Run the planner stage and normalize its result into a stable dict.
+
+    Return contract:
+        planner: Planner instance whose ESDF may be reused by the smoother stage.
+        raw_path: Raw A* path as world-coordinate tuples.
+        sparse_path: Downsampled reference path used as the smoother input chain.
+        eigen_path: Reference path encoded as `[x, y, direction_sign]` triples.
+        reference_with_yaw: Display-ready reference path with reconstructed yaw.
+        astar_time_ms: Planner runtime in milliseconds.
+        stage: Pipeline-stage payload for frontend status rendering.
+    """
     planner = pcs.AStarPlanner()
     planner_params = pcs.AStarPlannerParams()
     planner_params.safe_distance = footprint_model["safe_distance"]
@@ -341,6 +359,19 @@ def _run_smoother_stage(
     planner,
     reference_with_yaw,
 ):
+    """Run the smoother stage and normalize its result into a stable dict.
+
+    Returned keys:
+        optimizer_label: Human-readable backend label shown in the pipeline UI.
+        smooth_success: Whether the smoother produced an accepted candidate path.
+        smooth_time_ms: Optimizer wall time in milliseconds.
+        smooth_message: Human-readable fallback or failure message.
+        smooth_error: Structured error payload or None.
+        candidate_smoothed: Candidate path before rectangle fallback logic, or None.
+        returned_path: Path forwarded to the next stage.
+        optimized_knot_count: Backend-reported optimized knot/state count.
+        stage: Pipeline-stage payload for frontend status rendering.
+    """
     optimizer_label = (
         "Kinematic Smoother"
         if optimizer_type == "kinematic_smoother"
@@ -427,6 +458,18 @@ def _run_validation_stage(
     robot_length_m,
     robot_width_m,
 ):
+    """Run rectangle validation and decide which path the web layer should return.
+
+    Returned keys:
+        smooth_success: Final success flag after candidate validation.
+        smooth_error: Structured smoother or validation error payload.
+        smooth_message: Human-readable status/fallback message.
+        returned_path: Path that should be exposed to the frontend.
+        candidate_rectangle_validation: Validation result for the candidate path, if any.
+        final_rectangle_validation: Validation result for the actually returned path.
+        stage: Rectangle-validation pipeline-stage payload.
+        response_stage: Final web response-stage payload.
+    """
     candidate_rectangle_validation = None
     returned_path = candidate_smoothed if smooth_success and candidate_smoothed is not None else reference_with_yaw
 
@@ -524,6 +567,8 @@ def _run_validation_stage(
 
 
 app = Flask(__name__)
+
+# ---- Shared in-memory scene state ----
 
 # ---------------------------------------------------------------------------
 # Default costmap: 200×200 cells, 0.1 m resolution → 20 m × 20 m world area
@@ -1027,6 +1072,7 @@ def update_obstacles():
 def plan_and_smooth():
     """Run A* to find a reference path, then smooth it with the constrained smoother."""
     try:
+        # ---- Request parsing and frontend knob normalization ----
         req = request.get_json(silent=True) or {}
         start_x = float(req.get("start_x", 1.0))
         start_y = float(req.get("start_y", 1.0))
@@ -1090,6 +1136,7 @@ def plan_and_smooth():
         s_dir = [math.cos(start_yaw_rad), math.sin(start_yaw_rad)]
         e_dir = [math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)]
 
+        # ---- Stage 1: planner builds the reference path and sparse control chain ----
         planner_stage_result = _run_astar_stage(
             planner_costmap,
             footprint_model,
@@ -1137,6 +1184,7 @@ def plan_and_smooth():
         opt_params.fn_tol = fn_tol
         opt_params.gradient_tol = gradient_tol
 
+        # ---- Stage 2: smoother optimizes against the planner path, but may fall back ----
         smoother_stage_result = _run_smoother_stage(
             optimizer_type,
             opt_params,
@@ -1156,6 +1204,7 @@ def plan_and_smooth():
         candidate_smoothed = smoother_stage_result["candidate_smoothed"]
         optimized_knot_count = smoother_stage_result["optimized_knot_count"]
 
+        # ---- Stage 3: rectangle validation decides whether to keep the candidate path ----
         validation_stage_result = _run_validation_stage(
             costmap_grid,
             candidate_smoothed,
@@ -1179,7 +1228,7 @@ def plan_and_smooth():
             validation_stage_result["response_stage"],
         ])
 
-        # Format response
+        # ---- Final response assembly for the frontend ----
         astar_x = [p[0] for p in raw_path]
         astar_y = [p[1] for p in raw_path]
         ref_x = [p[0] for p in sparse_path]
@@ -1192,6 +1241,7 @@ def plan_and_smooth():
         opt_length = _path_length(smoothed)
 
         return jsonify({
+            # High-level pipeline and fallback status.
             "success": True,
             "pipeline": pipeline,
             "smooth_success": smooth_success,
@@ -1200,6 +1250,8 @@ def plan_and_smooth():
             "smooth_message": smooth_message,
             "smooth_error": smooth_error,
             "candidate_rectangle_validation": candidate_rectangle_validation,
+
+            # Raw planner / reference / returned path geometry.
             "astar_x": astar_x,
             "astar_y": astar_y,
             "ref_x": ref_x,
@@ -1207,6 +1259,8 @@ def plan_and_smooth():
             "opt_x": opt_x,
             "opt_y": opt_y,
             "opt_theta": opt_theta,
+
+            # Path cardinality and length metrics.
             "num_astar_pts": len(raw_path),
             "num_ref_pts": len(sparse_path),
             "num_opt_knots": optimized_knot_count,
@@ -1216,6 +1270,8 @@ def plan_and_smooth():
             "ref_path_length_m": round(ref_length, 3),
             "opt_path_length_m": round(opt_length, 3),
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
+
+            # Planner / optimizer configuration echoed back to the frontend.
             "reference_spacing_target_m": round(reference_spacing_target_m, 3),
             "planner_penalty_weight": round(planner_penalty_weight, 3),
             "optimizer_type": optimizer_type,
@@ -1234,6 +1290,8 @@ def plan_and_smooth():
             "robot_check_points": len(footprint_model["serialized_points"]),
             "collision_check_radius_m": round(footprint_model["check_radius"], 3),
             "collision_check_points_local": footprint_model["serialized_points"],
+
+            # Final post-validation status for the path actually returned.
             "final_rectangle_validation": final_rectangle_validation,
         })
 
