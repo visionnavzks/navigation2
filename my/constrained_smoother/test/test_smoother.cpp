@@ -18,7 +18,9 @@
 
 #include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
 #include "constrained_smoother/kinematic_smoother.hpp"
+#include "constrained_smoother/smoother_base.hpp"
 #include "constrained_smoother/smoother_path_ops.hpp"
+#include "constrained_smoother/smoother_run_base.hpp"
 #include "gtest/gtest.h"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/smoother_cost_function.hpp"
@@ -85,7 +87,159 @@ public:
   }
 };
 
+class TestSolverBackedSmootherBase : public constrained_smoother::SolverBackedSmootherBase
+{
+public:
+  using constrained_smoother::SolverBackedSmootherBase::initializeOptimizer;
+  using constrained_smoother::SolverBackedSmootherBase::isDebugEnabled;
+  using constrained_smoother::SolverBackedSmootherBase::setMaxSolverTime;
+  using constrained_smoother::SolverBackedSmootherBase::solvePreparedProblem;
+  using constrained_smoother::SolverBackedSmootherBase::validateCommonInputs;
+};
+
+struct TestRunOwner
+{
+  int prepare_calls{0};
+  int solve_calls{0};
+  int finalize_calls{0};
+};
+
+struct TestRunRequest
+{
+  int token{0};
+};
+
+class TestRunSuccess : public constrained_smoother::SmootherRunBase<TestRunSuccess, TestRunOwner, TestRunRequest>
+{
+public:
+  TestRunSuccess(TestRunOwner & owner, const TestRunRequest & request)
+  : constrained_smoother::SmootherRunBase<TestRunSuccess, TestRunOwner, TestRunRequest>(owner, request)
+  {
+  }
+
+  void prepare()
+  {
+    owner().prepare_calls += request().token;
+  }
+
+  bool solve()
+  {
+    owner().solve_calls += request().token;
+    return true;
+  }
+
+  bool finalize()
+  {
+    owner().finalize_calls += request().token;
+    return true;
+  }
+};
+
+class TestRunFailure : public constrained_smoother::SmootherRunBase<TestRunFailure, TestRunOwner, TestRunRequest>
+{
+public:
+  TestRunFailure(TestRunOwner & owner, const TestRunRequest & request)
+  : constrained_smoother::SmootherRunBase<TestRunFailure, TestRunOwner, TestRunRequest>(owner, request)
+  {
+  }
+
+  void prepare()
+  {
+    owner().prepare_calls += request().token;
+  }
+
+  bool solve()
+  {
+    owner().solve_calls += request().token;
+    return false;
+  }
+
+  bool finalize()
+  {
+    owner().finalize_calls += request().token;
+    return true;
+  }
+};
+
+struct QuadraticResidual
+{
+  template<typename T>
+  bool operator()(const T * const x, T * residual) const
+  {
+    residual[0] = x[0];
+    return true;
+  }
+};
+
 // ---- Low-level math and cost-function tests ----
+
+TEST(SmootherRunBaseTest, ExecuteCallsPrepareSolveFinalizeInOrder)
+{
+  TestRunOwner owner;
+  const TestRunRequest request{2};
+
+  TestRunSuccess run(owner, request);
+
+  EXPECT_TRUE(run.execute());
+  EXPECT_EQ(owner.prepare_calls, 2);
+  EXPECT_EQ(owner.solve_calls, 2);
+  EXPECT_EQ(owner.finalize_calls, 2);
+}
+
+TEST(SmootherRunBaseTest, ExecuteShortCircuitsFinalizeWhenSolveFails)
+{
+  TestRunOwner owner;
+  const TestRunRequest request{3};
+
+  TestRunFailure run(owner, request);
+
+  EXPECT_FALSE(run.execute());
+  EXPECT_EQ(owner.prepare_calls, 3);
+  EXPECT_EQ(owner.solve_calls, 3);
+  EXPECT_EQ(owner.finalize_calls, 0);
+}
+
+TEST(SolverBackedSmootherBaseTest, ValidateCommonInputsRejectsShortPathAndNullCostmap)
+{
+  TestSolverBackedSmootherBase base;
+  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> short_path = {{0.0, 0.0, 1.0}};
+  const std::vector<Eigen::Vector3d> valid_path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+  };
+
+  EXPECT_THROW(
+    base.validateCommonInputs(short_path, &costmap, "Test smoother"),
+    constrained_smoother::InvalidPath);
+  EXPECT_THROW(
+    base.validateCommonInputs(valid_path, nullptr, "Test smoother"),
+    constrained_smoother::InvalidCostmap);
+}
+
+TEST(SolverBackedSmootherBaseTest, InitializeOptimizerAndSolvePreparedProblemSucceedForSimpleProblem)
+{
+  TestSolverBackedSmootherBase base;
+  constrained_smoother::OptimizerParams params;
+  params.debug = true;
+  params.max_iterations = 20;
+  base.initializeOptimizer(params);
+  EXPECT_TRUE(base.isDebugEnabled());
+
+  double x = 1.0;
+  ceres::Problem problem;
+  problem.AddResidualBlock(
+    new ceres::AutoDiffCostFunction<QuadraticResidual, 1, 1>(new QuadraticResidual()),
+    nullptr,
+    &x);
+
+  constrained_smoother::SmoothingFailureInfo failure;
+  base.setMaxSolverTime(1.0);
+
+  EXPECT_TRUE(base.solvePreparedProblem(problem, "Test smoother", &failure));
+  EXPECT_NEAR(x, 0.0, 1e-6);
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::Unknown);
+}
 
 TEST(CostFunctionTest, CurvatureResidual)
 {
@@ -461,6 +615,48 @@ TEST(SmootherTest, FootprintCollisionFailsPostValidation)
   EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
 }
 
+TEST(SmootherTest, FootprintCollisionStoresFailureInfoWithoutThrowing)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+  for (unsigned int y = 35; y < 45; ++y) {
+    for (unsigned int x = 36; x < 42; ++x) {
+      costmap.setCost(x, y, constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
+    }
+  }
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {1.5, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(1000.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = std::sqrt(1.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.cost_check_radius = 0.18;
+  params.cost_check_points = {0.0, 0.0, 1.0};
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 20;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+
+  EXPECT_FALSE(smoother.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure));
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::FootprintCollision);
+  EXPECT_GE(failure.failed_index, 0);
+  EXPECT_NE(failure.message.find("collides with obstacles"), std::string::npos);
+}
+
 TEST(SmootherTest, PathOutOfBoundsFailsPostValidation)
 {
   constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
@@ -674,6 +870,45 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
     [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
 
   EXPECT_NE(error_message.find("motion_direction_constraint@"), std::string::npos);
+}
+
+TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {1.5, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+    {2.5, 2.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(20.0);
+  params.costmap_weight_sqrt = std::sqrt(0.0);
+  params.cusp_costmap_weight_sqrt = std::sqrt(0.0);
+  params.distance_weight_sqrt = std::sqrt(0.0);
+  params.curvature_weight_sqrt = std::sqrt(30.0);
+  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 40;
+
+  constrained_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(-1.0, 0.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+
+  EXPECT_FALSE(smoother.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure));
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::MotionDirectionConstraint);
+  EXPECT_GE(failure.failed_index, 0);
+  EXPECT_NE(failure.message.find("motion direction"), std::string::npos);
 }
 
 TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
