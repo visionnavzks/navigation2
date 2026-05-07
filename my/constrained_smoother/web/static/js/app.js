@@ -71,8 +71,9 @@ document.addEventListener('DOMContentLoaded', () => {
     'loupe.cellCost': '栅格代价值',
     'loupe.esdfDistance': 'ESDF 距离',
     'weights.title': '平滑权重',
-    'weights.smoothWeightLabel': '平滑权重: <span id="val_smooth_weight">20</span>',
-    'weights.smoothWeightHint': '惩罚局部锯齿。调高后优化曲线会更平滑。',
+    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数。',
+    'weights.smoothWeightLabel': '模型权重: <span id="val_smooth_weight">20</span>',
+    'weights.smoothWeightHint': '这是运动学模型一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
     'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
     'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
@@ -247,7 +248,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.loadingCostmap': 'Loading costmap…',
       'status.costmapLoaded': 'Costmap loaded. Left-drag endpoints or obstacle rectangles to update the scene, or left-drag empty space to pan.',
       'status.costmapLoadFailed': 'Failed to load costmap: {message}',
-      'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms.',
+      'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms. {statsSummary}',
+      'status.pathStats': 'Returned {pointCount} pts, total {pathLength}, mean spacing {meanSpacing}.',
       'status.planFallback': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix} so the reference path is shown. {smoothMessage}',
       'status.planRejectedShown': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix}. The rejected smoothed candidate is still shown. {smoothMessage}',
       'selection.ready': 'Markers ready',
@@ -368,7 +370,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.loadingCostmap': '正在加载代价地图…',
       'status.costmapLoaded': '代价地图已加载。可左键拖拽端点或障碍矩形更新场景，或左键拖拽空白区域平移视图。',
       'status.costmapLoadFailed': '加载代价地图失败：{message}',
-      'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。',
+      'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。{statsSummary}',
+      'status.pathStats': '返回 {pointCount} 个点，总长度 {pathLength}，平均间距 {meanSpacing}。',
       'status.planFallback': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}，因此当前显示参考路径。{smoothMessage}',
       'status.planRejectedShown': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}。当前仍显示被拒绝的平滑候选路径。{smoothMessage}',
       'selection.ready': '标记点就绪',
@@ -558,6 +561,15 @@ document.addEventListener('DOMContentLoaded', () => {
     fn_tol: value => formatScientific(value),
     gradient_tol: value => formatScientific(value),
   };
+  const optimizerScopedSliderIds = [
+    'smooth_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
+    'distance_weight', 'curvature_weight', 'curvature_rate_weight', 'max_curvature',
+    'reference_spacing_target_m', 'max_iterations', 'max_time',
+    'path_downsampling_factor', 'path_upsampling_factor',
+  ];
+  const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
+  const optimizerScopedSelectIds = ['linear_solver_type'];
+  const optimizerScopedCheckboxIds = ['optimizer_debug'];
   const numericInputs = Object.keys(numericInputConfig);
   const selectParamIds = ['optimizer_type', 'linear_solver_type'];
   const checkboxParamIds = ['optimizer_debug'];
@@ -624,6 +636,11 @@ document.addEventListener('DOMContentLoaded', () => {
     dragOffsetX: 0,
     dragOffsetY: 0,
     pendingAutoPlanTimer: null,
+    currentOptimizerType: optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother',
+    optimizerProfiles: {
+      constrained_smoother: null,
+      kinematic_smoother: null,
+    },
     mapDisplayMode: 'costmap',
     esdfColormap: 'diverging',
     layers: {
@@ -645,6 +662,99 @@ document.addEventListener('DOMContentLoaded', () => {
   let activePlanRequestId = 0;
   let activeObstacleUpdateRequestId = 0;
 
+  function updateSliderReadout(id) {
+    const input = document.getElementById(id);
+    const label = document.getElementById('val_' + id);
+    if (!input || !label) {
+      return;
+    }
+    label.textContent = sliderConfig[id](parseFloat(input.value));
+  }
+
+  function updateNumericReadout(id) {
+    const input = document.getElementById(id);
+    const label = document.getElementById('val_' + id);
+    if (!input || !label) {
+      return;
+    }
+    const value = parseFloat(input.value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    label.textContent = numericInputConfig[id](value);
+  }
+
+  function captureOptimizerProfile() {
+    return {
+      sliders: Object.fromEntries(optimizerScopedSliderIds.map(id => [id, document.getElementById(id)?.value ?? null])),
+      numerics: Object.fromEntries(optimizerScopedNumericIds.map(id => [id, document.getElementById(id)?.value ?? null])),
+      selects: Object.fromEntries(optimizerScopedSelectIds.map(id => [id, document.getElementById(id)?.value ?? null])),
+      checkboxes: Object.fromEntries(optimizerScopedCheckboxIds.map(id => [id, Boolean(document.getElementById(id)?.checked)])),
+    };
+  }
+
+  function applyOptimizerProfile(profile) {
+    if (!profile) {
+      return;
+    }
+
+    optimizerScopedSliderIds.forEach(id => {
+      const input = document.getElementById(id);
+      const value = profile.sliders?.[id];
+      if (!input || value === null || value === undefined) {
+        return;
+      }
+      input.value = value;
+      updateSliderReadout(id);
+    });
+
+    optimizerScopedNumericIds.forEach(id => {
+      const input = document.getElementById(id);
+      const value = profile.numerics?.[id];
+      if (!input || value === null || value === undefined) {
+        return;
+      }
+      input.value = value;
+      updateNumericReadout(id);
+    });
+
+    optimizerScopedSelectIds.forEach(id => {
+      const input = document.getElementById(id);
+      const value = profile.selects?.[id];
+      if (!input || value === null || value === undefined) {
+        return;
+      }
+      input.value = value;
+    });
+
+    optimizerScopedCheckboxIds.forEach(id => {
+      const input = document.getElementById(id);
+      if (!input || !profile.checkboxes || !Object.prototype.hasOwnProperty.call(profile.checkboxes, id)) {
+        return;
+      }
+      input.checked = Boolean(profile.checkboxes[id]);
+    });
+
+    syncDerivedParameterInfo();
+    drawCurvatureChart();
+  }
+
+  function initializeOptimizerProfiles() {
+    const initialProfile = captureOptimizerProfile();
+    state.optimizerProfiles.constrained_smoother = {
+      sliders: {...initialProfile.sliders},
+      numerics: {...initialProfile.numerics},
+      selects: {...initialProfile.selects},
+      checkboxes: {...initialProfile.checkboxes},
+    };
+    state.optimizerProfiles.kinematic_smoother = {
+      sliders: {...initialProfile.sliders},
+      numerics: {...initialProfile.numerics},
+      selects: {...initialProfile.selects},
+      checkboxes: {...initialProfile.checkboxes},
+    };
+  }
+
   sliders.forEach(id => {
     const input = document.getElementById(id);
     if (!input || !document.getElementById('val_' + id)) {
@@ -652,11 +762,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const sync = () => {
-      const label = document.getElementById('val_' + id);
-      if (!label) {
-        return;
-      }
-      label.textContent = sliderConfig[id](parseFloat(input.value));
+      updateSliderReadout(id);
       if (id === 'start_yaw_deg' || id === 'goal_yaw_deg') {
         updateSelectionInfo();
         draw();
@@ -680,15 +786,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const sync = () => {
-      const label = document.getElementById('val_' + id);
-      if (!label) {
-        return;
-      }
-      const value = parseFloat(input.value);
-      if (!Number.isFinite(value)) {
-        return;
-      }
-      label.textContent = numericInputConfig[id](value);
+      updateNumericReadout(id);
     };
 
     input.addEventListener('input', sync);
@@ -742,7 +840,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (optimizerTypeSelect) {
     optimizerTypeSelect.addEventListener('change', () => {
+      const previousOptimizerType = state.currentOptimizerType;
+      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
+        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
+      }
+      state.currentOptimizerType = optimizerTypeSelect.value;
+      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
       updateOptimizerUi();
+      scheduleAutoPlan();
     });
   }
 
@@ -777,6 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   syncDerivedParameterInfo();
   updateRobotConfigUi();
+  initializeOptimizerProfiles();
   clearOptimizedPointInspector();
   clearCurvatureChart();
 
@@ -950,6 +1056,32 @@ document.addEventListener('DOMContentLoaded', () => {
       return '--';
     }
     return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} ${t('unit.meter')}`;
+  }
+
+  function buildPathStatsSummary(pathData) {
+    const pointCount = Number(pathData?.num_returned_pts ?? pathData?.num_opt_pts);
+    const totalLength = Number(pathData?.opt_path_length_m);
+    const xs = pathData?.opt_x || [];
+    const ys = pathData?.opt_y || [];
+    let meanSpacing = Number.NaN;
+
+    if (xs.length >= 2 && ys.length >= 2) {
+      let spacingSum = 0;
+      let segmentCount = 0;
+      for (let idx = 1; idx < Math.min(xs.length, ys.length); idx += 1) {
+        spacingSum += Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
+        segmentCount += 1;
+      }
+      meanSpacing = segmentCount > 0 ? spacingSum / segmentCount : Number.NaN;
+    } else if (Number.isFinite(totalLength) && Number.isFinite(pointCount) && pointCount > 1) {
+      meanSpacing = totalLength / (pointCount - 1);
+    }
+
+    return t('status.pathStats', {
+      pointCount: Number.isFinite(pointCount) ? String(pointCount) : '--',
+      pathLength: formatMeters(totalLength),
+      meanSpacing: formatMeters(meanSpacing, 3),
+    });
   }
 
   function formatAngleDiagnostic(anglePayload) {
@@ -3191,6 +3323,7 @@ document.addEventListener('DOMContentLoaded', () => {
             optimizerLabel,
             astarTimeMs: data.astar_time_ms,
             smoothTimeMs: data.smooth_time_ms,
+            statsSummary: buildPathStatsSummary(data),
           })
           : showsRejectedCandidate
             ? t('status.planRejectedShown', {
@@ -3491,6 +3624,7 @@ document.addEventListener('DOMContentLoaded', () => {
             optimizerLabel,
             astarTimeMs: state.paths.astar_time_ms,
             smoothTimeMs: state.paths.smooth_time_ms,
+            statsSummary: buildPathStatsSummary(state.paths),
           })
           : showsRejectedCandidate
             ? t('status.planRejectedShown', {

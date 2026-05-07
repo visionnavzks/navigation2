@@ -578,21 +578,6 @@ private:
           "Kinematic smoother returned a path whose motion direction violates the input gear and endpoint constraints",
           static_cast<int>(index));
       }
-
-      if (request.params.keep_goal_orientation && index + 1 == request.state_count - 1) {
-        const double terminal_segment_heading = std::atan2(dy, dx) + (gear < 0.0 ? M_PI : 0.0);
-        if (std::abs(angleDifference(terminal_segment_heading, request.end_theta)) > angle_tol) {
-          return throwOrStoreSmoothingFailure(
-            failure,
-            SmoothingFailureReason::GoalOrientationConstraint,
-            describeOrientationViolation(
-              "Kinematic smoother violated the fixed goal orientation constraint on the terminal segment",
-              terminal_segment_heading,
-              request.end_theta,
-              angle_tol),
-            static_cast<int>(index + 1));
-        }
-      }
     }
 
     return true;

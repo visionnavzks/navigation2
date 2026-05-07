@@ -211,10 +211,11 @@
 
         <details open class="details-card">
           <summary data-i18n="weights.title">Smoother Weights</summary>
+          <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver.</p>
           <div class="param-group">
-            <label data-i18n-html="weights.smoothWeightLabel">Smooth Weight: <span id="val_smooth_weight">20</span></label>
+            <label data-i18n-html="weights.smoothWeightLabel">Model Weight: <span id="val_smooth_weight">20</span></label>
             <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
-            <p class="param-hint" data-i18n="weights.smoothWeightHint">Penalizes local jaggedness. Raise it to make the optimized curve more globally smooth.</p>
+            <p class="param-hint" data-i18n="weights.smoothWeightHint">Raw weight for the kinematic model-consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
           </div>
           <div class="param-group">
             <label data-i18n-html="weights.obstacleWeightLabel">Obstacle Weight: <span id="val_costmap_weight">1.000</span></label>

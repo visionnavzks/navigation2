@@ -873,7 +873,7 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   EXPECT_NE(error_message.find("motion_direction_constraint@"), std::string::npos);
 }
 
-TEST(SmootherValidatorTest, KinematicGoalOrientationUsesTerminalSegmentHeading)
+TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
 {
   constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
 
@@ -898,7 +898,7 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesTerminalSegmentHeading)
   constrained_smoother::SmoothingFailureInfo failure;
   constrained_smoother::SmootherValidator validator;
 
-  EXPECT_FALSE(validator.validateKinematicSolution(
+  EXPECT_TRUE(validator.validateKinematicSolution(
       {
         variables,
         reference_points,
@@ -912,9 +912,9 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesTerminalSegmentHeading)
         esdf_values,
       },
       &failure));
-  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalOrientationConstraint);
-  EXPECT_EQ(failure.failed_index, 2);
-  EXPECT_NE(failure.message.find("terminal segment"), std::string::npos);
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::Unknown);
+  EXPECT_EQ(failure.failed_index, -1);
+  EXPECT_TRUE(failure.message.empty());
 }
 
 TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)
