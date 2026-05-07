@@ -119,7 +119,7 @@
             <p class="param-hint" data-i18n="session.goalHeadingHint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
           </div>
 
-          <p class="param-hint" data-i18n-html="session.reversingHint">The standalone build still defines <strong>reversing_enabled</strong>, but this implementation does not currently read it, so it remains intentionally hidden from the UI.</p>
+          <p class="param-hint" data-i18n-html="session.reversingHint">The API now honors <strong>reversing_enabled</strong> for the kinematic smoother, but the Web Lab still keeps per-waypoint direction signs as the primary source of reversing behavior, so this compatibility flag remains hidden here.</p>
 
           <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
 

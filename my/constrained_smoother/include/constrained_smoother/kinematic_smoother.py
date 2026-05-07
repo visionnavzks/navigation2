@@ -116,7 +116,7 @@ class KinematicSmoother:
 
         if num_points == 1:
             # 第 2 步：单点路径不需要优化，直接返回退化状态链。
-            theta0 = raw_path[0, 2] if raw_path.shape[1] == 3 else 0.0
+            theta0 = 0.0
             single_state = np.array([[raw_path[0, 0], raw_path[0, 1], theta0, 0.0, 0.0]])
             return single_state, OptimizeResult(
                 x=single_state.flatten(),
@@ -129,7 +129,10 @@ class KinematicSmoother:
             )
 
         if gear_directions is None:
-            gear_directions = np.ones(num_points - 1, dtype=float)
+            if raw_path.shape[1] == 3:
+                gear_directions = np.where(raw_path[:-1, 2] < 0.0, -1.0, 1.0)
+            else:
+                gear_directions = np.ones(num_points - 1, dtype=float)
         else:
             gear_directions = np.asarray(gear_directions, dtype=float)
             if gear_directions.shape != (num_points - 1,):
@@ -183,10 +186,8 @@ class KinematicSmoother:
             else:
                 theta_init[index] = theta_init[index - 1] if index > 0 else 0.0
 
-        # 第 5 步：若输入已经提供 yaw，则优先用它们初始化边界姿态。
+        # 第 5 步：边界姿态沿用几何和 gear 推断，不把 direction_sign 当 yaw。
         theta_init[-1] = theta_init[-2]
-        if raw_path.shape[1] == 3:
-            theta_init[0] = raw_path[0, 2]
 
         kappa_init = np.zeros(state_count)
         ds_init = np.zeros(state_count)
@@ -204,11 +205,11 @@ class KinematicSmoother:
 
         start_pose = np.zeros(3)
         start_pose[:2] = processed_path[0, :2]
-        start_pose[2] = theta_init[0] if raw_path.shape[1] < 3 else raw_path[0, 2]
+        start_pose[2] = theta_init[0]
 
         end_pose = np.zeros(3)
         end_pose[:2] = processed_path[-1, :2]
-        end_pose[2] = theta_init[-1] if raw_path.shape[1] < 3 else raw_path[-1, 2]
+        end_pose[2] = theta_init[-1]
 
         lower_bounds = np.full(5 * state_count, -np.inf)
         upper_bounds = np.full(5 * state_count, np.inf)

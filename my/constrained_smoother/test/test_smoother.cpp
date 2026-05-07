@@ -412,6 +412,59 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathInsertsCuspState)
   EXPECT_EQ(processed.initial_variables.size(), processed.state_count * 5);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathHonorsDisabledReversing)
+{
+  constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, -1.0},
+    {0.5, 0.0, -1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.reversing_enabled = false;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  const auto processed = constrained_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(1.0, 0.0),
+    params,
+    &costmap);
+
+  EXPECT_EQ(processed.state_count, 3u);
+  ASSERT_EQ(processed.gears.size(), 2u);
+  ASSERT_EQ(processed.is_cusp_segment.size(), 2u);
+  EXPECT_DOUBLE_EQ(processed.gears[0], 1.0);
+  EXPECT_DOUBLE_EQ(processed.gears[1], 1.0);
+  EXPECT_FALSE(processed.is_cusp_segment[0]);
+  EXPECT_FALSE(processed.is_cusp_segment[1]);
+}
+
+TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
+{
+  constrained_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_cost(
+    1.0, false, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0);
+  const double current_state[5] = {0.0, 0.0, 0.0, 2.0, 1.0};
+  const double next_state[5] = {0.0, 0.0, 0.0, 2.0, 0.0};
+  double curvature_residuals[6] = {};
+
+  EXPECT_TRUE(curvature_cost(current_state, next_state, curvature_residuals));
+  EXPECT_DOUBLE_EQ(curvature_residuals[3], 6.0);
+  EXPECT_DOUBLE_EQ(curvature_residuals[4], 0.0);
+
+  constrained_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_rate_cost(
+    1.0, false, 0.0, 0.0, 4.0, 0.0, 0.0, 1.0);
+  const double rate_current_state[5] = {0.0, 0.0, 0.0, 1.0, 4.0};
+  const double rate_next_state[5] = {0.0, 0.0, 0.0, 3.0, 0.0};
+  double curvature_rate_residuals[6] = {};
+
+  EXPECT_TRUE(curvature_rate_cost(rate_current_state, rate_next_state, curvature_rate_residuals));
+  EXPECT_DOUBLE_EQ(curvature_rate_residuals[3], 0.0);
+  EXPECT_DOUBLE_EQ(curvature_rate_residuals[4], 4.0);
+}
+
 TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryBlocks)
 {
   constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
@@ -982,6 +1035,47 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
   params.max_time = 1.0;
   params.cost_check_radius = 0.18;
   params.cost_check_points = {0.0, 0.0, 1.0};
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 20;
+
+  constrained_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  const std::string error_message = expectFailedToSmoothPath(
+    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
+
+  EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
+}
+
+TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+  for (unsigned int y = 35; y < 45; ++y) {
+    for (unsigned int x = 36; x < 42; ++x) {
+      costmap.setCost(x, y, constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
+    }
+  }
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {1.5, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(20.0);
+  params.costmap_weight_sqrt = std::sqrt(0.0);
+  params.cusp_costmap_weight_sqrt = std::sqrt(0.0);
+  params.distance_weight_sqrt = std::sqrt(0.0);
+  params.curvature_weight_sqrt = std::sqrt(30.0);
+  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.cost_check_radius = 0.18;
 
   constrained_smoother::OptimizerParams opt_params;
   opt_params.max_iterations = 20;

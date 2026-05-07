@@ -40,14 +40,16 @@ public:
     double gear,
     bool is_cusp_segment,
     double model_weight,
-    double smooth_weight,
+    double curvature_weight,
+    double curvature_rate_weight,
     double spacing_weight,
     double fix_weight,
     double target_spacing)
   : gear_(gear),
     is_cusp_segment_(is_cusp_segment),
     model_weight_(model_weight),
-    smooth_weight_(smooth_weight),
+    curvature_weight_(curvature_weight),
+    curvature_rate_weight_(curvature_rate_weight),
     spacing_weight_(spacing_weight),
     fix_weight_(fix_weight),
     target_spacing_(target_spacing)
@@ -56,13 +58,13 @@ public:
 
   ceres::CostFunction * AutoDiff()
   {
-    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 5, 5, 5>(this);
+    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 6, 5, 5>(this);
   }
 
   template<typename T>
   bool operator()(const T * const current, const T * const next, T * residuals) const
   {
-    Eigen::Map<Eigen::Matrix<T, 5, 1>> residual(residuals);
+    Eigen::Map<Eigen::Matrix<T, 6, 1>> residual(residuals);
     residual.setZero();
 
     const T x = current[0];
@@ -80,7 +82,7 @@ public:
       residual[0] = T(fix_weight_) * (next_x - x);
       residual[1] = T(fix_weight_) * (next_y - y);
       residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);
-      residual[4] = T(spacing_weight_) * T(10.0) * ds;
+      residual[5] = T(spacing_weight_) * T(10.0) * ds;
       return true;
     }
 
@@ -94,8 +96,9 @@ public:
     residual[0] = T(model_weight_) * (next_x - x_pred);
     residual[1] = T(model_weight_) * (next_y - y_pred);
     residual[2] = T(model_weight_) * angleDiff(next_theta, theta_pred);
-    residual[3] = T(smooth_weight_) * (next_kappa - kappa) / denom;
-    residual[4] = T(spacing_weight_) * (ds - T(target_spacing_)) / T(target_spacing_);
+    residual[3] = T(curvature_weight_) * (kappa + next_kappa) * T(0.5);
+    residual[4] = T(curvature_rate_weight_) * (next_kappa - kappa) / denom;
+    residual[5] = T(spacing_weight_) * (ds - T(target_spacing_)) / T(target_spacing_);
     return true;
   }
 
@@ -139,7 +142,8 @@ private:
   double gear_;
   bool is_cusp_segment_;
   double model_weight_;
-  double smooth_weight_;
+  double curvature_weight_;
+  double curvature_rate_weight_;
   double spacing_weight_;
   double fix_weight_;
   double target_spacing_;

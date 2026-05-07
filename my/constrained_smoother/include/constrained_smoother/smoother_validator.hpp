@@ -588,7 +588,7 @@ private:
     SmoothingFailureInfo * failure) const
   {
     const double radius = std::max(request.params.cost_check_radius, 0.0);
-    if (request.params.cost_check_points.empty() || radius <= 1e-9) {
+    if (radius <= 1e-9) {
       return true;
     }
 
@@ -600,26 +600,41 @@ private:
       const double cos_theta = std::cos(theta);
       const double sin_theta = std::sin(theta);
 
-      for (size_t offset = 0; offset + 2 < request.params.cost_check_points.size(); offset += 3) {
-        const double local_x = request.params.cost_check_points[offset + 0];
-        const double local_y = request.params.cost_check_points[offset + 1];
-        const double world_x = x + cos_theta * local_x - sin_theta * local_y;
-        const double world_y = y + sin_theta * local_x + cos_theta * local_y;
-        const double clearance = clearanceAtWorldPoint(
-          request.costmap, request.esdf_values, world_x, world_y);
-        if (!std::isfinite(clearance)) {
-          return throwOrStoreSmoothingFailure(
-            failure,
-            SmoothingFailureReason::PathOutOfBounds,
-            "Kinematic smoother returned a path that leaves the map bounds during footprint validation",
-            static_cast<int>(state_index));
+      auto validate_checkpoint = [&](double local_x, double local_y) {
+          const double world_x = x + cos_theta * local_x - sin_theta * local_y;
+          const double world_y = y + sin_theta * local_x + cos_theta * local_y;
+          const double clearance = clearanceAtWorldPoint(
+            request.costmap, request.esdf_values, world_x, world_y);
+          if (!std::isfinite(clearance)) {
+            return throwOrStoreSmoothingFailure(
+              failure,
+              SmoothingFailureReason::PathOutOfBounds,
+              "Kinematic smoother returned a path that leaves the map bounds during footprint validation",
+              static_cast<int>(state_index));
+          }
+          if (clearance < radius) {
+            return throwOrStoreSmoothingFailure(
+              failure,
+              SmoothingFailureReason::FootprintCollision,
+              "Kinematic smoother returned a path that collides with obstacles during footprint validation",
+              static_cast<int>(state_index));
+          }
+          return true;
+        };
+
+      if (request.params.cost_check_points.empty()) {
+        if (!validate_checkpoint(0.0, 0.0)) {
+          return false;
         }
-        if (clearance < radius) {
-          return throwOrStoreSmoothingFailure(
-            failure,
-            SmoothingFailureReason::FootprintCollision,
-            "Kinematic smoother returned a path that collides with obstacles during footprint validation",
-            static_cast<int>(state_index));
+        continue;
+      }
+
+      for (size_t offset = 0; offset + 2 < request.params.cost_check_points.size(); offset += 3) {
+        if (!validate_checkpoint(
+            request.params.cost_check_points[offset + 0],
+            request.params.cost_check_points[offset + 1]))
+        {
+          return false;
         }
       }
     }

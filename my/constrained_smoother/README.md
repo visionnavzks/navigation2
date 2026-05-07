@@ -21,7 +21,7 @@ These are the most important behavior contracts in the current standalone implem
 4. `cost_check_points` is used as-is.
 	 - The standalone build does not preprocess footprint sample weights the way the ROS plugin layer does.
 	 - Pass triples of `(x_local, y_local, weight)` in the robot local frame.
-5. `reversing_enabled` is kept for compatibility but is not currently read by the standalone smoother.
+5. `reversing_enabled=false` forces the kinematic smoother to treat every segment as forward motion.
 6. `max_curvature` is curvature in `1 / m`, not minimum turning radius.
 7. Steering is not an explicit optimization state.
 	 - The smoother optimizes 2D path geometry and reconstructs `yaw` afterward from local tangents.
@@ -145,6 +145,7 @@ solver / post-validation failure
 - Python 脚本或 notebook 想快速试算法，且失败时愿意直接抛异常中断：可以直接用 pybind 暴露的 `smooth(...)`。
 - Python 服务、前端桥接层或批处理脚本想稳定收集失败信息：优先用 `try_smooth(...)` / `try_smooth_with_planner_esdf(...)`。
 - 纯 Python SciPy 原型只关心运动学状态优化，不依赖 C++ Ceres / ESDF 集成：用 `include/constrained_smoother/kinematic_smoother.py` 里的 `try_optimize(...)`。
+	- 它和 C++ 一样把输入第三列解释为 `direction_sign`，不会把它当成 yaw。
 - Flask Web API 场景通常不应直接把 native 异常冒到前端，而应继续沿用结构化 `error` / `smooth_error` 返回。
 
 ### 后端切换最小改动指南

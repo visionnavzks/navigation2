@@ -96,7 +96,11 @@ public:
     std::vector<double> gear_directions;
     gear_directions.reserve(path.size() - 1);
     for (size_t index = 0; index + 1 < path.size(); ++index) {
-      gear_directions.push_back(path[index].z() < 0.0 ? -1.0 : 1.0);
+      if (params.reversing_enabled) {
+        gear_directions.push_back(path[index].z() < 0.0 ? -1.0 : 1.0);
+      } else {
+        gear_directions.push_back(1.0);
+      }
     }
 
     processed.reference_points.emplace_back(path.front().x(), path.front().y());
@@ -178,8 +182,8 @@ public:
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
     const double model_weight = std::max(params.smooth_weight_sqrt, 1.0);
-    const double smooth_weight =
-      std::max(std::max(params.curvature_rate_weight_sqrt, params.curvature_weight_sqrt), 1.0);
+    const double curvature_weight = std::max(params.curvature_weight_sqrt, 0.0);
+    const double curvature_rate_weight = std::max(params.curvature_rate_weight_sqrt, 0.0);
     const double spacing_weight = 1.0;
     const double fix_weight = 100.0;
     const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);
@@ -190,7 +194,8 @@ public:
         processed.gears[index],
         processed.is_cusp_segment[index],
         model_weight,
-        smooth_weight,
+        curvature_weight,
+        curvature_rate_weight,
         spacing_weight,
         fix_weight,
         processed.target_spacing);

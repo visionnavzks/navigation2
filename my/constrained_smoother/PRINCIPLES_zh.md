@@ -686,7 +686,7 @@ Bezier 生成的中间点先只写入坐标，yaw 先置零。随后代码再遍
 3. `cost_check_points` 的第三列权重已经按自己需要预处理。
 4. `obstacle_safe_distance` 已经按机器人真实安全包络设好，因为当前避障项直接基于它做 ESDF 距离惩罚。
 
-另外，`SmootherParams` 中保留了 `reversing_enabled` 字段，但当前独立版实现并未读取它。也就是说，当前版本始终假设输入路径第三维已经正确编码了前进/倒车方向，并据此做尖点检测与后处理姿态恢复。
+另外，`reversing_enabled=false` 时，运动学版会强制把所有段视为前进段，不再根据输入第三维切分倒车段或插入 cusp。默认值仍是 `true`，此时才会把输入第三维当成 `direction_sign` 来做前进/倒车判定。
 
 ## 12. 已知前提与限制
 
