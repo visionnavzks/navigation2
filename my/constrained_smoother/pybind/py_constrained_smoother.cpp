@@ -171,11 +171,13 @@ py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & erro
   return result;
 }
 
-py::dict make_error_result(const constrained_smoother::SmoothingFailureInfo & failure)
+py::dict make_error_result(
+  const constrained_smoother::SmoothingFailureInfo & failure,
+  const py::object & path = py::none())
 {
   py::dict result;
   result["ok"] = false;
-  result["path"] = py::none();
+  result["path"] = path;
   result["error_code"] = py::str(
     constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::FailedToSmoothPath));
   result["error_message"] = py::str(failure.message);
@@ -457,7 +459,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
         const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
         constrained_smoother::SmoothingFailureInfo failure;
         if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
-          return make_error_result(failure);
+          return make_error_result(failure, py::cast(path));
         }
 
         py::dict result;
@@ -531,7 +533,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
         const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
         constrained_smoother::SmoothingFailureInfo failure;
         if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-          return make_error_result(failure);
+          return make_error_result(failure, py::cast(path));
         }
 
         py::dict result;
@@ -616,7 +618,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
           const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
           constrained_smoother::SmoothingFailureInfo failure;
           if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
-            return make_error_result(failure);
+            return make_error_result(failure, py::cast(path));
           }
 
           py::dict result;
@@ -690,7 +692,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
           const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
           constrained_smoother::SmoothingFailureInfo failure;
           if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-            return make_error_result(failure);
+            return make_error_result(failure, py::cast(path));
           }
 
           py::dict result;

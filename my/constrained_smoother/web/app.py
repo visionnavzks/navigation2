@@ -263,6 +263,8 @@ def _build_pipeline_payload(stages):
 # ---- Planner / smoother / validation pipeline stages ----
 
 def _run_astar_stage(
+    costmap_grid,
+    esdf_grid,
     planner_costmap,
     footprint_model,
     planner_penalty_weight,
@@ -310,11 +312,21 @@ def _run_astar_stage(
     astar_time_ms = (time.time() - t0) * 1000.0
 
     if not raw_path:
+        failure = _diagnose_astar_no_path(
+            costmap_grid,
+            esdf_grid,
+            footprint_model,
+            start_x,
+            start_y,
+            goal_x,
+            goal_y,
+        )
         raise ApiError(
             ERROR_ASTAR_NO_PATH,
-            "A* could not find a path.",
+            failure["message"],
             status_code=409,
             source="planner",
+            details=failure,
         )
 
     raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
@@ -367,7 +379,7 @@ def _run_smoother_stage(
         smooth_time_ms: Optimizer wall time in milliseconds.
         smooth_message: Human-readable fallback or failure message.
         smooth_error: Structured error payload or None.
-        candidate_smoothed: Candidate path before rectangle fallback logic, or None.
+        candidate_smoothed: Candidate path emitted by the backend, even when post-validation later rejects it.
         returned_path: Path forwarded to the next stage.
         optimized_knot_count: Backend-reported optimized knot/state count.
         stage: Pipeline-stage payload for frontend status rendering.
@@ -396,9 +408,10 @@ def _run_smoother_stage(
             planner,
         )
         smooth_time_ms = (time.time() - t0) * 1000.0
+        if smooth_result.get("path") is not None:
+            candidate_smoothed = smooth_result["path"]
         smooth_success = bool(smooth_result["ok"])
         if smooth_success:
-            candidate_smoothed = smooth_result["path"]
             returned_path = candidate_smoothed
             stage = _make_pipeline_stage(
                 "smoother",
@@ -418,7 +431,7 @@ def _run_smoother_stage(
                 smooth_message or "Optimizer failed; using the reference path.",
                 elapsed_ms=smooth_time_ms,
                 error_code=smooth_error.get("code"),
-                path_key="reference_fallback",
+                path_key="smoothed_candidate" if candidate_smoothed is not None else "reference_fallback",
             )
     except Exception as exc:
         smooth_time_ms = (time.time() - t0) * 1000.0
@@ -464,16 +477,16 @@ def _run_validation_stage(
         smooth_success: Final success flag after candidate validation.
         smooth_error: Structured smoother or validation error payload.
         smooth_message: Human-readable status/fallback message.
-        returned_path: Path that should be exposed to the frontend.
+        returned_path: Path that should be exposed to the frontend, including rejected candidates kept for visualization.
         candidate_rectangle_validation: Validation result for the candidate path, if any.
         final_rectangle_validation: Validation result for the actually returned path.
         stage: Rectangle-validation pipeline-stage payload.
         response_stage: Final web response-stage payload.
     """
     candidate_rectangle_validation = None
-    returned_path = candidate_smoothed if smooth_success and candidate_smoothed is not None else reference_with_yaw
+    returned_path = candidate_smoothed if candidate_smoothed is not None else reference_with_yaw
 
-    if smooth_success and candidate_smoothed is not None:
+    if candidate_smoothed is not None:
         candidate_rectangle_validation = _validate_smoothed_path_rectangles(
             costmap_grid,
             [pose[0] for pose in candidate_smoothed],
@@ -487,7 +500,6 @@ def _run_validation_stage(
             smooth_success = False
             smooth_error = _build_validation_error_payload(candidate_rectangle_validation)
             smooth_message = smooth_error["message"]
-            returned_path = reference_with_yaw
 
     final_rectangle_validation = _validate_smoothed_path_rectangles(
         costmap_grid,
@@ -497,9 +509,7 @@ def _run_validation_stage(
         robot_length_m,
         robot_width_m,
     )
-    final_rectangle_validation["validated_path"] = (
-        "smoothed_path" if smooth_success else "reference_fallback"
-    )
+    final_rectangle_validation["validated_path"] = "smoothed_path" if returned_path is candidate_smoothed else "reference_fallback"
 
     if not final_rectangle_validation["valid"]:
         validation_stage = _make_pipeline_stage(
@@ -522,18 +532,18 @@ def _run_validation_stage(
         validation_stage = _make_pipeline_stage(
             "validate",
             "Rectangle Validate",
-            "fallback",
+            "error",
             candidate_rectangle_validation["message"],
             error_code=candidate_rectangle_validation["error_code"],
-            path_key="reference_fallback",
+            path_key="smoothed_path",
         )
         response_stage = _make_pipeline_stage(
             "web",
             "Web",
-            "fallback",
-            "Showing the reference fallback path on the web after candidate validation failed.",
+            "error",
+            "Showing the smoothed candidate on the web even though candidate validation failed.",
             error_code=(smooth_error or {}).get("code"),
-            path_key="reference_fallback",
+            path_key="smoothed_path",
         )
     else:
         validation_stage = _make_pipeline_stage(
@@ -733,6 +743,186 @@ def _serialize_validation_scalar(value, digits=4):
     if not math.isfinite(numeric_value):
         return None
     return round(numeric_value, digits)
+
+
+def _world_to_costmap_cell(world_x, world_y):
+    return (
+        int((world_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION),
+        int((world_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION),
+    )
+
+
+def _costmap_cell_in_bounds(grid, mx, my):
+    size_y, size_x = grid.shape
+    return 0 <= mx < size_x and 0 <= my < size_y
+
+
+def _build_astar_endpoint_payload(endpoint, world_x, world_y, mx, my):
+    return {
+        "endpoint": endpoint,
+        "world_x": _serialize_validation_scalar(world_x),
+        "world_y": _serialize_validation_scalar(world_y),
+        "mx": int(mx),
+        "my": int(my),
+    }
+
+
+def _diagnose_astar_endpoint(
+    grid,
+    esdf_grid,
+    footprint_model,
+    endpoint,
+    world_x,
+    world_y,
+    yaw,
+):
+    mx, my = _world_to_costmap_cell(world_x, world_y)
+    endpoint_payload = _build_astar_endpoint_payload(endpoint, world_x, world_y, mx, my)
+
+    if not _costmap_cell_in_bounds(grid, mx, my):
+        return {
+            "reason": f"{endpoint}_out_of_bounds",
+            "message": f"A* could not find a path because the {endpoint} pose lies outside the costmap bounds.",
+            endpoint: endpoint_payload,
+        }
+
+    endpoint_payload["cell_cost"] = int(grid[my, mx])
+    if endpoint_payload["cell_cost"] >= int(pcs.Costmap2D.LETHAL_OBSTACLE):
+        return {
+            "reason": f"{endpoint}_in_lethal_obstacle",
+            "message": f"A* could not find a path because the {endpoint} pose lies inside a lethal obstacle cell.",
+            endpoint: endpoint_payload,
+        }
+
+    radius = max(float(footprint_model["check_radius"]), 0.0)
+    planner_points = footprint_model["planner_points"]
+    if not planner_points or radius <= 1e-9:
+        return None
+
+    cos_yaw = math.cos(yaw)
+    sin_yaw = math.sin(yaw)
+    min_clearance = math.inf
+    min_clearance_sample = None
+    for offset in range(0, len(planner_points), 2):
+        local_x = float(planner_points[offset])
+        local_y = float(planner_points[offset + 1])
+        checkpoint_world_x = world_x + cos_yaw * local_x - sin_yaw * local_y
+        checkpoint_world_y = world_y + sin_yaw * local_x + cos_yaw * local_y
+        checkpoint_mx, checkpoint_my = _world_to_costmap_cell(checkpoint_world_x, checkpoint_world_y)
+
+        if not _costmap_cell_in_bounds(grid, checkpoint_mx, checkpoint_my):
+            return {
+                "reason": f"{endpoint}_footprint_out_of_bounds",
+                "message": f"A* could not find a path because the {endpoint} footprint leaves the costmap bounds.",
+                endpoint: endpoint_payload,
+                "checkpoint": {
+                    "index": offset // 2,
+                    "local_x": _serialize_validation_scalar(local_x),
+                    "local_y": _serialize_validation_scalar(local_y),
+                    "world_x": _serialize_validation_scalar(checkpoint_world_x),
+                    "world_y": _serialize_validation_scalar(checkpoint_world_y),
+                    "mx": int(checkpoint_mx),
+                    "my": int(checkpoint_my),
+                },
+            }
+
+        if esdf_grid is None:
+            continue
+
+        clearance = float(esdf_grid[checkpoint_my, checkpoint_mx])
+        if clearance < min_clearance:
+            min_clearance = clearance
+            min_clearance_sample = {
+                "mx": int(checkpoint_mx),
+                "my": int(checkpoint_my),
+                "world_x": _serialize_validation_scalar(checkpoint_world_x),
+                "world_y": _serialize_validation_scalar(checkpoint_world_y),
+            }
+
+    if esdf_grid is not None and min_clearance < radius:
+        return {
+            "reason": f"{endpoint}_footprint_collision",
+            "message": (
+                f"A* could not find a path because the {endpoint} footprint is in collision or too close "
+                f"to obstacles (clearance {min_clearance:.3f} m, required {radius:.3f} m)."
+            ),
+            endpoint: endpoint_payload,
+            "required_clearance_m": _serialize_validation_scalar(radius),
+            "clearance_m": _serialize_validation_scalar(min_clearance),
+            "closest_observed_cell": min_clearance_sample,
+        }
+
+    return None
+
+
+def _diagnose_astar_no_path(
+    grid,
+    esdf_grid,
+    footprint_model,
+    start_x,
+    start_y,
+    goal_x,
+    goal_y,
+):
+    nominal_yaw = math.atan2(goal_y - start_y, goal_x - start_x)
+
+    start_failure = _diagnose_astar_endpoint(
+        grid,
+        esdf_grid,
+        footprint_model,
+        "start",
+        start_x,
+        start_y,
+        nominal_yaw,
+    )
+    if start_failure is not None:
+        start_failure["goal"] = _build_astar_endpoint_payload(
+            "goal",
+            goal_x,
+            goal_y,
+            *_world_to_costmap_cell(goal_x, goal_y),
+        )
+        return start_failure
+
+    goal_failure = _diagnose_astar_endpoint(
+        grid,
+        esdf_grid,
+        footprint_model,
+        "goal",
+        goal_x,
+        goal_y,
+        nominal_yaw,
+    )
+    if goal_failure is not None:
+        goal_failure["start"] = _build_astar_endpoint_payload(
+            "start",
+            start_x,
+            start_y,
+            *_world_to_costmap_cell(start_x, start_y),
+        )
+        return goal_failure
+
+    return {
+        "reason": "disconnected_free_space",
+        "message": (
+            "A* could not find a path because the start and goal are individually traversable, "
+            "but no connected corridor satisfies the current obstacle layout and footprint clearance constraints."
+        ),
+        "start": _build_astar_endpoint_payload(
+            "start",
+            start_x,
+            start_y,
+            *_world_to_costmap_cell(start_x, start_y),
+        ),
+        "goal": _build_astar_endpoint_payload(
+            "goal",
+            goal_x,
+            goal_y,
+            *_world_to_costmap_cell(goal_x, goal_y),
+        ),
+        "required_clearance_m": _serialize_validation_scalar(float(footprint_model["check_radius"])),
+        "safe_distance_m": _serialize_validation_scalar(float(footprint_model["safe_distance"])),
+    }
 
 
 def _build_validation_error_payload(validation):
@@ -1129,6 +1319,7 @@ def plan_and_smooth():
 
         with STATE_LOCK:
             costmap_grid = COSTMAP_GRID.copy()
+            esdf_grid = ESDF_GRID.copy() if ESDF_GRID is not None else None
             planner_costmap = _grid_to_pcs_costmap(costmap_grid)
 
         start_yaw_rad = math.radians(start_yaw_deg)
@@ -1138,6 +1329,8 @@ def plan_and_smooth():
 
         # ---- Stage 1: planner builds the reference path and sparse control chain ----
         planner_stage_result = _run_astar_stage(
+            costmap_grid,
+            esdf_grid,
             planner_costmap,
             footprint_model,
             planner_penalty_weight,

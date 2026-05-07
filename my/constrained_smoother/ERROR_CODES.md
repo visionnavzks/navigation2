@@ -40,7 +40,7 @@ Use the README failure-flow section to understand when errors are thrown vs stor
 | Code | Endpoint | Meaning | Typical Trigger | Recommended Handling |
 | --- | --- | --- | --- | --- |
 | `CS_INVALID_REQUEST` | `/api/obstacles`, `/api/plan` | Request payload failed validation. | Missing obstacle list, malformed numeric values, invalid shapes. | Fix request payload and retry. |
-| `CS_ASTAR_NO_PATH` | `/api/plan` | A* could not find a feasible route. | Start/goal outside map, blocked start/goal, fully obstructed corridor. | Adjust endpoints or obstacle layout. |
+| `CS_ASTAR_NO_PATH` | `/api/plan` | A* could not find a feasible route. | Start/goal outside map, blocked start/goal footprint, or fully obstructed corridor. | Inspect `error.details.reason`, then adjust endpoints, footprint, or obstacle layout. |
 | `CS_FINAL_PATH_NONFINITE` | `/api/plan` `smooth_error` | Final post-smoothing validation found non-finite pose values. | Smoothed candidate contains `NaN` or `Inf` in `x`, `y`, or `yaw`. | Reject the candidate path and inspect the optimizer output. |
 | `CS_FINAL_PATH_OUT_OF_BOUNDS` | `/api/plan` `smooth_error` | Final post-smoothing validation found the robot footprint outside the map. | Smoothed candidate leaves the costmap extent once the full rectangle footprint is applied. | Reject the candidate path; reduce deformation or adjust constraints. |
 | `CS_FINAL_PATH_COLLISION` | `/api/plan` `smooth_error` | Final post-smoothing validation found a footprint collision. | Smoothed candidate overlaps lethal cells after rectangle-footprint validation. | Reject the candidate path and fall back to the reference path. |
@@ -134,7 +134,7 @@ When smoothing runs, the web API may return these additional fields:
 }
 ```
 
-If `candidate_rectangle_validation.valid` is `false`, the smoothed candidate was rejected after optimization and the response falls back to the reference path.
+If `candidate_rectangle_validation.valid` is `false`, the smoothed candidate was rejected after optimization, `smooth_success` remains `false`, and the web response still returns that candidate path for visualization.
 
 ### pure Python SciPy helper
 

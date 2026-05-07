@@ -21,6 +21,7 @@
 #include "constrained_smoother/smoother_base.hpp"
 #include "constrained_smoother/smoother_path_ops.hpp"
 #include "constrained_smoother/smoother_run_base.hpp"
+#include "constrained_smoother/smoother_validator.hpp"
 #include "gtest/gtest.h"
 #include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/smoother_cost_function.hpp"
@@ -870,6 +871,50 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
     [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
 
   EXPECT_NE(error_message.find("motion_direction_constraint@"), std::string::npos);
+}
+
+TEST(SmootherValidatorTest, KinematicGoalOrientationUsesTerminalSegmentHeading)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    1.0, 2.0, 0.0, 0.0, 0.5,
+    1.5, 2.0, 0.0, 0.0, 0.5,
+    2.0, 2.2, M_PI / 4.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 2.0},
+    {1.5, 2.0},
+    {2.0, 2.2},
+  };
+  const std::vector<double> gears = {1.0, 1.0};
+  const std::vector<bool> is_cusp_segment = {false, false};
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = false;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_FALSE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        3,
+        0.0,
+        M_PI / 4.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalOrientationConstraint);
+  EXPECT_EQ(failure.failed_index, 2);
+  EXPECT_NE(failure.message.find("terminal segment"), std::string::npos);
 }
 
 TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)

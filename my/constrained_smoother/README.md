@@ -365,7 +365,7 @@ The standalone project now uses stable error codes instead of relying on free-fo
 	- It returns `ok`, `states`, `optimizer_result`, `error_code`, and `error_message`.
 - The Flask web API returns an `error` object on failures:
 - `POST /api/plan` also performs one final rectangle-footprint validation on the smoothed candidate before accepting it.
-	- If that post-validation fails, the API sets `smooth_success=false`, fills `smooth_error`, includes `candidate_rectangle_validation`, and falls back to the reference path.
+	- If that post-validation fails, the API sets `smooth_success=false`, fills `smooth_error`, includes `candidate_rectangle_validation`, and still returns the smoothed candidate for visualization.
 	- `final_rectangle_validation` always describes the path that is actually returned to the frontend.
 
 See `ERROR_CODES.md` for the full catalog and handling guidance.
@@ -373,11 +373,22 @@ See `ERROR_CODES.md` for the full catalog and handling guidance.
 ```json
 {
 	"success": false,
-	"message": "A* could not find a path.",
+	"message": "A* could not find a path because the goal pose lies inside a lethal obstacle cell.",
 	"error": {
 		"code": "CS_ASTAR_NO_PATH",
-		"message": "A* could not find a path.",
-		"source": "planner"
+		"message": "A* could not find a path because the goal pose lies inside a lethal obstacle cell.",
+		"source": "planner",
+		"details": {
+			"reason": "goal_in_lethal_obstacle",
+			"goal": {
+				"endpoint": "goal",
+				"world_x": 18.0,
+				"world_y": 18.0,
+				"mx": 180,
+				"my": 180,
+				"cell_cost": 254
+			}
+		}
 	}
 }
 ```

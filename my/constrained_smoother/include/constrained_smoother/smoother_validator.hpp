@@ -18,7 +18,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -167,6 +169,29 @@ private:
   static double orientationTolerance()
   {
     return 0.1;
+  }
+
+  static double radiansToDegrees(double radians)
+  {
+    return radians * 180.0 / M_PI;
+  }
+
+  static std::string describeOrientationViolation(
+    const std::string & prefix,
+    double actual_angle,
+    double expected_angle,
+    double tolerance)
+  {
+    const double error = std::abs(angleDifference(actual_angle, expected_angle));
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(2)
+           << prefix
+           << " by " << radiansToDegrees(error) << " deg ("
+           << std::setprecision(4) << error << " rad); tolerance "
+           << radiansToDegrees(tolerance) << " deg (" << tolerance << " rad); expected "
+           << std::setprecision(2) << radiansToDegrees(expected_angle) << " deg, got "
+           << radiansToDegrees(actual_angle) << " deg";
+    return stream.str();
   }
 
   static double displacementTolerance(const Costmap2D * costmap)
@@ -466,7 +491,11 @@ private:
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::GoalOrientationConstraint,
-        "Kinematic smoother violated the fixed goal orientation constraint",
+        describeOrientationViolation(
+          "Kinematic smoother violated the fixed goal orientation constraint",
+          goal_state[2],
+          request.end_theta,
+          angle_tol),
         static_cast<int>(request.state_count - 1));
     }
 
@@ -519,6 +548,21 @@ private:
           SmoothingFailureReason::MotionDirectionConstraint,
           "Kinematic smoother returned a path whose motion direction violates the input gear and endpoint constraints",
           static_cast<int>(index));
+      }
+
+      if (request.params.keep_goal_orientation && index + 1 == request.state_count - 1) {
+        const double terminal_segment_heading = std::atan2(dy, dx) + (gear < 0.0 ? M_PI : 0.0);
+        if (std::abs(angleDifference(terminal_segment_heading, request.end_theta)) > angle_tol) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::GoalOrientationConstraint,
+            describeOrientationViolation(
+              "Kinematic smoother violated the fixed goal orientation constraint on the terminal segment",
+              terminal_segment_heading,
+              request.end_theta,
+              angle_tol),
+            static_cast<int>(index + 1));
+        }
       }
     }
 

@@ -147,6 +147,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.referencePathHint': '降采样后的优化器输入',
     'layers.smoothedPath': '平滑路径',
     'layers.smoothedPathHint': 'Ceres 输出，按前进 / 倒车方向着色',
+    'layers.rejectedSmoothedPath': '失败的平滑路径',
+    'layers.rejectedSmoothedPathHint': '被后验证拒绝的候选结果，使用警示虚线样式显示',
     'layers.robotProjection': '机器人投影',
     'layers.robotProjectionHint': '沿平滑路径扫过的检查圆与虚线矩形验证轮廓',
     'run.title': '运行统计',
@@ -232,6 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.costmapLoadFailed': 'Failed to load costmap: {message}',
       'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms.',
       'status.planFallback': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix} so the reference path is shown. {smoothMessage}',
+      'status.planRejectedShown': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix}. The rejected smoothed candidate is still shown. {smoothMessage}',
       'selection.ready': 'Markers ready',
       'selection.dragMarker': 'Dragging marker',
       'selection.dragObstacle': 'Dragging obstacle',
@@ -251,6 +254,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'validation.path.smoothed_candidate': 'Rejected smoothed candidate',
       'validation.path.reference_fallback': 'Returned reference path',
       'validation.path.smoothed_path': 'Returned smoothed path',
+      'layers.rejectedSmoothedPath': 'Failed smoothed path',
+      'layers.rejectedSmoothedPathHint': 'Rejected candidate, shown with a warning dashed style',
       'validation.reason.lethal_overlap': 'Lethal obstacle overlap',
       'validation.reason.out_of_bounds': 'Footprint leaves map bounds',
       'validation.reason.nonfinite_pose': 'Non-finite pose value',
@@ -278,10 +283,12 @@ document.addEventListener('DOMContentLoaded', () => {
       'curvature.axis.rate': 'dk/ds (1/m^2)',
       'run.note.success': '{optimizerLabel} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.',
       'run.note.fallback': '{optimizerLabel} failed and the reference path is being shown instead. {smoothMessage}',
+      'run.note.rejected': '{optimizerLabel} failed validation, but the rejected smoothed candidate is still being shown for inspection. {smoothMessage}',
       'run.pipeline.pending': 'Pipeline status will appear after each run.',
       'run.pipeline.summary': 'Pipeline: {summary}',
       'run.smoothState.success': '{optimizerLabel} success',
       'run.smoothState.fallback': '{optimizerLabel} fallback',
+      'run.smoothState.rejected': '{optimizerLabel} rejected candidate shown',
       'run.stage.status.ok': 'ok',
       'run.stage.status.error': 'error',
       'run.stage.status.fallback': 'fallback',
@@ -334,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.costmapLoadFailed': '加载代价地图失败：{message}',
       'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。',
       'status.planFallback': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}，因此当前显示参考路径。{smoothMessage}',
+      'status.planRejectedShown': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}。当前仍显示被拒绝的平滑候选路径。{smoothMessage}',
       'selection.ready': '标记点就绪',
       'selection.dragMarker': '正在拖拽标记点',
       'selection.dragObstacle': '正在拖拽障碍',
@@ -380,10 +388,12 @@ document.addEventListener('DOMContentLoaded', () => {
       'curvature.axis.rate': 'dk/ds (1/米^2)',
       'run.note.success': '{optimizerLabel}已生成平滑路径。切换图层并比较原始、参考和平滑路径长度，可以观察后端如何改变路径几何。',
       'run.note.fallback': '{optimizerLabel}失败，因此当前显示参考路径。{smoothMessage}',
+      'run.note.rejected': '{optimizerLabel}未通过验证，但当前仍显示被拒绝的平滑候选路径以便检查。{smoothMessage}',
       'run.pipeline.pending': '每次运行后会在这里显示流水线状态。',
       'run.pipeline.summary': '流水线：{summary}',
       'run.smoothState.success': '{optimizerLabel}成功',
       'run.smoothState.fallback': '{optimizerLabel}回退',
+      'run.smoothState.rejected': '{optimizerLabel}候选已拒绝但仍显示',
       'run.stage.status.ok': '正常',
       'run.stage.status.error': '错误',
       'run.stage.status.fallback': '回退',
@@ -863,6 +873,31 @@ document.addEventListener('DOMContentLoaded', () => {
       return t('validation.path.smoothed_path');
     }
     return '--';
+  }
+
+  function isRejectedSmoothedPathVisible(pathData = state.paths) {
+    return Boolean(
+      pathData
+      && !pathData.smooth_success
+      && pathData.final_rectangle_validation?.validated_path === 'smoothed_path'
+    );
+  }
+
+  function updateSmoothedLayerPresentation(pathData = state.paths) {
+    const layerName = document.querySelector('[data-i18n="layers.smoothedPath"]');
+    const layerHint = document.querySelector('[data-i18n="layers.smoothedPathHint"]');
+    const layerSwatch = document.querySelector('.swatch-smoothed');
+    const rejected = isRejectedSmoothedPathVisible(pathData);
+
+    if (layerName) {
+      layerName.textContent = rejected ? t('layers.rejectedSmoothedPath') : t('layers.smoothedPath');
+    }
+    if (layerHint) {
+      layerHint.textContent = rejected ? t('layers.rejectedSmoothedPathHint') : t('layers.smoothedPathHint');
+    }
+    if (layerSwatch) {
+      layerSwatch.classList.toggle('swatch-smoothed-rejected', rejected);
+    }
   }
 
   function formatValidationReason(reason) {
@@ -2143,6 +2178,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
+    updateSmoothedLayerPresentation(data);
+    const showsRejectedCandidate = !data.smooth_success
+      && data.final_rectangle_validation?.validated_path === 'smoothed_path';
     const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || '');
     setText('info-optimizer', optimizerLabel || '--');
     setText('info-astar-time', `${data.astar_time_ms} ${t('unit.ms')}`);
@@ -2166,13 +2204,17 @@ document.addEventListener('DOMContentLoaded', () => {
       'smooth-state',
       data.smooth_success
         ? t('run.smoothState.success', {optimizerLabel: optimizerLabel || 'optimizer'})
-        : t('run.smoothState.fallback', {optimizerLabel: optimizerLabel || 'optimizer'})
+        : showsRejectedCandidate
+          ? t('run.smoothState.rejected', {optimizerLabel: optimizerLabel || 'optimizer'})
+          : t('run.smoothState.fallback', {optimizerLabel: optimizerLabel || 'optimizer'})
     );
     setText(
       'run-note',
       data.smooth_success
         ? t('run.note.success', {optimizerLabel: optimizerLabel || 'The selected optimizer'})
-        : t('run.note.fallback', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
+        : showsRejectedCandidate
+          ? t('run.note.rejected', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
+          : t('run.note.fallback', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
     );
     setText(
       'pipeline-summary',
@@ -2209,10 +2251,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const returnedSummary = !returnedValidation
         ? ''
         : returnedValidation.collision_free
-          ? (currentLanguage === 'zh' ? ' 返回的参考路径矩形验证已通过。' : ' Returned reference path rectangle validation passed.')
+          ? currentLanguage === 'zh'
+            ? ` ${formatValidationPathLabel(returnedValidation.validated_path)}矩形验证已通过。`
+            : ` ${formatValidationPathLabel(returnedValidation.validated_path)} rectangle validation passed.`
           : currentLanguage === 'zh'
-            ? ` 返回的参考路径矩形验证也失败了${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`
-            : ` Returned reference path rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
+            ? ` ${formatValidationPathLabel(returnedValidation.validated_path)}矩形验证也失败了${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`
+            : ` ${formatValidationPathLabel(returnedValidation.validated_path)} rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
       setText(
         'footprint-validation-summary',
         currentLanguage === 'zh'
@@ -2220,9 +2264,7 @@ document.addEventListener('DOMContentLoaded', () => {
           : `Rejected smoothed path${candidateCode}. ${candidateValidation.message || ''}${returnedSummary}`.trim()
       );
     } else if (returnedValidation) {
-      const pathLabel = returnedValidation.validated_path === 'reference_fallback'
-        ? t('validation.path.reference_fallback')
-        : currentLanguage === 'zh' ? '返回路径' : 'Returned path';
+      const pathLabel = formatValidationPathLabel(returnedValidation.validated_path);
       const statusText = returnedValidation.collision_free
         ? currentLanguage === 'zh'
           ? `${pathLabel}的矩形验证已在全部 ${data.num_returned_pts ?? data.num_opt_pts ?? 0} 个位姿上通过。`
@@ -2244,6 +2286,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('run-note', currentLanguage === 'zh' ? '设置起点和终点后即可生成路径指标。' : 'Set a start and goal to generate path metrics.');
     setText('pipeline-summary', t('run.pipeline.pending'));
     setText('footprint-validation-summary', t('robot.validation.pending'));
+    updateSmoothedLayerPresentation(null);
     clearValidationFailureDetails();
     drawFootprintPreview();
     clearCurvatureChart();
@@ -2602,7 +2645,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return dot >= 0 ? 'forward' : 'reverse';
   }
 
-  function drawDirectionalSmoothedPath(xs, ys, thetas, width, drawDots = false) {
+  function drawDirectionalSmoothedPath(xs, ys, thetas, width, drawDots = false, rejected = false) {
     if (!xs || xs.length < 2 || !thetas || thetas.length < 2) {
       drawPath(xs, ys, SMOOTHED_FORWARD_COLOR, width, drawDots);
       return;
@@ -2613,6 +2656,22 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
+    if (rejected) {
+      ctx.save();
+      ctx.setLineDash([10, 7]);
+      ctx.lineWidth = width + 3.0;
+      ctx.strokeStyle = 'rgba(70, 33, 22, 0.82)';
+      ctx.beginPath();
+      const firstPoint = worldToCanvas(xs[0], ys[0]);
+      ctx.moveTo(firstPoint.x, firstPoint.y);
+      for (let idx = 1; idx < xs.length; idx += 1) {
+        const point = worldToCanvas(xs[idx], ys[idx]);
+        ctx.lineTo(point.x, point.y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (let idx = 0; idx < xs.length - 1; idx += 1) {
       const startPoint = worldToCanvas(xs[idx], ys[idx]);
       const endPoint = worldToCanvas(xs[idx + 1], ys[idx + 1]);
@@ -2622,7 +2681,14 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.beginPath();
       ctx.moveTo(startPoint.x, startPoint.y);
       ctx.lineTo(endPoint.x, endPoint.y);
-      ctx.strokeStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+      if (rejected) {
+        ctx.setLineDash([7, 5]);
+      } else {
+        ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = rejected
+        ? motionDirection === 'reverse' ? 'rgba(38, 108, 177, 0.88)' : 'rgba(191, 54, 87, 0.88)'
+        : motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
       ctx.stroke();
     }
 
@@ -2636,9 +2702,16 @@ document.addEventListener('DOMContentLoaded', () => {
           motionDirection = getSegmentMotionDirection(thetas[idx], xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
         }
         ctx.beginPath();
-        ctx.arc(point.x, point.y, Math.max(width + 0.4, 2.2), 0, Math.PI * 2);
-        ctx.fillStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+        ctx.arc(point.x, point.y, Math.max(width + (rejected ? 1.8 : 0.4), 2.2), 0, Math.PI * 2);
+        ctx.fillStyle = rejected
+          ? motionDirection === 'reverse' ? 'rgba(38, 108, 177, 0.94)' : 'rgba(191, 54, 87, 0.94)'
+          : motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
         ctx.fill();
+        if (rejected) {
+          ctx.lineWidth = 1.2;
+          ctx.strokeStyle = 'rgba(70, 33, 22, 0.82)';
+          ctx.stroke();
+        }
       }
     }
 
@@ -2888,7 +2961,14 @@ document.addEventListener('DOMContentLoaded', () => {
         drawSmoothedRobotProjection(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta);
       }
       if (state.layers.smoothed) {
-        drawDirectionalSmoothedPath(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta, 2.8, true);
+        drawDirectionalSmoothedPath(
+          state.paths.opt_x,
+          state.paths.opt_y,
+          state.paths.opt_theta,
+          2.8,
+          true,
+          isRejectedSmoothedPathVisible(state.paths)
+        );
       }
     }
 
@@ -3010,6 +3090,8 @@ document.addEventListener('DOMContentLoaded', () => {
       updateRunInfo(data);
       const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || 'Optimizer');
       const smoothErrorLabel = data.smooth_error?.code ? ` [${data.smooth_error.code}]` : '';
+      const showsRejectedCandidate = !data.smooth_success
+        && data.final_rectangle_validation?.validated_path === 'smoothed_path';
       setStatus(
         data.smooth_success
           ? t('status.planSuccess', {
@@ -3017,6 +3099,13 @@ document.addEventListener('DOMContentLoaded', () => {
             astarTimeMs: data.astar_time_ms,
             smoothTimeMs: data.smooth_time_ms,
           })
+          : showsRejectedCandidate
+            ? t('status.planRejectedShown', {
+              astarTimeMs: data.astar_time_ms,
+              optimizerLabel,
+              errorCodeSuffix: smoothErrorLabel,
+              smoothMessage: data.smooth_message || '',
+            }).trim()
           : t('status.planFallback', {
             astarTimeMs: data.astar_time_ms,
             optimizerLabel,
@@ -3301,6 +3390,8 @@ document.addEventListener('DOMContentLoaded', () => {
       updateRunInfo(state.paths);
       const optimizerLabel = localizeOptimizerLabel(state.paths.optimizer_label || 'Optimizer');
       const smoothErrorLabel = state.paths.smooth_error?.code ? ` [${state.paths.smooth_error.code}]` : '';
+      const showsRejectedCandidate = !state.paths.smooth_success
+        && state.paths.final_rectangle_validation?.validated_path === 'smoothed_path';
       setStatus(
         state.paths.smooth_success
           ? t('status.planSuccess', {
@@ -3308,6 +3399,13 @@ document.addEventListener('DOMContentLoaded', () => {
             astarTimeMs: state.paths.astar_time_ms,
             smoothTimeMs: state.paths.smooth_time_ms,
           })
+          : showsRejectedCandidate
+            ? t('status.planRejectedShown', {
+              astarTimeMs: state.paths.astar_time_ms,
+              optimizerLabel,
+              errorCodeSuffix: smoothErrorLabel,
+              smoothMessage: state.paths.smooth_message || '',
+            }).trim()
           : t('status.planFallback', {
             astarTimeMs: state.paths.astar_time_ms,
             optimizerLabel,

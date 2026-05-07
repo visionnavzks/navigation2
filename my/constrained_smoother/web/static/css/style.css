@@ -502,6 +502,16 @@ body {
   background: linear-gradient(90deg, #bf3657 50%, #2b71ba 50%);
 }
 
+.swatch-smoothed-rejected {
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(70, 33, 22, 0.92) 0 5px,
+    rgba(191, 54, 87, 0.92) 5px 10px,
+    rgba(38, 108, 177, 0.92) 10px 15px,
+    rgba(241, 222, 182, 0.95) 15px 20px
+  );
+}
+
 .swatch-robot-projection {
   background: linear-gradient(90deg, rgba(191, 54, 87, 0.22), rgba(191, 54, 87, 0.85) 50%, rgba(43, 113, 186, 0.85) 50%, rgba(43, 113, 186, 0.22));
 }

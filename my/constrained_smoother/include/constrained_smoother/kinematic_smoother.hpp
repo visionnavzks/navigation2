@@ -128,6 +128,9 @@ private:
     /// 第 3 阶段：执行硬性后验校验，并把状态链回写成公共路径表示。
     bool finalize()
     {
+      this->request().path =
+        KinematicSmootherProblemBuilder::unpackPath(variables_, processed_.state_count);
+
       if (!this->owner().validator_.validateKinematicSolution(
           {
             variables_,
@@ -144,9 +147,6 @@ private:
       {
         return false;
       }
-
-      this->request().path =
-        KinematicSmootherProblemBuilder::unpackPath(variables_, processed_.state_count);
       return true;
     }
 
