@@ -590,6 +590,7 @@ DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
 DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
 INFLATION_RADIUS_CELLS = 5
+KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD = 0.1
 DEFAULT_OBSTACLE_RECTS = [
     # (x_start, y_start, x_end, y_end) in cell coordinates
     (60, 40, 80, 100),
@@ -743,6 +744,84 @@ def _serialize_validation_scalar(value, digits=4):
     if not math.isfinite(numeric_value):
         return None
     return round(numeric_value, digits)
+
+
+def _serialize_angle_pair(radians, digits_rad=4, digits_deg=2):
+    numeric_value = float(radians)
+    if not math.isfinite(numeric_value):
+        return {"rad": None, "deg": None}
+    return {
+        "rad": round(numeric_value, digits_rad),
+        "deg": round(math.degrees(numeric_value), digits_deg),
+    }
+
+
+def _build_goal_orientation_diagnostics(path, goal_yaw_rad, tolerance_rad):
+    if not path:
+        return None
+
+    terminal_pose_yaw = float(path[-1][2])
+    terminal_pose_yaw_error = _normalize_angle_rad(terminal_pose_yaw - goal_yaw_rad)
+
+    terminal_segment_heading = terminal_pose_yaw
+    terminal_segment_error = terminal_pose_yaw_error
+    if len(path) >= 2:
+        dx = float(path[-1][0]) - float(path[-2][0])
+        dy = float(path[-1][1]) - float(path[-2][1])
+        if math.hypot(dx, dy) > 1e-9:
+            terminal_segment_heading = math.atan2(dy, dx)
+            terminal_segment_error = _normalize_angle_rad(terminal_segment_heading - goal_yaw_rad)
+
+    return {
+        "expected_goal_heading": _serialize_angle_pair(goal_yaw_rad),
+        "terminal_segment_heading": _serialize_angle_pair(terminal_segment_heading),
+        "terminal_segment_error": _serialize_angle_pair(terminal_segment_error),
+        "terminal_pose_heading": _serialize_angle_pair(terminal_pose_yaw),
+        "terminal_pose_error": _serialize_angle_pair(terminal_pose_yaw_error),
+        "tolerance": _serialize_angle_pair(tolerance_rad),
+    }
+
+
+def _build_optimizer_config_payload(
+    optimizer_type,
+    smooth_weight,
+    costmap_weight,
+    cusp_costmap_weight,
+    cusp_zone_length,
+    distance_weight,
+    curvature_weight,
+    curvature_rate_weight,
+    max_curvature,
+    max_time,
+    max_iterations,
+    param_tol,
+    fn_tol,
+    gradient_tol,
+    path_downsample,
+    path_upsample,
+    keep_start_orientation,
+    keep_goal_orientation,
+):
+    return {
+        "optimizer_type": optimizer_type,
+        "smooth_weight": round(smooth_weight, 3),
+        "costmap_weight": round(costmap_weight, 3),
+        "cusp_costmap_weight": round(cusp_costmap_weight, 3),
+        "cusp_zone_length_m": round(cusp_zone_length, 3),
+        "distance_weight": round(distance_weight, 3),
+        "curvature_weight": round(curvature_weight, 3),
+        "curvature_rate_weight": round(curvature_rate_weight, 3),
+        "max_curvature": round(max_curvature, 4),
+        "max_time_s": round(max_time, 3),
+        "max_iterations": int(max_iterations),
+        "param_tol": param_tol,
+        "fn_tol": fn_tol,
+        "gradient_tol": gradient_tol,
+        "path_downsampling_factor": int(path_downsample),
+        "path_upsampling_factor": int(path_upsample),
+        "keep_start_orientation": bool(keep_start_orientation),
+        "keep_goal_orientation": bool(keep_goal_orientation),
+    }
 
 
 def _world_to_costmap_cell(world_x, world_y):
@@ -1420,6 +1499,42 @@ def plan_and_smooth():
             validation_stage_result["stage"],
             validation_stage_result["response_stage"],
         ])
+        goal_orientation_diagnostics = None
+        if optimizer_type == "kinematic_smoother":
+            goal_orientation_diagnostics = _build_goal_orientation_diagnostics(
+                smoothed,
+                goal_yaw_rad,
+                KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD,
+            )
+            if (
+                smooth_error
+                and smooth_error.get("details", {}).get("failure_reason") == "goal_orientation_constraint"
+                and goal_orientation_diagnostics is not None
+            ):
+                smooth_error.setdefault("details", {}).update({
+                    "goal_orientation": goal_orientation_diagnostics,
+                })
+
+        optimizer_config = _build_optimizer_config_payload(
+            optimizer_type,
+            smooth_weight,
+            costmap_weight,
+            cusp_costmap_weight,
+            cusp_zone_length,
+            distance_weight,
+            curvature_weight,
+            curvature_rate_weight,
+            max_curvature,
+            max_time,
+            max_iterations,
+            param_tol,
+            fn_tol,
+            gradient_tol,
+            path_downsample,
+            path_upsample,
+            keep_start_orientation,
+            keep_goal_orientation,
+        )
 
         # ---- Final response assembly for the frontend ----
         astar_x = [p[0] for p in raw_path]
@@ -1443,6 +1558,8 @@ def plan_and_smooth():
             "smooth_message": smooth_message,
             "smooth_error": smooth_error,
             "candidate_rectangle_validation": candidate_rectangle_validation,
+            "goal_orientation_diagnostics": goal_orientation_diagnostics,
+            "optimizer_config": optimizer_config,
 
             # Raw planner / reference / returned path geometry.
             "astar_x": astar_x,

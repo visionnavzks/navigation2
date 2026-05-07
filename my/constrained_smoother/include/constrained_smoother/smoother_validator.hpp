@@ -194,6 +194,21 @@ private:
     return stream.str();
   }
 
+  static std::string describeCurvatureViolation(
+    double actual_curvature,
+    double max_curvature,
+    double turning_radius)
+  {
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(4)
+           << "Constrained smoother violated the maximum curvature constraint during post-validation"
+           << ": actual curvature " << actual_curvature << " 1/m"
+           << ", limit " << max_curvature << " 1/m"
+           << ", excess " << (actual_curvature - max_curvature) << " 1/m"
+           << ", turning radius " << std::setprecision(3) << turning_radius << " m";
+    return stream.str();
+  }
+
   static double displacementTolerance(const Costmap2D * costmap)
   {
     return std::max(costmap->getResolution() * 0.25, 1e-4);
@@ -361,10 +376,24 @@ private:
 
       const double curvature = 1.0 / turning_radius;
       if (curvature - request.params.max_curvature > 1e-3) {
+        const std::string message = describeCurvatureViolation(
+          curvature,
+          request.params.max_curvature,
+          turning_radius);
+        if (failure != nullptr) {
+          failure->reason = SmoothingFailureReason::CurvatureConstraint;
+          failure->message = message;
+          failure->failed_index = static_cast<int>(index);
+          failure->actual_curvature = curvature;
+          failure->max_curvature = request.params.max_curvature;
+          failure->turning_radius = turning_radius;
+          return false;
+        }
+
         return throwOrStoreSmoothingFailure(
           failure,
           SmoothingFailureReason::CurvatureConstraint,
-          "Constrained smoother violated the maximum curvature constraint during post-validation",
+          message,
           static_cast<int>(index));
       }
     }

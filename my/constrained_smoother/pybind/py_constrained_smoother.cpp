@@ -183,9 +183,28 @@ py::dict make_error_result(
   result["error_message"] = py::str(failure.message);
   result["error_reason"] = py::str(
     constrained_smoother::toSmoothingFailureReasonString(failure.reason));
-  if (failure.failed_index >= 0) {
+  if (
+    failure.failed_index >= 0 ||
+    std::isfinite(failure.actual_curvature) ||
+    std::isfinite(failure.max_curvature) ||
+    std::isfinite(failure.turning_radius))
+  {
     py::dict details;
-    details["failed_index"] = py::int_(failure.failed_index);
+    if (failure.failed_index >= 0) {
+      details["failed_index"] = py::int_(failure.failed_index);
+    }
+    if (std::isfinite(failure.actual_curvature)) {
+      details["actual_curvature"] = py::float_(failure.actual_curvature);
+    }
+    if (std::isfinite(failure.max_curvature)) {
+      details["max_curvature"] = py::float_(failure.max_curvature);
+    }
+    if (std::isfinite(failure.turning_radius)) {
+      details["turning_radius"] = py::float_(failure.turning_radius);
+    }
+    if (std::isfinite(failure.actual_curvature) && std::isfinite(failure.max_curvature)) {
+      details["curvature_excess"] = py::float_(failure.actual_curvature - failure.max_curvature);
+    }
     result["error_details"] = details;
   } else {
     result["error_details"] = py::none();

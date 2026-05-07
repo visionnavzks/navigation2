@@ -17,6 +17,7 @@
 #define CONSTRAINED_SMOOTHER__EXCEPTIONS_HPP_
 
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -127,6 +128,9 @@ struct SmoothingFailureInfo
   SmoothingFailureReason reason{SmoothingFailureReason::Unknown};
   std::string message{};
   int failed_index{-1};
+  double actual_curvature{std::numeric_limits<double>::quiet_NaN()};
+  double max_curvature{std::numeric_limits<double>::quiet_NaN()};
+  double turning_radius{std::numeric_limits<double>::quiet_NaN()};
 
   std::string formattedMessage() const
   {

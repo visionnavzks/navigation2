@@ -25,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const resetViewBtn = document.getElementById('reset-view-btn');
   const statusMsg = document.getElementById('status-msg');
   const validationDetailsCard = document.getElementById('footprint-validation-details-card');
+  const kinematicDiagnosticsCard = document.getElementById('kinematic-diagnostics-card');
 
   const zhStaticTranslations = {
     'hero.eyebrow': '独立版 Nav2 约束平滑器',
@@ -164,6 +165,19 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.referenceLength': '参考长度',
     'run.optimizedLength': '优化长度',
     'run.optMinusRef': '优化 - 参考',
+    'run.kinematicDetails': '运动学详情',
+    'run.goalSegmentError': '终端段方向误差',
+    'run.goalTolerance': '允许容差',
+    'run.goalExpected': '期望终点方向',
+    'run.goalActualSegment': '实际终端段方向',
+    'run.goalPoseHeading': '终端位姿朝向',
+    'run.goalPoseError': '终端位姿误差',
+    'run.kinematicMaxIterations': '最大迭代次数',
+    'run.kinematicMaxTime': '最大求解时间',
+    'run.kinematicMaxCurvature': '最大曲率',
+    'run.kinematicCurvatureRateWeight': '曲率变化率权重',
+    'run.kinematicResampling': '重采样',
+    'run.kinematicCeresTolerances': 'Ceres 容差',
     'toolbar.runPlanning': '执行规划',
     'toolbar.resetScene': '重置场景',
     'toolbar.resetView': '重置视图',
@@ -209,6 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'unit.metersPerCell': 'm/cell',
       'unit.cells': 'cells',
       'unit.ms': 'ms',
+      'unit.second': 's',
       'common.enabled': 'Enabled',
       'common.disabled': 'Disabled',
       'common.idle': 'idle',
@@ -284,6 +299,19 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.note.success': '{optimizerLabel} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.',
       'run.note.fallback': '{optimizerLabel} failed and the reference path is being shown instead. {smoothMessage}',
       'run.note.rejected': '{optimizerLabel} failed validation, but the rejected smoothed candidate is still being shown for inspection. {smoothMessage}',
+      'run.kinematicDetails': 'Kinematic Details',
+      'run.goalSegmentError': 'Goal Segment Error',
+      'run.goalTolerance': 'Goal Tolerance',
+      'run.goalExpected': 'Expected Goal Heading',
+      'run.goalActualSegment': 'Actual Terminal Segment',
+      'run.goalPoseHeading': 'Terminal Pose Heading',
+      'run.goalPoseError': 'Terminal Pose Error',
+      'run.kinematicMaxIterations': 'Max Iterations',
+      'run.kinematicMaxTime': 'Max Solver Time',
+      'run.kinematicMaxCurvature': 'Max Curvature',
+      'run.kinematicCurvatureRateWeight': 'Curvature Rate Weight',
+      'run.kinematicResampling': 'Resampling',
+      'run.kinematicCeresTolerances': 'Ceres Tolerances',
       'run.pipeline.pending': 'Pipeline status will appear after each run.',
       'run.pipeline.summary': 'Pipeline: {summary}',
       'run.smoothState.success': '{optimizerLabel} success',
@@ -316,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'unit.metersPerCell': '米/格',
       'unit.cells': '格',
       'unit.ms': '毫秒',
+      'unit.second': '秒',
       'common.enabled': '已启用',
       'common.disabled': '已禁用',
       'common.idle': '空闲',
@@ -841,6 +870,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${Number(value).toFixed(digits)} ${t('unit.meter')}`;
   }
 
+  function formatSeconds(value, digits = 2) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return '--';
+    }
+    return `${Number(value).toFixed(digits)} ${t('unit.second')}`;
+  }
+
   function formatDegrees(value, digits = 1) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
@@ -916,6 +952,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} ${t('unit.meter')}`;
   }
 
+  function formatAngleDiagnostic(anglePayload) {
+    if (!anglePayload || anglePayload.deg === null || anglePayload.deg === undefined) {
+      return '--';
+    }
+    return `${Number(anglePayload.deg).toFixed(2)} ${t('unit.degree')} (${Number(anglePayload.rad).toFixed(4)} ${t('unit.radian')})`;
+  }
+
   function formatValidationCell(firstFailure) {
     const collisionCell = firstFailure?.collision_cell;
     if (collisionCell) {
@@ -957,6 +1000,54 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('validation-detail-cell', '--');
     setText('validation-detail-cell-world', '--');
     setText('validation-detail-message', '--');
+  }
+
+  function clearKinematicDiagnostics() {
+    if (kinematicDiagnosticsCard) {
+      kinematicDiagnosticsCard.hidden = true;
+    }
+    [
+      'kinematic-detail-mode',
+      'kinematic-goal-segment-error',
+      'kinematic-goal-tolerance',
+      'kinematic-goal-expected',
+      'kinematic-goal-actual-segment',
+      'kinematic-goal-pose-heading',
+      'kinematic-goal-pose-error',
+      'kinematic-param-max-iterations',
+      'kinematic-param-max-time',
+      'kinematic-param-max-curvature',
+      'kinematic-param-curvature-rate-weight',
+      'kinematic-param-resampling',
+      'kinematic-param-ceres-tolerances',
+    ].forEach(id => setText(id, '--'));
+  }
+
+  function updateKinematicDiagnostics(data) {
+    if (!kinematicDiagnosticsCard || data?.optimizer_type !== 'kinematic_smoother') {
+      clearKinematicDiagnostics();
+      return;
+    }
+
+    kinematicDiagnosticsCard.hidden = false;
+    const diagnostics = data.goal_orientation_diagnostics || {};
+    const optimizerConfig = data.optimizer_config || {};
+    setText('kinematic-detail-mode', data.smooth_success ? t('run.stage.status.ok') : t('run.stage.status.error'));
+    setText('kinematic-goal-segment-error', formatAngleDiagnostic(diagnostics.terminal_segment_error));
+    setText('kinematic-goal-tolerance', formatAngleDiagnostic(diagnostics.tolerance));
+    setText('kinematic-goal-expected', formatAngleDiagnostic(diagnostics.expected_goal_heading));
+    setText('kinematic-goal-actual-segment', formatAngleDiagnostic(diagnostics.terminal_segment_heading));
+    setText('kinematic-goal-pose-heading', formatAngleDiagnostic(diagnostics.terminal_pose_heading));
+    setText('kinematic-goal-pose-error', formatAngleDiagnostic(diagnostics.terminal_pose_error));
+    setText('kinematic-param-max-iterations', optimizerConfig.max_iterations ?? '--');
+    setText('kinematic-param-max-time', formatSeconds(optimizerConfig.max_time_s, 2));
+    setText('kinematic-param-max-curvature', formatCurvature(optimizerConfig.max_curvature, 2));
+    setText('kinematic-param-curvature-rate-weight', optimizerConfig.curvature_rate_weight ?? '--');
+    setText('kinematic-param-resampling', `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'}`);
+    setText(
+      'kinematic-param-ceres-tolerances',
+      `p ${Number(optimizerConfig.param_tol ?? NaN).toExponential(1)}, f ${Number(optimizerConfig.fn_tol ?? NaN).toExponential(1)}, g ${Number(optimizerConfig.gradient_tol ?? NaN).toExponential(1)}`
+    );
   }
 
   function showValidationFailureDetails(validation) {
@@ -2179,6 +2270,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
     updateSmoothedLayerPresentation(data);
+    updateKinematicDiagnostics(data);
     const showsRejectedCandidate = !data.smooth_success
       && data.final_rectangle_validation?.validated_path === 'smoothed_path';
     const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || '');
@@ -2288,6 +2380,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('footprint-validation-summary', t('robot.validation.pending'));
     updateSmoothedLayerPresentation(null);
     clearValidationFailureDetails();
+    clearKinematicDiagnostics();
     drawFootprintPreview();
     clearCurvatureChart();
   }

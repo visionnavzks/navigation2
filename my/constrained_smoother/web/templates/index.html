@@ -529,6 +529,62 @@
 
           <p id="run-note" class="section-note">Set a start and goal to generate path metrics.</p>
           <p id="pipeline-summary" class="section-note">Pipeline status will appear after each run.</p>
+          <div id="kinematic-diagnostics-card" class="validation-details-card" hidden>
+            <div class="validation-details-card__header">
+              <span data-i18n="run.kinematicDetails">Kinematic Details</span>
+              <strong id="kinematic-detail-mode">--</strong>
+            </div>
+            <div class="validation-details-grid">
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalSegmentError">Goal Segment Error</span>
+                <strong id="kinematic-goal-segment-error">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalTolerance">Goal Tolerance</span>
+                <strong id="kinematic-goal-tolerance">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalExpected">Expected Goal Heading</span>
+                <strong id="kinematic-goal-expected">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalActualSegment">Actual Terminal Segment</span>
+                <strong id="kinematic-goal-actual-segment">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalPoseHeading">Terminal Pose Heading</span>
+                <strong id="kinematic-goal-pose-heading">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.goalPoseError">Terminal Pose Error</span>
+                <strong id="kinematic-goal-pose-error">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.kinematicMaxIterations">Max Iterations</span>
+                <strong id="kinematic-param-max-iterations">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.kinematicMaxTime">Max Solver Time</span>
+                <strong id="kinematic-param-max-time">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.kinematicMaxCurvature">Max Curvature</span>
+                <strong id="kinematic-param-max-curvature">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.kinematicCurvatureRateWeight">Curvature Rate Weight</span>
+                <strong id="kinematic-param-curvature-rate-weight">--</strong>
+              </div>
+              <div class="validation-details-item">
+                <span class="metric-label" data-i18n="run.kinematicResampling">Resampling</span>
+                <strong id="kinematic-param-resampling">--</strong>
+              </div>
+              <div class="validation-details-item validation-details-item--wide">
+                <span class="metric-label" data-i18n="run.kinematicCeresTolerances">Ceres Tolerances</span>
+                <strong id="kinematic-param-ceres-tolerances">--</strong>
+              </div>
+            </div>
+          </div>
         </section>
       </aside>
 
