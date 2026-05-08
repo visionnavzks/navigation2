@@ -2,8 +2,8 @@
 
 mod r#box;
 mod convex_hull;
-mod sphere;
 mod cylinder;
+mod sphere;
 
 use std::any::Any;
 
@@ -11,8 +11,8 @@ use crate::vec3::Vec3;
 
 pub use r#box::BoxShape;
 pub use convex_hull::ConvexHull;
-pub use sphere::SphereShape;
 pub use cylinder::CylinderShape;
+pub use sphere::SphereShape;
 
 /// Trait for convex shapes that can participate in collision detection.
 ///

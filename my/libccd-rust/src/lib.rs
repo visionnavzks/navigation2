@@ -14,21 +14,21 @@
 //! assert!(ccd.gjk_intersect(&box1, &box2));
 //! ```
 
-pub mod vec3;
-pub mod quat;
-pub mod support;
-pub mod simplex;
-pub mod shapes;
-pub mod polytope;
-pub mod gjk;
-pub mod epa;
-pub mod mpr;
 pub mod ccd;
+pub mod epa;
+pub mod gjk;
+pub mod mpr;
+pub mod polytope;
+pub mod quat;
+pub mod shapes;
+pub mod simplex;
+pub mod support;
+pub mod vec3;
 
 // Public re-exports
-pub use vec3::Vec3;
-pub use quat::Quat;
-pub use support::SupportPoint;
-pub use simplex::Simplex;
-pub use shapes::Shape;
 pub use ccd::{Ccd, CcdBuilder, CcdConfig, Penetration};
+pub use quat::Quat;
+pub use shapes::Shape;
+pub use simplex::Simplex;
+pub use support::SupportPoint;
+pub use vec3::Vec3;

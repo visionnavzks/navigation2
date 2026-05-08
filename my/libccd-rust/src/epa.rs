@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::gjk::{gjk, GjkResult};
+use crate::gjk::{GjkResult, gjk};
 use crate::polytope::{ElementRef, Polytope};
 use crate::shapes::Shape;
 use crate::simplex::Simplex;
@@ -113,13 +113,23 @@ pub fn gjk_epa(
 
     // Convert simplex to polytope
     let mut polytope = Polytope::new();
-    let Some(_nearest_el) = simplex_to_polytope(obj1, obj2, &simplex, &mut polytope, epa_tolerance) else {
-        emit_trace_summary(trace_enabled, "simplex_to_polytope_none", &trace_stats, None);
+    let Some(_nearest_el) = simplex_to_polytope(obj1, obj2, &simplex, &mut polytope, epa_tolerance)
+    else {
+        emit_trace_summary(
+            trace_enabled,
+            "simplex_to_polytope_none",
+            &trace_stats,
+            None,
+        );
         return None;
     };
 
     // EPA expansion loop with iteration limit
-    let epa_max = if max_iterations == u64::MAX { 1000u64 } else { max_iterations };
+    let epa_max = if max_iterations == u64::MAX {
+        1000u64
+    } else {
+        max_iterations
+    };
     for _ in 0..epa_max {
         trace_stats.iterations += 1;
 
@@ -171,7 +181,12 @@ pub fn gjk_epa(
         // Expand polytope
         let expand_start = trace_enabled.then(Instant::now);
         if !expand_polytope(&mut polytope, expand_el, new_support, &mut trace_stats) {
-            emit_trace_summary(trace_enabled, "expand_failed", &trace_stats, Some(&polytope));
+            emit_trace_summary(
+                trace_enabled,
+                "expand_failed",
+                &trace_stats,
+                Some(&polytope),
+            );
             return None; // allocation failure
         }
         if let Some(start) = expand_start {
@@ -226,7 +241,11 @@ fn simplex_to_polytope4(
     let (dist_abd, _) = Vec3::point_tri_dist2(Vec3::ZERO, a.v, b.v, d.v);
     let (dist_bcd, _) = Vec3::point_tri_dist2(Vec3::ZERO, b.v, c.v, d.v);
 
-    if Vec3::is_zero(dist_abc) || Vec3::is_zero(dist_acd) || Vec3::is_zero(dist_abd) || Vec3::is_zero(dist_bcd) {
+    if Vec3::is_zero(dist_abc)
+        || Vec3::is_zero(dist_acd)
+        || Vec3::is_zero(dist_abd)
+        || Vec3::is_zero(dist_bcd)
+    {
         let mut degenerate = Simplex::new();
         degenerate.push(a);
         degenerate.push(b);
@@ -505,7 +524,11 @@ fn expand_polytope(
 }
 
 /// Expand polytope from a face by adding a new vertex (tetrahedron split).
-fn expand_polytope_face(polytope: &mut Polytope, face_idx: usize, new_support: SupportPoint) -> bool {
+fn expand_polytope_face(
+    polytope: &mut Polytope,
+    face_idx: usize,
+    new_support: SupportPoint,
+) -> bool {
     let face = &polytope.faces[face_idx];
     let e0_idx = face.edges[0];
     let e1_idx = face.edges[1];
@@ -590,13 +613,14 @@ fn ordered_face_edges(
         }
     };
 
-    let (edge_from_start, middle_vertex, edge_to_end) = if let Some((edge_idx, middle)) = classify(edge_a) {
-        (edge_idx, middle, edge_b)
-    } else if let Some((edge_idx, middle)) = classify(edge_b) {
-        (edge_idx, middle, edge_a)
-    } else {
-        return None;
-    };
+    let (edge_from_start, middle_vertex, edge_to_end) =
+        if let Some((edge_idx, middle)) = classify(edge_a) {
+            (edge_idx, middle, edge_b)
+        } else if let Some((edge_idx, middle)) = classify(edge_b) {
+            (edge_idx, middle, edge_a)
+        } else {
+            return None;
+        };
 
     let end_edge = &polytope.edges[edge_to_end];
     if !end_edge.vertices.contains(&middle_vertex) || !end_edge.vertices.contains(&end_vertex) {
@@ -620,12 +644,15 @@ fn expand_polytope_edge(
     let face1 = edge.faces[1];
 
     if let Some(face0_idx) = face0 {
-        let Some((edge0, edge1, v1)) = ordered_face_edges(polytope, face0_idx, edge_idx, v0, v2) else {
+        let Some((edge0, edge1, v1)) = ordered_face_edges(polytope, face0_idx, edge_idx, v0, v2)
+        else {
             return expand_polytope_edge_fallback(polytope, edge_idx, new_support, trace_stats);
         };
 
         let face1_data = if let Some(face1_idx) = face1 {
-            let Some((edge2, edge3, v3)) = ordered_face_edges(polytope, face1_idx, edge_idx, v2, v0) else {
+            let Some((edge2, edge3, v3)) =
+                ordered_face_edges(polytope, face1_idx, edge_idx, v2, v0)
+            else {
                 return expand_polytope_edge_fallback(polytope, edge_idx, new_support, trace_stats);
             };
             Some((face1_idx, edge2, edge3, v3))
@@ -696,11 +723,7 @@ fn extract_penetration(
     // Compute position using median of closest vertices
     let pos = compute_position(polytope, nearest);
 
-    Some(EpaResult {
-        depth,
-        dir,
-        pos,
-    })
+    Some(EpaResult { depth, dir, pos })
 }
 
 /// Compute approximate contact position from polytope vertices.
@@ -772,3 +795,51 @@ static POINTS_ON_SPHERE: [Vec3; 42] = [
     Vec3::new(-0.425323, 0.309011, 0.850654),
     Vec3::new(0.162456, 0.499995, 0.850654),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn support_point(v: Vec3) -> SupportPoint {
+        SupportPoint {
+            v,
+            v1: Vec3::ZERO,
+            v2: Vec3::ZERO,
+        }
+    }
+
+    #[test]
+    fn test_expand_polytope_face_can_reexpand_new_face() {
+        let mut polytope = Polytope::new();
+
+        let v0 = polytope.add_vertex(support_point(Vec3::new(-1.0, -1.0, 0.0)));
+        let v1 = polytope.add_vertex(support_point(Vec3::new(1.0, -1.0, 0.0)));
+        let v2 = polytope.add_vertex(support_point(Vec3::new(0.0, 1.0, 0.0)));
+        let v3 = polytope.add_vertex(support_point(Vec3::new(0.0, 0.0, 1.0)));
+
+        let e0 = polytope.add_edge(v0, v1);
+        let e1 = polytope.add_edge(v1, v2);
+        let e2 = polytope.add_edge(v2, v0);
+        let e3 = polytope.add_edge(v3, v0);
+        let e4 = polytope.add_edge(v3, v1);
+        let e5 = polytope.add_edge(v3, v2);
+
+        let face_idx = polytope.add_face(e0, e1, e2);
+        polytope.add_face(e3, e4, e0);
+        polytope.add_face(e4, e5, e1);
+        polytope.add_face(e5, e3, e2);
+
+        assert!(expand_polytope_face(
+            &mut polytope,
+            face_idx,
+            support_point(Vec3::new(0.0, 0.0, -1.0)),
+        ));
+
+        let first_new_face_idx = 4;
+        assert!(expand_polytope_face(
+            &mut polytope,
+            first_new_face_idx,
+            support_point(Vec3::new(0.25, -0.25, -2.0)),
+        ));
+    }
+}

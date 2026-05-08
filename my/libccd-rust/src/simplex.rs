@@ -15,10 +15,26 @@ impl Simplex {
     pub fn new() -> Self {
         Self {
             points: [
-                SupportPoint { v: crate::vec3::Vec3::ZERO, v1: crate::vec3::Vec3::ZERO, v2: crate::vec3::Vec3::ZERO },
-                SupportPoint { v: crate::vec3::Vec3::ZERO, v1: crate::vec3::Vec3::ZERO, v2: crate::vec3::Vec3::ZERO },
-                SupportPoint { v: crate::vec3::Vec3::ZERO, v1: crate::vec3::Vec3::ZERO, v2: crate::vec3::Vec3::ZERO },
-                SupportPoint { v: crate::vec3::Vec3::ZERO, v1: crate::vec3::Vec3::ZERO, v2: crate::vec3::Vec3::ZERO },
+                SupportPoint {
+                    v: crate::vec3::Vec3::ZERO,
+                    v1: crate::vec3::Vec3::ZERO,
+                    v2: crate::vec3::Vec3::ZERO,
+                },
+                SupportPoint {
+                    v: crate::vec3::Vec3::ZERO,
+                    v1: crate::vec3::Vec3::ZERO,
+                    v2: crate::vec3::Vec3::ZERO,
+                },
+                SupportPoint {
+                    v: crate::vec3::Vec3::ZERO,
+                    v1: crate::vec3::Vec3::ZERO,
+                    v2: crate::vec3::Vec3::ZERO,
+                },
+                SupportPoint {
+                    v: crate::vec3::Vec3::ZERO,
+                    v1: crate::vec3::Vec3::ZERO,
+                    v2: crate::vec3::Vec3::ZERO,
+                },
             ],
             count: 0,
         }
@@ -40,7 +56,10 @@ impl Simplex {
     /// Panics if the simplex already has 4 points.
     #[inline]
     pub fn push(&mut self, point: SupportPoint) {
-        assert!(self.count < 4, "Simplex overflow: cannot push more than 4 points");
+        assert!(
+            self.count < 4,
+            "Simplex overflow: cannot push more than 4 points"
+        );
         self.points[self.count] = point;
         self.count += 1;
     }
@@ -85,7 +104,10 @@ impl Simplex {
     /// Swap two points by index.
     #[inline]
     pub fn swap(&mut self, a: usize, b: usize) {
-        debug_assert!(a < self.count && b < self.count, "Simplex swap index out of bounds");
+        debug_assert!(
+            a < self.count && b < self.count,
+            "Simplex swap index out of bounds"
+        );
         self.points.swap(a, b);
     }
 

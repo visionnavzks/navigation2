@@ -3,7 +3,7 @@
 use crate::shapes::Shape;
 use crate::simplex::Simplex;
 use crate::support::SupportPoint;
-use crate::vec3::{Vec3, EPSILON};
+use crate::vec3::{EPSILON, Vec3};
 
 const DEFAULT_MPR_MAX_ITER: u64 = 1000;
 const DEFAULT_MPR_TOLERANCE: f32 = 1e-4;
@@ -262,7 +262,12 @@ fn portal_encapsules_origin(portal: &Simplex, dir: Vec3) -> bool {
     Vec3::is_zero(dot) || dot > 0.0
 }
 
-fn portal_reach_tolerance(portal: &Simplex, v4: &SupportPoint, dir: Vec3, mpr_tolerance: f32) -> bool {
+fn portal_reach_tolerance(
+    portal: &Simplex,
+    v4: &SupportPoint,
+    dir: Vec3,
+    mpr_tolerance: f32,
+) -> bool {
     let dv1 = portal.get(1).unwrap().v.dot(dir);
     let dv2 = portal.get(2).unwrap().v.dot(dir);
     let dv3 = portal.get(3).unwrap().v.dot(dir);

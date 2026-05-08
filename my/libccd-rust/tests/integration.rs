@@ -2,9 +2,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use libccd_rust::{Ccd, CcdConfig, Quat, SupportPoint, Vec3};
 use libccd_rust::polytope::Polytope;
 use libccd_rust::shapes::{BoxShape, ConvexHull, CylinderShape, SphereShape};
+use libccd_rust::{Ccd, CcdConfig, Quat, SupportPoint, Vec3};
 
 static FIRST_DIR_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -45,10 +45,15 @@ fn test_gjk_separate_no_intersect() {
 fn test_gjk_penetration_rotated_box_box() {
     let ccd = Ccd::new();
     let box1 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0))
-        .with_rot(Quat::from_axis_angle(Vec3::Z_AXIS, std::f32::consts::FRAC_PI_4))
+        .with_rot(Quat::from_axis_angle(
+            Vec3::Z_AXIS,
+            std::f32::consts::FRAC_PI_4,
+        ))
         .with_pos(Vec3::new(0.1, 0.0, 0.1));
     let box2 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0));
-    let pen = ccd.gjk_penetration(&box1, &box2).expect("rotated boxes should penetrate");
+    let pen = ccd
+        .gjk_penetration(&box1, &box2)
+        .expect("rotated boxes should penetrate");
     assert!(pen.depth > 0.0);
     assert!(pen.dir.length() > 0.0);
 }
@@ -66,11 +71,19 @@ fn test_mpr_penetration_rotated_box_cylinder() {
     let ccd = Ccd::new();
     let box_shape = BoxShape::new(Vec3::new(0.5, 1.0, 1.5))
         .with_pos(Vec3::new(0.6, 0.0, 0.5))
-        .with_rot(Quat::from_axis_angle(Vec3::new(1.0, 1.0, 0.0), -std::f32::consts::FRAC_PI_4));
+        .with_rot(Quat::from_axis_angle(
+            Vec3::new(1.0, 1.0, 0.0),
+            -std::f32::consts::FRAC_PI_4,
+        ));
     let cyl = CylinderShape::new(0.4, 0.7)
         .with_pos(Vec3::new(0.6, 0.0, 0.5))
-        .with_rot(Quat::from_axis_angle(Vec3::new(-0.1, 2.2, -1.0), std::f32::consts::PI / 5.0));
-    let pen = ccd.mpr_penetration(&box_shape, &cyl).expect("rotated box/cylinder should penetrate");
+        .with_rot(Quat::from_axis_angle(
+            Vec3::new(-0.1, 2.2, -1.0),
+            std::f32::consts::PI / 5.0,
+        ));
+    let pen = ccd
+        .mpr_penetration(&box_shape, &cyl)
+        .expect("rotated box/cylinder should penetrate");
     assert!(pen.depth > 0.0);
 }
 
@@ -115,7 +128,9 @@ fn test_convex_hull_penetration() {
     ])
     .with_pos(Vec3::new(0.25, 0.0, 0.0));
     let sphere = SphereShape::new(1.0).with_pos(Vec3::new(0.5, 0.0, 0.0));
-    let pen = ccd.gjk_penetration(&hull, &sphere).expect("convex hull and sphere should penetrate");
+    let pen = ccd
+        .gjk_penetration(&hull, &sphere)
+        .expect("convex hull and sphere should penetrate");
     assert!(pen.depth > 0.0);
 }
 
@@ -140,18 +155,33 @@ fn test_polytope_nearest_recomputes_after_removals() {
     let f2 = polytope.add_face(e4, e5, e1);
     let f3 = polytope.add_face(e5, e3, e2);
 
-    let nearest = polytope.find_nearest().expect("polytope should have a nearest element");
-    assert!(matches!(nearest, libccd_rust::polytope::ElementRef::Face(_)));
+    let nearest = polytope
+        .find_nearest()
+        .expect("polytope should have a nearest element");
+    assert!(matches!(
+        nearest,
+        libccd_rust::polytope::ElementRef::Face(_)
+    ));
 
     polytope.remove_face(f1);
-    let nearest = polytope.find_nearest().expect("polytope should recompute nearest after face removal");
-    assert!(matches!(nearest, libccd_rust::polytope::ElementRef::Face(_)));
+    let nearest = polytope
+        .find_nearest()
+        .expect("polytope should recompute nearest after face removal");
+    assert!(matches!(
+        nearest,
+        libccd_rust::polytope::ElementRef::Face(_)
+    ));
 
     polytope.remove_face(f0);
     polytope.remove_face(f2);
     polytope.remove_face(f3);
-    let nearest = polytope.find_nearest().expect("polytope should fall back to an edge once faces are removed");
-    assert!(matches!(nearest, libccd_rust::polytope::ElementRef::Edge(_)));
+    let nearest = polytope
+        .find_nearest()
+        .expect("polytope should fall back to an edge once faces are removed");
+    assert!(matches!(
+        nearest,
+        libccd_rust::polytope::ElementRef::Edge(_)
+    ));
 }
 
 #[test]
@@ -173,8 +203,10 @@ fn test_gjk_box_cylinder_intersect() {
 #[test]
 fn test_gjk_rotated_box_box_intersect() {
     let ccd = Ccd::new();
-    let box1 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0))
-        .with_rot(Quat::from_axis_angle(Vec3::Z_AXIS, std::f32::consts::FRAC_PI_4));
+    let box1 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0)).with_rot(Quat::from_axis_angle(
+        Vec3::Z_AXIS,
+        std::f32::consts::FRAC_PI_4,
+    ));
     let box2 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0)).with_pos(Vec3::new(0.75, 0.0, 0.0));
     assert!(ccd.gjk_intersect(&box1, &box2));
 }
@@ -201,7 +233,10 @@ fn test_mpr_box_cylinder_intersect() {
     let box_shape = BoxShape::new(Vec3::new(0.5, 1.0, 1.5));
     let cyl = CylinderShape::new(0.4, 0.7)
         .with_pos(Vec3::new(0.6, 0.6, 0.5))
-        .with_rot(Quat::from_axis_angle(Vec3::Y_AXIS, std::f32::consts::PI / 3.0));
+        .with_rot(Quat::from_axis_angle(
+            Vec3::Y_AXIS,
+            std::f32::consts::PI / 3.0,
+        ));
     assert!(ccd.mpr_intersect(&box_shape, &cyl));
 }
 
@@ -211,7 +246,10 @@ fn test_mpr_cylinder_cylinder_intersect() {
     let cyl1 = CylinderShape::new(0.35, 0.5);
     let cyl2 = CylinderShape::new(0.5, 1.0)
         .with_pos(Vec3::new(-0.2, 0.7, 0.2))
-        .with_rot(Quat::from_axis_angle(Vec3::new(0.0, 1.0, 1.0), std::f32::consts::FRAC_PI_4));
+        .with_rot(Quat::from_axis_angle(
+            Vec3::new(0.0, 1.0, 1.0),
+            std::f32::consts::FRAC_PI_4,
+        ));
     assert!(ccd.mpr_intersect(&cyl1, &cyl2));
 }
 
@@ -268,7 +306,9 @@ fn test_gjk_separate_box_box() {
     let ccd = Ccd::new();
     let box1 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0));
     let box2 = BoxShape::new(Vec3::new(1.0, 1.0, 1.0)).with_pos(Vec3::new(1.0, 0.0, 0.0));
-    let sep = ccd.gjk_separate(&box1, &box2).expect("overlap should produce a separation vector");
+    let sep = ccd
+        .gjk_separate(&box1, &box2)
+        .expect("overlap should produce a separation vector");
     assert!(sep.length() > 0.0);
     assert!(sep.x() < 0.0);
 }
@@ -337,7 +377,10 @@ fn test_convex_hull_support_and_intersection() {
         Vec3::new(-1.0, 1.0, 1.0),
     ])
     .with_pos(Vec3::new(0.5, 0.0, 0.0))
-    .with_rot(Quat::from_axis_angle(Vec3::Z_AXIS, std::f32::consts::FRAC_PI_4));
+    .with_rot(Quat::from_axis_angle(
+        Vec3::Z_AXIS,
+        std::f32::consts::FRAC_PI_4,
+    ));
     let sphere = SphereShape::new(0.75).with_pos(Vec3::new(0.5, 0.0, 0.0));
     assert!(ccd.gjk_intersect(&hull, &sphere));
 }

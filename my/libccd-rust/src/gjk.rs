@@ -77,7 +77,10 @@ pub fn gjk_intersect(
     first_dir: FirstDirFn,
     dist_tolerance: f32,
 ) -> bool {
-    matches!(gjk(obj1, obj2, max_iterations, first_dir, dist_tolerance), GjkResult::Intersection(_))
+    matches!(
+        gjk(obj1, obj2, max_iterations, first_dir, dist_tolerance),
+        GjkResult::Intersection(_)
+    )
 }
 
 /// Default first direction: from center of obj1 toward center of obj2.

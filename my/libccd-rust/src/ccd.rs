@@ -74,7 +74,9 @@ impl CcdBuilder {
         self
     }
     pub fn build(self) -> Ccd {
-        Ccd { config: self.config }
+        Ccd {
+            config: self.config,
+        }
     }
 }
 
@@ -135,11 +137,11 @@ impl Ccd {
             self.config.first_dir,
             self.config.dist_tolerance,
         )
-            .map(|r| Penetration {
-                depth: r.depth,
-                dir: r.dir,
-                pos: r.pos,
-            })
+        .map(|r| Penetration {
+            depth: r.depth,
+            dir: r.dir,
+            pos: r.pos,
+        })
     }
 
     /// Compute separation vector using GJK + EPA.
@@ -154,7 +156,7 @@ impl Ccd {
             self.config.first_dir,
             self.config.dist_tolerance,
         )
-            .map(|r| r.dir * r.depth)
+        .map(|r| r.dir * r.depth)
     }
 
     /// Test if two shapes intersect using MPR algorithm.
@@ -166,8 +168,17 @@ impl Ccd {
     ///
     /// Returns `Some(Penetration)` if shapes intersect, `None` otherwise.
     pub fn mpr_penetration(&self, obj1: &dyn Shape, obj2: &dyn Shape) -> Option<Penetration> {
-        mpr::mpr_penetration(obj1, obj2, self.config.max_iterations, self.config.mpr_tolerance)
-            .map(|r| Penetration { depth: r.depth, dir: r.dir, pos: r.pos })
+        mpr::mpr_penetration(
+            obj1,
+            obj2,
+            self.config.max_iterations,
+            self.config.mpr_tolerance,
+        )
+        .map(|r| Penetration {
+            depth: r.depth,
+            dir: r.dir,
+            pos: r.pos,
+        })
     }
 }
 

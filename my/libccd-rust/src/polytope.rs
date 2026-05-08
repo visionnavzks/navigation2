@@ -56,6 +56,55 @@ pub struct Polytope {
 }
 
 impl Polytope {
+    fn edge_other_vertex(&self, edge_idx: usize, vertex_idx: usize) -> Option<usize> {
+        let [v0, v1] = self.edges.get(edge_idx)?.vertices;
+        if v0 == vertex_idx {
+            Some(v1)
+        } else if v1 == vertex_idx {
+            Some(v0)
+        } else {
+            None
+        }
+    }
+
+    fn triangular_face_topology(&self, edges: [usize; 3]) -> Option<([usize; 3], [usize; 3])> {
+        const PERMUTATIONS: [[usize; 3]; 6] = [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ];
+
+        if edges[0] == edges[1] || edges[1] == edges[2] || edges[0] == edges[2] {
+            return None;
+        }
+
+        for permutation in PERMUTATIONS {
+            let ordered_edges = [
+                edges[permutation[0]],
+                edges[permutation[1]],
+                edges[permutation[2]],
+            ];
+            let [a, b] = self.edges.get(ordered_edges[0])?.vertices;
+
+            for (start, middle) in [(a, b), (b, a)] {
+                let Some(end) = self.edge_other_vertex(ordered_edges[1], middle) else {
+                    continue;
+                };
+                if end == start || end == middle {
+                    continue;
+                }
+                if self.edge_other_vertex(ordered_edges[2], end) == Some(start) {
+                    return Some((ordered_edges, [start, middle, end]));
+                }
+            }
+        }
+
+        None
+    }
+
     /// Create an empty polytope.
     pub fn new() -> Self {
         Self {
@@ -107,16 +156,18 @@ impl Polytope {
     /// Add a triangular face from three edges. Returns its index.
     pub fn add_face(&mut self, e1: usize, e2: usize, e3: usize) -> usize {
         let idx = self.faces.len();
+        let (edges, vertices) = self
+            .triangular_face_topology([e1, e2, e3])
+            .expect("face edges should form a closed triangle");
 
-        // Get the three vertices of the triangle from the edges
-        let (a, b, c) = self.face_vertices_from_edges(e1, e2, e3);
+        let [a, b, c] = vertices;
         let va = self.vertices[a].support.v;
         let vb = self.vertices[b].support.v;
         let vc = self.vertices[c].support.v;
         let (dist, witness) = Vec3::point_tri_dist2(Vec3::ZERO, va, vb, vc);
 
         // Register face in edges
-        for &ei in &[e1, e2, e3] {
+        for &ei in &edges {
             if self.edges[ei].faces[0].is_none() {
                 self.edges[ei].faces[0] = Some(idx);
             } else {
@@ -125,7 +176,7 @@ impl Polytope {
         }
 
         self.faces.push(Face {
-            edges: [e1, e2, e3],
+            edges,
             dist,
             witness: witness.unwrap_or(Vec3::ZERO),
         });
@@ -238,32 +289,27 @@ impl Polytope {
     }
 
     /// Get the three unique vertex indices referenced by a face's edges.
-    pub fn face_vertices_from_edges(&self, e1: usize, e2: usize, e3: usize) -> (usize, usize, usize) {
-        let mut vertices = [usize::MAX; 3];
-        let mut count = 0usize;
-
-        for edge_idx in [e1, e2, e3] {
-            for vertex_idx in self.edges[edge_idx].vertices {
-                if vertices[..count].contains(&vertex_idx) {
-                    continue;
-                }
-                debug_assert!(count < 3, "face edges should reference exactly three unique vertices");
-                if count < 3 {
-                    vertices[count] = vertex_idx;
-                    count += 1;
-                }
-            }
-        }
-
-        debug_assert!(count == 3, "face edges should reference exactly three unique vertices");
-        (vertices[0], vertices[1], vertices[2])
+    pub fn face_vertices_from_edges(
+        &self,
+        e1: usize,
+        e2: usize,
+        e3: usize,
+    ) -> (usize, usize, usize) {
+        let (_, [a, b, c]) = self
+            .triangular_face_topology([e1, e2, e3])
+            .expect("face edges should form a closed triangle");
+        (a, b, c)
     }
 
     /// Get the three vertex positions of a face.
     pub fn face_positions(&self, face_idx: usize) -> (Vec3, Vec3, Vec3) {
         let face = &self.faces[face_idx];
         let (a, b, c) = self.face_vertices_from_edges(face.edges[0], face.edges[1], face.edges[2]);
-        (self.vertices[a].support.v, self.vertices[b].support.v, self.vertices[c].support.v)
+        (
+            self.vertices[a].support.v,
+            self.vertices[b].support.v,
+            self.vertices[c].support.v,
+        )
     }
 
     /// Get the element type for an ElementRef.
@@ -279,5 +325,45 @@ impl Polytope {
 impl Default for Polytope {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn support_point(v: Vec3) -> SupportPoint {
+        SupportPoint {
+            v,
+            v1: Vec3::ZERO,
+            v2: Vec3::ZERO,
+        }
+    }
+
+    fn edge_matches_vertices(polytope: &Polytope, edge_idx: usize, a: usize, b: usize) -> bool {
+        let [v0, v1] = polytope.edges[edge_idx].vertices;
+        (v0 == a && v1 == b) || (v0 == b && v1 == a)
+    }
+
+    #[test]
+    fn test_face_vertices_follow_face_edge_cycle() {
+        let mut polytope = Polytope::new();
+
+        let v0 = polytope.add_vertex(support_point(Vec3::new(-1.0, 0.0, 0.0)));
+        let v1 = polytope.add_vertex(support_point(Vec3::new(1.0, 0.0, 0.0)));
+        let v2 = polytope.add_vertex(support_point(Vec3::new(0.0, 1.0, 0.0)));
+
+        let base = polytope.add_edge(v0, v1);
+        let spoke_a = polytope.add_edge(v2, v0);
+        let spoke_b = polytope.add_edge(v2, v1);
+        let face_idx = polytope.add_face(spoke_a, spoke_b, base);
+
+        let face = &polytope.faces[face_idx];
+        let (a, b, c) =
+            polytope.face_vertices_from_edges(face.edges[0], face.edges[1], face.edges[2]);
+
+        assert!(edge_matches_vertices(&polytope, face.edges[0], a, b));
+        assert!(edge_matches_vertices(&polytope, face.edges[1], b, c));
+        assert!(edge_matches_vertices(&polytope, face.edges[2], c, a));
     }
 }

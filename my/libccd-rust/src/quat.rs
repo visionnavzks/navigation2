@@ -13,7 +13,10 @@ impl Quat {
     /// Create from axis-angle.
     #[inline]
     pub fn from_axis_angle(axis: Vec3, angle: f32) -> Self {
-        Self(glam::Quat::from_axis_angle(axis.0.normalize().into(), angle))
+        Self(glam::Quat::from_axis_angle(
+            axis.0.normalize().into(),
+            angle,
+        ))
     }
 
     /// Invert the quaternion. Returns `None` if nearly zero length.

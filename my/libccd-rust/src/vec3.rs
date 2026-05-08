@@ -1,6 +1,6 @@
 //! 3D vector type wrapping `glam::Vec3A` for SIMD-accelerated math.
 
-use std::ops::{Add, Sub, Mul, Neg, Index};
+use std::ops::{Add, Index, Mul, Neg, Sub};
 
 /// Epsilon for floating-point comparisons.
 pub const EPSILON: f32 = 1e-6;
@@ -11,7 +11,7 @@ pub struct Vec3(pub glam::Vec3A);
 
 impl Vec3 {
     // ---- constants ----
-    pub const ZERO: Self   = Self(glam::Vec3A::ZERO);
+    pub const ZERO: Self = Self(glam::Vec3A::ZERO);
     pub const X_AXIS: Self = Self(glam::Vec3A::X);
     pub const Y_AXIS: Self = Self(glam::Vec3A::Y);
     pub const Z_AXIS: Self = Self(glam::Vec3A::Z);
@@ -23,11 +23,17 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn x(self) -> f32 { self.0.x }
+    pub fn x(self) -> f32 {
+        self.0.x
+    }
     #[inline]
-    pub fn y(self) -> f32 { self.0.y }
+    pub fn y(self) -> f32 {
+        self.0.y
+    }
     #[inline]
-    pub fn z(self) -> f32 { self.0.z }
+    pub fn z(self) -> f32 {
+        self.0.z
+    }
 
     // ---- basic ops ----
     #[inline]
@@ -193,25 +199,33 @@ impl Vec3 {
 impl Add for Vec3 {
     type Output = Self;
     #[inline]
-    fn add(self, rhs: Self) -> Self { Self(self.0 + rhs.0) }
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
 }
 
 impl Sub for Vec3 {
     type Output = Self;
     #[inline]
-    fn sub(self, rhs: Self) -> Self { Self(self.0 - rhs.0) }
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0 - rhs.0)
+    }
 }
 
 impl Mul<f32> for Vec3 {
     type Output = Self;
     #[inline]
-    fn mul(self, rhs: f32) -> Self { Self(self.0 * rhs) }
+    fn mul(self, rhs: f32) -> Self {
+        Self(self.0 * rhs)
+    }
 }
 
 impl Neg for Vec3 {
     type Output = Self;
     #[inline]
-    fn neg(self) -> Self { Self(-self.0) }
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
 }
 
 impl Index<usize> for Vec3 {
@@ -231,5 +245,7 @@ impl Index<usize> for Vec3 {
 impl Mul<Vec3> for f32 {
     type Output = Vec3;
     #[inline]
-    fn mul(self, rhs: Vec3) -> Vec3 { Vec3(self * rhs.0) }
+    fn mul(self, rhs: Vec3) -> Vec3 {
+        Vec3(self * rhs.0)
+    }
 }
