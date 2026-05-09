@@ -471,11 +471,14 @@ textarea {
   margin: 0;
 }
 
-.control-table .param-group input[type="range"],
 .control-table .param-group select,
 .control-table .param-group input[type="number"],
 .control-table .param-group .param-hint {
   grid-column: 2;
+}
+
+.control-table .param-group input[type="range"] {
+  grid-column: 1 / -1;
 }
 
 .control-table .param-group .param-hint {
