@@ -39,6 +39,8 @@ struct SmootherParams
 
   /// 三点平滑残差的平方根权重。
   double smooth_weight_sqrt{0.0};
+  /// 运动学状态转移一致性残差的平方根权重。
+  double model_weight_sqrt{0.0};
   /// 障碍物净空残差的基础平方根权重。
   double costmap_weight_sqrt{0.0};
   /// cusp 邻域内使用的增强障碍物权重。
@@ -47,10 +49,14 @@ struct SmootherParams
   double cusp_zone_length{0.0};
   /// 约束优化后控制点贴近参考路径的平方根权重。
   double distance_weight_sqrt{0.0};
-  /// 曲率正则项的平方根权重。
+  /// 几何版中“超出最大曲率阈值”的平方根惩罚权重。
   double curvature_weight_sqrt{0.0};
-  /// 可选四点曲率变化率代理项的平方根权重。
+  /// 几何版可选四点曲率变化率代理项的平方根权重。
   double curvature_rate_weight_sqrt{0.0};
+  /// 运动学版显式曲率状态 kappa 的平方根正则权重。
+  double kinematic_curvature_weight_sqrt{0.0};
+  /// 运动学版显式曲率变化率项的平方根权重。
+  double kinematic_curvature_rate_weight_sqrt{0.0};
   /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
   /// 传给 Ceres 求解器的最大墙钟时间。

@@ -331,6 +331,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   py::class_<constrained_smoother::SmootherParams>(m, "SmootherParams")
     .def(py::init<>())
     .def_readwrite("smooth_weight_sqrt", &constrained_smoother::SmootherParams::smooth_weight_sqrt)
+    .def_readwrite("model_weight_sqrt", &constrained_smoother::SmootherParams::model_weight_sqrt)
     .def_readwrite(
     "costmap_weight_sqrt",
     &constrained_smoother::SmootherParams::costmap_weight_sqrt)
@@ -347,6 +348,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "curvature_rate_weight_sqrt",
     &constrained_smoother::SmootherParams::curvature_rate_weight_sqrt)
+    .def_readwrite(
+    "kinematic_curvature_weight_sqrt",
+    &constrained_smoother::SmootherParams::kinematic_curvature_weight_sqrt)
+    .def_readwrite(
+    "kinematic_curvature_rate_weight_sqrt",
+    &constrained_smoother::SmootherParams::kinematic_curvature_rate_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
     .def_readwrite("use_exact_esdf", &constrained_smoother::SmootherParams::use_exact_esdf)

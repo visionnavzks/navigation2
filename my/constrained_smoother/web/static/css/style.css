@@ -471,6 +471,18 @@ textarea {
   margin: 0;
 }
 
+.control-table .param-group.param-group--stacked {
+  grid-template-columns: 1fr;
+  gap: 0.34rem;
+  align-items: start;
+}
+
+.control-table .param-group.param-group--stacked select,
+.control-table .param-group.param-group--stacked input[type="number"],
+.control-table .param-group.param-group--stacked .param-hint {
+  grid-column: auto;
+}
+
 .control-table .param-group select,
 .control-table .param-group input[type="number"],
 .control-table .param-group .param-hint {

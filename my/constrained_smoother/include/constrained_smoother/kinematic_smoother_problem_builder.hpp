@@ -181,9 +181,10 @@ public:
     ceres::Problem & problem) const
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
-    const double model_weight = std::max(params.smooth_weight_sqrt, 1.0);
-    const double curvature_weight = std::max(params.curvature_weight_sqrt, 0.0);
-    const double curvature_rate_weight = std::max(params.curvature_rate_weight_sqrt, 0.0);
+    const double model_weight = std::max(params.model_weight_sqrt, 1.0);
+    const double curvature_weight = std::max(params.kinematic_curvature_weight_sqrt, 0.0);
+    const double curvature_rate_weight =
+      std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);
     const double spacing_weight = 1.0;
     const double fix_weight = 100.0;
     const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);

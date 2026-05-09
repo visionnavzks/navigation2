@@ -785,12 +785,15 @@ def _build_goal_orientation_diagnostics(path, goal_yaw_rad, tolerance_rad):
 def _build_optimizer_config_payload(
     optimizer_type,
     smooth_weight,
+    model_weight,
     costmap_weight,
     cusp_costmap_weight,
     cusp_zone_length,
     distance_weight,
     curvature_weight,
     curvature_rate_weight,
+    kinematic_curvature_weight,
+    kinematic_curvature_rate_weight,
     max_curvature,
     max_time,
     max_iterations,
@@ -805,12 +808,15 @@ def _build_optimizer_config_payload(
     return {
         "optimizer_type": optimizer_type,
         "smooth_weight": round(smooth_weight, 3),
+        "model_weight": round(model_weight, 3),
         "costmap_weight": round(costmap_weight, 3),
         "cusp_costmap_weight": round(cusp_costmap_weight, 3),
         "cusp_zone_length_m": round(cusp_zone_length, 3),
         "distance_weight": round(distance_weight, 3),
         "curvature_weight": round(curvature_weight, 3),
         "curvature_rate_weight": round(curvature_rate_weight, 3),
+        "kinematic_curvature_weight": round(kinematic_curvature_weight, 3),
+        "kinematic_curvature_rate_weight": round(kinematic_curvature_rate_weight, 3),
         "max_curvature": round(max_curvature, 4),
         "max_time_s": round(max_time, 3),
         "max_iterations": int(max_iterations),
@@ -1361,12 +1367,17 @@ def plan_and_smooth():
 
         # Smoother tuning knobs from the frontend
         smooth_weight = float(req.get("smooth_weight", 20.0))
+        model_weight = float(req.get("model_weight", smooth_weight))
         costmap_weight = float(req.get("costmap_weight", 1.0))
         cusp_costmap_weight = max(0.0, float(req.get("cusp_costmap_weight", costmap_weight * 3.0)))
         cusp_zone_length = max(0.0, float(req.get("cusp_zone_length", 2.5)))
         distance_weight = float(req.get("distance_weight", 0.0))
         curvature_weight = float(req.get("curvature_weight", 30.0))
         curvature_rate_weight = float(req.get("curvature_rate_weight", 5.0))
+        kinematic_curvature_weight = float(req.get("kinematic_curvature_weight", curvature_weight))
+        kinematic_curvature_rate_weight = float(
+            req.get("kinematic_curvature_rate_weight", curvature_rate_weight)
+        )
         max_curvature = float(req.get("max_curvature", 2.5))
         max_time = max(0.01, float(req.get("max_time", 10.0)))
         reference_spacing_target_m = min(
@@ -1432,6 +1443,7 @@ def plan_and_smooth():
 
         smoother_params = pcs.SmootherParams()
         smoother_params.smooth_weight_sqrt = math.sqrt(smooth_weight)
+        smoother_params.model_weight_sqrt = math.sqrt(model_weight)
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
         smoother_params.cusp_costmap_weight_sqrt = math.sqrt(cusp_costmap_weight)
         smoother_params.cusp_zone_length = cusp_zone_length
@@ -1440,6 +1452,10 @@ def plan_and_smooth():
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
+        smoother_params.kinematic_curvature_weight_sqrt = math.sqrt(kinematic_curvature_weight)
+        smoother_params.kinematic_curvature_rate_weight_sqrt = math.sqrt(
+            kinematic_curvature_rate_weight
+        )
         smoother_params.max_curvature = max_curvature
         smoother_params.max_time = max_time
         smoother_params.keep_start_orientation = keep_start_orientation
@@ -1518,12 +1534,15 @@ def plan_and_smooth():
         optimizer_config = _build_optimizer_config_payload(
             optimizer_type,
             smooth_weight,
+            model_weight,
             costmap_weight,
             cusp_costmap_weight,
             cusp_zone_length,
             distance_weight,
             curvature_weight,
             curvature_rate_weight,
+            kinematic_curvature_weight,
+            kinematic_curvature_rate_weight,
             max_curvature,
             max_time,
             max_iterations,

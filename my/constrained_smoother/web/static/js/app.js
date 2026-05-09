@@ -77,9 +77,11 @@ document.addEventListener('DOMContentLoaded', () => {
     'loupe.cellCost': '栅格代价值',
     'loupe.esdfDistance': 'ESDF 距离',
     'weights.title': '平滑权重',
-    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数。',
-    'weights.smoothWeightLabel': '模型权重: <span id="val_smooth_weight">20</span>',
-    'weights.smoothWeightHint': '这是运动学模型一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
+    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数；约束平滑器使用 smooth_weight 和几何曲率权重，运动学平滑器使用 model_weight 和独立的运动学曲率权重。',
+    'weights.smoothWeightLabel': '平滑权重: <span id="val_smooth_weight">20</span>',
+    'weights.smoothWeightHint': '这是约束平滑器三点几何平滑残差的原始权重。调高后，相邻线段会更均匀、更少锯齿，但它并不直接强制自行车模型状态转移。',
+    'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
+    'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
     'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
     'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
@@ -92,6 +94,10 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.curvatureWeightHint': '抑制高曲率转弯，尤其是靠近障碍物角点时。',
     'weights.curvatureRateWeightLabel': '曲率变化率权重: <span id="val_curvature_rate_weight">5.0</span>',
     'weights.curvatureRateWeightHint': '使用四点 D3 有限差分惩罚。调高它可以抑制曲率突变，但不会替代最大曲率约束。',
+    'weights.kinematicCurvatureWeightLabel': '运动学曲率权重: <span id="val_kinematic_curvature_weight">30.0</span>',
+    'weights.kinematicCurvatureWeightHint': '惩罚运动学平滑器里的显式 kappa 状态。调高后会更偏向较小的平均转向曲率，而不只是减少超过最大曲率阈值的片段。',
+    'weights.kinematicCurvatureRateWeightLabel': '运动学曲率变化率权重: <span id="val_kinematic_curvature_rate_weight">5.0</span>',
+    'weights.kinematicCurvatureRateWeightHint': '惩罚相邻状态之间显式 kappa 的变化率。这和几何平滑器里的四点 D3 代理项不是同一个残差。',
     'weights.maxCurvatureLabel': '最大曲率 (1/m): <span id="val_max_curvature">2.5</span>',
     'weights.maxCurvatureHint': '限制转弯曲率。值越小，最小转弯半径越大。',
     'planner.title': '规划器',
@@ -268,6 +274,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.leftDrag': 'Left-drag',
       'optimizer.constrained': 'Constrained Smoother',
       'optimizer.kinematic': 'Kinematic Smoother',
+      'weights.modelWeightLabel': 'Model Weight: <span id="val_model_weight">20</span>',
+      'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
       'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
       'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
@@ -392,6 +400,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.leftDrag': '左键拖拽',
       'optimizer.constrained': '约束平滑器',
       'optimizer.kinematic': '运动学平滑器',
+      'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
+      'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
       'optimizer.mode.constrained': '约束平滑器使用现有的 C++ Ceres 目标函数，包含曲率、尖点和 ESDF 障碍项。',
       'optimizer.mode.kinematic': '运动学平滑器使用新的 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
       'optimizer.linear.constrained': '选择每次非线性迭代内部使用的 Ceres 线性求解后端。',
@@ -553,12 +563,15 @@ document.addEventListener('DOMContentLoaded', () => {
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
     smooth_weight: value => Math.round(value).toLocaleString(),
+    model_weight: value => Math.round(value).toLocaleString(),
     costmap_weight: value => Number(value).toFixed(3),
     cusp_costmap_weight: value => Number(value).toFixed(3),
     cusp_zone_length: value => Number(value).toFixed(2),
     distance_weight: value => Number(value).toFixed(1),
     curvature_weight: value => Number(value).toFixed(1),
     curvature_rate_weight: value => Number(value).toFixed(1),
+    kinematic_curvature_weight: value => Number(value).toFixed(1),
+    kinematic_curvature_rate_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
     reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),
@@ -572,8 +585,9 @@ document.addEventListener('DOMContentLoaded', () => {
     gradient_tol: value => formatScientific(value),
   };
   const optimizerScopedSliderIds = [
-    'smooth_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
-    'distance_weight', 'curvature_weight', 'curvature_rate_weight', 'max_curvature',
+    'smooth_weight', 'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
+    'distance_weight', 'curvature_weight', 'curvature_rate_weight',
+    'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'max_curvature',
     'reference_spacing_target_m', 'max_iterations', 'max_time',
     'path_downsampling_factor', 'path_upsampling_factor',
   ];
@@ -1071,9 +1085,46 @@ document.addEventListener('DOMContentLoaded', () => {
   function updateOptimizerUi() {
     const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
     const isConstrainedSmoother = optimizerType === 'constrained_smoother';
+    const smoothWeightGroup = document.getElementById('smooth-weight-group');
+    const modelWeightGroup = document.getElementById('model-weight-group');
+    const constrainedCurvatureWeightGroup = document.getElementById('constrained-curvature-weight-group');
+    const constrainedCurvatureRateWeightGroup = document.getElementById('constrained-curvature-rate-weight-group');
+    const kinematicCurvatureWeightGroup = document.getElementById('kinematic-curvature-weight-group');
+    const kinematicCurvatureRateWeightGroup = document.getElementById('kinematic-curvature-rate-weight-group');
+    const weightsOptimizerBadge = document.getElementById('weights-optimizer-badge');
 
     if (linearSolverTypeSelect) {
       linearSolverTypeSelect.disabled = !isConstrainedSmoother;
+    }
+
+    if (smoothWeightGroup) {
+      smoothWeightGroup.hidden = !isConstrainedSmoother;
+    }
+
+    if (modelWeightGroup) {
+      modelWeightGroup.hidden = isConstrainedSmoother;
+    }
+
+    if (constrainedCurvatureWeightGroup) {
+      constrainedCurvatureWeightGroup.hidden = !isConstrainedSmoother;
+    }
+
+    if (constrainedCurvatureRateWeightGroup) {
+      constrainedCurvatureRateWeightGroup.hidden = !isConstrainedSmoother;
+    }
+
+    if (kinematicCurvatureWeightGroup) {
+      kinematicCurvatureWeightGroup.hidden = isConstrainedSmoother;
+    }
+
+    if (kinematicCurvatureRateWeightGroup) {
+      kinematicCurvatureRateWeightGroup.hidden = isConstrainedSmoother;
+    }
+
+    if (weightsOptimizerBadge) {
+      weightsOptimizerBadge.textContent = isConstrainedSmoother
+        ? t('optimizer.constrained')
+        : t('optimizer.kinematic');
     }
 
     setText(
@@ -1328,7 +1379,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('kinematic-param-max-iterations', optimizerConfig.max_iterations ?? '--');
     setText('kinematic-param-max-time', formatSeconds(optimizerConfig.max_time_s, 2));
     setText('kinematic-param-max-curvature', formatCurvature(optimizerConfig.max_curvature, 2));
-    setText('kinematic-param-curvature-rate-weight', optimizerConfig.curvature_rate_weight ?? '--');
+    setText(
+      'kinematic-param-curvature-rate-weight',
+      optimizerConfig.kinematic_curvature_rate_weight ?? '--'
+    );
     setText('kinematic-param-resampling', `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'}`);
     setText(
       'kinematic-param-ceres-tolerances',

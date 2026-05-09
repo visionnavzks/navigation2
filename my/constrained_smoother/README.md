@@ -17,7 +17,7 @@ These are the most important behavior contracts in the current standalone implem
 2. Output paths overwrite the third component with `yaw` in radians.
 	 - After `smooth()` returns, `path[i][2]` is no longer a direction sign.
 3. `SmootherParams` expects square-root weights.
-	 - Set `smooth_weight_sqrt = sqrt(weight)`, `costmap_weight_sqrt = sqrt(weight)`, and so on.
+	 - Set `smooth_weight_sqrt = sqrt(weight)` for the geometric smoother, `model_weight_sqrt = sqrt(weight)` for the kinematic transition term, `costmap_weight_sqrt = sqrt(weight)`, and so on.
 4. `cost_check_points` is used as-is.
 	 - The standalone build does not preprocess footprint sample weights the way the ROS plugin layer does.
 	 - Pass triples of `(x_local, y_local, weight)` in the robot local frame.
@@ -156,7 +156,7 @@ solver / post-validation failure
 - 保持不变的部分：C++ 层都支持异常式 `smooth(...)` 和带 `failure` 的结构化控制流。
 - 保持不变的部分：pybind 层都提供 `smooth(...)`、`try_smooth(...)`、`smooth_with_planner_esdf(...)`、`try_smooth_with_planner_esdf(...)`，而且 `try_*` 返回面保持同构。
 - 更值得重调的部分：`smooth_weight_sqrt`、`distance_weight_sqrt`、`costmap_weight_sqrt` 往往需要重新平衡，因为两个后端的状态空间和残差模型不同。
-- 更值得重调的部分：`curvature_weight_sqrt`、`curvature_rate_weight_sqrt` 在运动学版里通常比几何版更敏感，建议不要直接照搬旧权重。
+- 更值得重调的部分：运动学版现在使用独立的 `kinematic_curvature_weight_sqrt`、`kinematic_curvature_rate_weight_sqrt`，不要再直接复用几何版 `curvature_weight_sqrt`、`curvature_rate_weight_sqrt`。
 - 更值得重调的部分：`keep_start_orientation` / `keep_goal_orientation` 在运动学版里会和 gear 一致性约束一起起作用，若目标朝向与段方向冲突，更容易触发后验拒绝。
 
 一个实用经验是：
