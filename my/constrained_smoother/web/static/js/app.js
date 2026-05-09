@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const SUPPORTED_LANGUAGES = ['en', 'zh'];
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
+  const baseCanvasPixelSize = Math.max(1, Number(canvas?.getAttribute('width')) || 800);
   const ctx = canvas.getContext('2d');
   const curvatureChart = document.getElementById('curvature-chart');
   const dsChart = document.getElementById('ds-chart');
@@ -26,6 +27,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusMsg = document.getElementById('status-msg');
   const validationDetailsCard = document.getElementById('footprint-validation-details-card');
   const kinematicDiagnosticsCard = document.getElementById('kinematic-diagnostics-card');
+  const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
+  const CHART_HEIGHTS = {
+    primary: 190,
+    secondary: 136,
+  };
 
   const zhStaticTranslations = {
     'hero.eyebrow': '独立版 Nav2 约束平滑器',
@@ -166,6 +172,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.referenceLength': '参考长度',
     'run.optimizedLength': '优化长度',
     'run.optMinusRef': '优化 - 参考',
+    'diagnostics.title': '诊断',
+    'diagnostics.pending': '当某次运行产生验证或运动学详情时，它们会显示在这里。',
     'run.kinematicDetails': '运动学详情',
     'run.goalSegmentError': '终端段方向误差',
     'run.goalTolerance': '允许容差',
@@ -301,6 +309,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.note.success': '{optimizerLabel} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.',
       'run.note.fallback': '{optimizerLabel} failed and the reference path is being shown instead. {smoothMessage}',
       'run.note.rejected': '{optimizerLabel} failed validation, but the rejected smoothed candidate is still being shown for inspection. {smoothMessage}',
+      'diagnostics.title': 'Diagnostics',
+      'diagnostics.pending': 'Validation and kinematic details appear here when a run exposes them.',
       'run.kinematicDetails': 'Kinematic Details',
       'run.goalSegmentError': 'Goal Segment Error',
       'run.goalTolerance': 'Goal Tolerance',
@@ -880,11 +890,91 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
+  let pendingCanvasResizeFrame = null;
+  let pendingPlotResizeFrame = null;
+
+  function resizeMapCanvas() {
+    if (!canvas || !canvasWrap) {
+      return;
+    }
+
+    const wrapStyle = window.getComputedStyle(canvasWrap);
+    const innerWidth = canvasWrap.clientWidth
+      - parseFloat(wrapStyle.paddingLeft || '0')
+      - parseFloat(wrapStyle.paddingRight || '0');
+    const innerHeight = canvasWrap.clientHeight
+      - parseFloat(wrapStyle.paddingTop || '0')
+      - parseFloat(wrapStyle.paddingBottom || '0');
+    const displaySize = Math.max(1, Math.floor(Math.min(innerWidth, innerHeight)));
+    if (!Number.isFinite(displaySize) || displaySize < 1) {
+      return;
+    }
+
+    const displaySizePx = `${displaySize}px`;
+    if (
+      canvas.width === baseCanvasPixelSize
+      && canvas.height === baseCanvasPixelSize
+      && canvas.style.width === displaySizePx
+      && canvas.style.height === displaySizePx
+    ) {
+      return;
+    }
+
+    canvas.width = baseCanvasPixelSize;
+    canvas.height = baseCanvasPixelSize;
+    canvas.style.width = displaySizePx;
+    canvas.style.height = displaySizePx;
+    positionOptimizedPointPopup();
+    draw();
+  }
+
+  function scheduleMapCanvasResize() {
+    if (pendingCanvasResizeFrame !== null) {
+      window.cancelAnimationFrame(pendingCanvasResizeFrame);
+    }
+    pendingCanvasResizeFrame = window.requestAnimationFrame(() => {
+      pendingCanvasResizeFrame = null;
+      resizeMapCanvas();
+    });
+  }
+
+  function resizeProfileCharts({rerender = false} = {}) {
+    if (!chartElements.length) {
+      return;
+    }
+
+    if (rerender) {
+      drawCurvatureChart();
+      return;
+    }
+
+    if (!window.Plotly?.Plots) {
+      return;
+    }
+
+    chartElements.forEach(element => {
+      if (element?.clientWidth > 0 && element?.clientHeight > 0 && element.data) {
+        window.Plotly.Plots.resize(element);
+      }
+    });
+  }
+
+  function scheduleProfileChartResize(options = {}) {
+    if (pendingPlotResizeFrame !== null) {
+      window.cancelAnimationFrame(pendingPlotResizeFrame);
+    }
+    pendingPlotResizeFrame = window.requestAnimationFrame(() => {
+      pendingPlotResizeFrame = null;
+      resizeProfileCharts(options);
+    });
+  }
+
   syncDerivedParameterInfo();
   updateRobotConfigUi();
   initializeOptimizerProfiles();
   clearOptimizedPointInspector();
   clearCurvatureChart();
+  resizeMapCanvas();
 
   const maxCurvatureInput = document.getElementById('max_curvature');
   if (maxCurvatureInput) {
@@ -894,7 +984,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  window.addEventListener('resize', () => drawCurvatureChart());
+  window.addEventListener('resize', () => {
+    scheduleMapCanvasResize();
+    scheduleProfileChartResize();
+  });
+
+  if (window.ResizeObserver) {
+    if (canvasWrap) {
+      new window.ResizeObserver(() => scheduleMapCanvasResize()).observe(canvasWrap);
+    }
+    const sidebarProfiles = document.querySelector('.curvature-panel--sidebar');
+    if (sidebarProfiles) {
+      new window.ResizeObserver(() => scheduleProfileChartResize()).observe(sidebarProfiles);
+    }
+  }
 
   Object.entries(layerBindings).forEach(([id, key]) => {
     const checkbox = document.getElementById(id);
@@ -913,6 +1016,56 @@ document.addEventListener('DOMContentLoaded', () => {
     if (element) {
       element.textContent = value;
     }
+  }
+
+  function initializePanelSwitcher(container) {
+    const navButtons = Array.from(container.querySelectorAll('.control-nav-btn[data-panel-target]'));
+    const panels = Array.from(container.querySelectorAll('[data-panel-id]'));
+    if (!navButtons.length || !panels.length) {
+      return;
+    }
+
+    const setActivePanel = panelId => {
+      const fallbackPanelId = panels[0]?.dataset.panelId;
+      const nextPanelId = panels.some(panel => panel.dataset.panelId === panelId) ? panelId : fallbackPanelId;
+      if (!nextPanelId) {
+        return;
+      }
+
+      navButtons.forEach(button => {
+        const isActive = button.dataset.panelTarget === nextPanelId;
+        button.classList.toggle('is-active', isActive);
+        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+
+      panels.forEach(panel => {
+        const isActive = panel.dataset.panelId === nextPanelId;
+        panel.classList.toggle('is-active', isActive);
+        panel.hidden = !isActive;
+      });
+
+      scheduleMapCanvasResize();
+      scheduleProfileChartResize();
+    };
+
+    navButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        setActivePanel(button.dataset.panelTarget);
+      });
+    });
+
+    const defaultPanelId = navButtons.find(button => button.classList.contains('is-active'))?.dataset.panelTarget
+      || panels[0]?.dataset.panelId;
+    setActivePanel(defaultPanelId);
+  }
+
+  function initializeControlPanels() {
+    const panelSwitchers = Array.from(document.querySelectorAll('[data-panel-switcher]'));
+    if (!panelSwitchers.length) {
+      return;
+    }
+
+    panelSwitchers.forEach(initializePanelSwitcher);
   }
 
   function updateOptimizerUi() {
@@ -969,6 +1122,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   updateOptimizerUi();
+  initializeControlPanels();
   function formatMeters(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
@@ -2205,7 +2359,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('curvature-max', '--');
     setText('curvature-note', t('curvature.note.pending'));
 
-    const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
     if (!chartElements.length) {
       return;
     }
@@ -2219,7 +2372,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const createEmptyLayout = (height, title) => ({
       height,
-      margin: {l: 56, r: 18, t: 16, b: 46},
+      margin: {l: 52, r: 14, t: 12, b: 38},
       paper_bgcolor: 'rgba(255, 250, 240, 0.96)',
       plot_bgcolor: 'rgba(255, 250, 240, 0.96)',
       font: {
@@ -2255,19 +2408,19 @@ document.addEventListener('DOMContentLoaded', () => {
     window.Plotly.react(
       curvatureChart,
       [],
-      createEmptyLayout(260, t('curvature.empty.curvature')),
+      createEmptyLayout(CHART_HEIGHTS.primary, t('curvature.empty.curvature')),
       config
     );
     window.Plotly.react(
       dsChart,
       [],
-      createEmptyLayout(220, t('curvature.empty.spacing')),
+      createEmptyLayout(CHART_HEIGHTS.secondary, t('curvature.empty.spacing')),
       config
     );
     window.Plotly.react(
       dkdsChart,
       [],
-      createEmptyLayout(220, t('curvature.empty.rate')),
+      createEmptyLayout(CHART_HEIGHTS.secondary, t('curvature.empty.rate')),
       config
     );
   }
@@ -2301,7 +2454,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const makeLayout = (height, xTitle, yTitle) => ({
       height,
-      margin: {l: 64, r: 18, t: 18, b: 52},
+      margin: {l: 58, r: 14, t: 14, b: 44},
       paper_bgcolor: plotBackground,
       plot_bgcolor: plotBackground,
       font: {
@@ -2327,7 +2480,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
-    const curvatureLayout = makeLayout(260, t('curvature.axis.arcLength'), t('curvature.axis.curvature'));
+    const curvatureLayout = makeLayout(CHART_HEIGHTS.primary, t('curvature.axis.arcLength'), t('curvature.axis.curvature'));
     if (maxCurvatureLimit > 0) {
       curvatureLayout.shapes = [maxCurvatureLimit, -maxCurvatureLimit].map(limit => ({
         type: 'line',
@@ -2368,7 +2521,7 @@ document.addEventListener('DOMContentLoaded', () => {
         marker: {size: 6, color: 'rgba(20, 122, 106, 0.95)'},
         hovertemplate: 's=%{x:.2f} m<br>ds=%{y:.3f} m<extra></extra>',
       }],
-      makeLayout(220, t('curvature.axis.segmentMidpoint'), t('curvature.axis.spacing')),
+      makeLayout(CHART_HEIGHTS.secondary, t('curvature.axis.segmentMidpoint'), t('curvature.axis.spacing')),
       config
     );
 
@@ -2382,7 +2535,7 @@ document.addEventListener('DOMContentLoaded', () => {
         line: {color: 'rgba(217, 122, 43, 0.95)', width: 2.4},
         hovertemplate: 's=%{x:.2f} m<br>dk/ds=%{y:.3f} 1/m^2<extra></extra>',
       }],
-      makeLayout(220, t('curvature.axis.arcLength'), t('curvature.axis.rate')),
+      makeLayout(CHART_HEIGHTS.secondary, t('curvature.axis.arcLength'), t('curvature.axis.rate')),
       config
     );
 

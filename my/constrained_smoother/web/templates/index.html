@@ -8,12 +8,14 @@
 </head>
 <body>
   <div class="page-shell">
-    <header class="hero panel">
-      <div class="hero-copy">
+    <header class="topbar panel">
+      <div class="topbar-copy">
         <p class="eyebrow" data-i18n="hero.eyebrow">Standalone Nav2 Constrained Smoother</p>
-        <h1 data-i18n="hero.title">A* + Constrained Smoother Lab</h1>
-        <p class="subtitle" data-i18n="hero.subtitle">Inspect the synthetic costmap, compare raw and optimized paths, and understand what each solver parameter changes before touching the full Nav2 plugin.</p>
-        <div class="hero-controls">
+        <div class="topbar-title-row">
+          <div>
+            <h1 data-i18n="hero.title">A* + Constrained Smoother Lab</h1>
+            <p class="subtitle" data-i18n="hero.subtitle">Inspect the synthetic costmap, compare raw and optimized paths, and understand what each solver parameter changes before touching the full Nav2 plugin.</p>
+          </div>
           <label class="language-switch" for="language-switch">
             <span id="language-switch-label" data-i18n="language.label">Language</span>
             <select id="language-switch" aria-labelledby="language-switch-label">
@@ -23,7 +25,7 @@
           </label>
         </div>
       </div>
-      <div class="hero-summary">
+      <div class="topbar-summary">
         <div class="summary-card">
           <span class="summary-label" data-i18n="hero.summary.mapLabel">Map</span>
           <strong id="hero-map-size">--</strong>
@@ -34,7 +36,7 @@
           <strong id="hero-resolution">--</strong>
           <span class="summary-copy" data-i18n="hero.summary.resolutionCopy">meters per cell</span>
         </div>
-        <div class="summary-card">
+        <div class="summary-card summary-card--wide">
           <span class="summary-label" data-i18n="hero.summary.interactionLabel">Interaction</span>
           <strong id="phase-indicator">Markers ready</strong>
           <span id="hero-status" class="summary-copy">Left-drag endpoints or obstacle blocks to edit the scene, left-drag empty space to pan, and double-click to restore the full view.</span>
@@ -42,703 +44,771 @@
       </div>
     </header>
 
-    <div class="main-layout">
-      <aside class="sidebar panel">
-        <section class="stack-section">
-          <div class="section-heading">
-            <h2 data-i18n="session.title">Session</h2>
-            <span id="selection-pill" class="pill">Drag scene</span>
-          </div>
+    <div class="dashboard-grid">
+      <aside class="dashboard-controls panel">
+        <div class="controls-grid rail-switcher rail-switcher--controls" data-panel-switcher>
+          <nav class="control-nav rail-switcher__nav" aria-label="Control groups">
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn is-active" data-panel-target="panel-session" aria-controls="panel-session" aria-selected="true">
+              <span data-i18n="session.title">Session</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-weights" aria-controls="panel-weights" aria-selected="false">
+              <span data-i18n="weights.title">Smoother Weights</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-planner" aria-controls="panel-planner" aria-selected="false">
+              <span data-i18n="planner.title">Planner</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-robot" aria-controls="panel-robot" aria-selected="false">
+              <span data-i18n="robot.title">Robot</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-solver" aria-controls="panel-solver" aria-selected="false">
+              <span data-i18n="solver.title">Solver</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-layers" aria-controls="panel-layers" aria-selected="false">
+              <span data-i18n="layers.title">Layers</span>
+            </button>
+          </nav>
 
-          <div id="status-msg" class="status-msg"></div>
-
-          <div class="mini-grid compact">
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="session.start">Start</span>
-              <strong id="start-coord">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="session.goal">Goal</span>
-              <strong id="goal-coord">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="session.cursor">Cursor</span>
-              <strong id="cursor-coord">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="session.zoom">Zoom</span>
-              <strong id="zoom-level">1.00x</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="session.gesture">Gesture</span>
-              <strong id="view-mode-label">Left-drag</strong>
-            </div>
-          </div>
-
-          <div class="mini-grid compact">
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="session.startHeading">Start Heading</span>
-              <strong id="start-heading-readout">45 deg</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="session.goalHeading">Goal Heading</span>
-              <strong id="goal-heading-readout">45 deg</strong>
-            </div>
-          </div>
-
-          <div class="mini-grid compact">
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="session.startConstraint">Start Constraint</span>
-              <strong id="start-constraint-readout">Enabled</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="session.goalConstraint">Goal Constraint</span>
-              <strong id="goal-constraint-readout">Enabled</strong>
-            </div>
-          </div>
-
-          <div class="constraint-toggle-row">
-            <label class="constraint-toggle" for="keep_start_orientation">
-              <input type="checkbox" id="keep_start_orientation" checked>
-              <span data-i18n="session.enableStartConstraint">Enable start orientation constraint</span>
-            </label>
-            <label class="constraint-toggle" for="keep_goal_orientation">
-              <input type="checkbox" id="keep_goal_orientation" checked>
-              <span data-i18n="session.enableGoalConstraint">Enable goal orientation constraint</span>
-            </label>
-          </div>
-
-          <div class="param-group">
-            <label data-i18n-html="session.startHeadingLabel">Start Heading: <span id="val_start_yaw_deg">45 deg</span></label>
-            <input type="range" id="start_yaw_deg" min="-180" max="180" step="1" value="45">
-            <p class="param-hint" data-i18n="session.startHeadingHint">Sets the world-frame heading constraint used for the start pose during smoothing.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="session.goalHeadingLabel">Goal Heading: <span id="val_goal_yaw_deg">45 deg</span></label>
-            <input type="range" id="goal_yaw_deg" min="-180" max="180" step="1" value="45">
-            <p class="param-hint" data-i18n="session.goalHeadingHint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
-          </div>
-
-          <p class="param-hint" data-i18n-html="session.reversingHint">The API now honors <strong>reversing_enabled</strong> for the kinematic smoother, but the Web Lab still keeps per-waypoint direction signs as the primary source of reversing behavior, so this compatibility flag remains hidden here.</p>
-
-          <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
-
-          <p class="section-note" data-i18n-html="session.mapNote">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
-        </section>
-
-        <section class="stack-section">
-          <div class="section-heading">
-            <h2 data-i18n="map.title">Map Overview</h2>
-            <span id="map-kind" class="pill">Synthetic field</span>
-          </div>
-
-          <div class="mini-grid compact">
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.grid">Grid</span>
-              <strong id="map-grid">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.world">World</span>
-              <strong id="map-world-size">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.resolution">Resolution</span>
-              <strong id="map-resolution">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.origin">Origin</span>
-              <strong id="map-origin">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.obstacleBlocks">Obstacle Blocks</span>
-              <strong id="map-obstacles">--</strong>
-            </div>
-            <div class="metric-card">
-              <span class="metric-label" data-i18n="map.inflationRadius">Inflation Radius</span>
-              <strong id="map-inflation">--</strong>
-            </div>
-          </div>
-
-          <div class="mini-grid compact">
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="map.freeCells">Free Cells</span>
-              <strong id="map-free-cells">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="map.inflatedCells">Inflated Cells</span>
-              <strong id="map-inflated-cells">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="map.lethalCells">Lethal Cells</span>
-              <strong id="map-lethal-cells">--</strong>
-            </div>
-          </div>
-
-          <p id="map-description" class="section-note">--</p>
-        </section>
-
-        <section class="stack-section">
-          <div class="section-heading">
-            <h2 data-i18n="loupe.title">Cursor Inspector</h2>
-            <span class="pill" data-i18n="loupe.liveHover">live hover</span>
-          </div>
-
-          <div id="costmap-loupe" class="costmap-loupe" aria-live="polite">
-            <div class="costmap-loupe__header">
-              <span class="costmap-loupe__title" data-i18n="loupe.title">Cursor Inspector</span>
-              <strong id="loupe-cost-value">ESDF --</strong>
-            </div>
-            <canvas id="loupe-canvas" width="132" height="132"></canvas>
-            <div class="costmap-loupe__stats">
-              <div class="costmap-loupe__stat">
-                <span data-i18n="loupe.cellCost">Cell Cost</span>
-                <strong id="loupe-cell-cost">--</strong>
+          <div class="control-panel-column rail-switcher__panel-column">
+            <section id="panel-session" class="control-panel rail-switcher__panel stack-section control-table is-active" data-panel-id="panel-session">
+              <div class="section-heading">
+                <h2 data-i18n="session.title">Session</h2>
+                <span id="selection-pill" class="pill">Drag scene</span>
               </div>
-              <div class="costmap-loupe__stat">
-                <span data-i18n="loupe.esdfDistance">ESDF Distance</span>
-                <strong id="loupe-esdf-distance">--</strong>
-              </div>
-            </div>
-            <div class="costmap-loupe__meta">
-              <span id="loupe-world">World: --</span>
-              <span id="loupe-cell">Cell: --</span>
-            </div>
-            <div class="costmap-loupe__footer">
-              <span id="loupe-kind" class="costmap-loupe__badge">Outside map</span>
-            </div>
-          </div>
-        </section>
 
-        <details open class="details-card">
-          <summary data-i18n="weights.title">Smoother Weights</summary>
-          <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver.</p>
-          <div class="param-group">
-            <label data-i18n-html="weights.smoothWeightLabel">Model Weight: <span id="val_smooth_weight">20</span></label>
-            <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
-            <p class="param-hint" data-i18n="weights.smoothWeightHint">Raw weight for the kinematic model-consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.obstacleWeightLabel">Obstacle Weight: <span id="val_costmap_weight">1.000</span></label>
-            <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="1.0">
-            <p class="param-hint" data-i18n="weights.obstacleWeightHint">Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.cuspObstacleWeightLabel">Cusp Obstacle Weight: <span id="val_cusp_costmap_weight">3.000</span></label>
-            <input type="range" id="cusp_costmap_weight" min="0" max="10.0" step="0.05" value="3.0">
-            <p class="param-hint" data-i18n="weights.cuspObstacleWeightHint">Overrides the nominal obstacle weight around cusp neighborhoods so direction-switch regions can be pushed harder away from obstacles.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.cuspZoneLengthLabel">Cusp Zone Length (m): <span id="val_cusp_zone_length">2.50</span></label>
-            <input type="range" id="cusp_zone_length" min="0.0" max="10.0" step="0.1" value="2.5">
-            <p class="param-hint" data-i18n="weights.cuspZoneLengthHint">Sets the full arc-length span over which cusp obstacle weighting ramps up before and after a direction switch.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.distanceWeightLabel">Distance Weight: <span id="val_distance_weight">0.0</span></label>
-            <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
-            <p class="param-hint" data-i18n="weights.distanceWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.curvatureWeightLabel">Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
-            <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
-            <p class="param-hint" data-i18n="weights.curvatureWeightHint">Discourages high-curvature turns, especially around obstacle corners.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.curvatureRateWeightLabel">Curvature-Rate Weight: <span id="val_curvature_rate_weight">5.0</span></label>
-            <input type="range" id="curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
-            <p class="param-hint" data-i18n="weights.curvatureRateWeightHint">Applies a four-point D3 finite-difference penalty. Raise it to suppress sudden curvature changes without replacing the max-curvature constraint.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="weights.maxCurvatureLabel">Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
-            <input type="range" id="max_curvature" min="0.1" max="10.0" step="0.1" value="2.5">
-            <p id="val_min_turn_radius" class="param-hint">Minimum turning radius: 0.40 m</p>
-            <p class="param-hint" data-i18n="weights.maxCurvatureHint">Caps the turning curvature. Lower values enforce a larger minimum turning radius.</p>
-          </div>
-        </details>
+              <div id="status-msg" class="status-msg"></div>
 
-        <details class="details-card">
-          <summary data-i18n="planner.title">Planner</summary>
-          <div class="param-group">
-            <label data-i18n-html="planner.penaltyWeightLabel">A* Penalty Weight: <span id="val_planner_penalty_weight">1.0</span></label>
-            <input type="range" id="planner_penalty_weight" min="0.0" max="10.0" step="0.1" value="1.0">
-            <p class="param-hint" data-i18n="planner.penaltyWeightHint">Scales how strongly A* detours away from low-clearance cells under the shared quadratic hinge loss. This affects the planner only, not the smoother obstacle weight.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="planner.hingeThresholdLabel">Hinge Loss Threshold (m): <span id="val_hinge_loss_threshold_m">0.50</span></label>
-            <input type="range" id="hinge_loss_threshold_m" min="0.05" max="2.00" step="0.05" value="0.50">
-            <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared hinge margin used by the C++ A* planner and constrained smoother. ESDF distances beyond this threshold incur zero penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
-          </div>
-        </details>
-
-        <details class="details-card">
-          <summary data-i18n="robot.title">Robot</summary>
-          <div class="param-group">
-            <label for="footprint_mode" data-i18n="robot.footprintModel">Footprint Model</label>
-            <select id="footprint_mode">
-              <option value="capsule" selected data-i18n="robot.footprintCapsule">Capsule Checkpoints</option>
-              <option value="point" data-i18n="robot.footprintPoint">Single Check Circle</option>
-            </select>
-            <p class="param-hint" data-i18n="robot.footprintHint">Planning and smoothing now share the same checkpoint-plus-radius model. The rectangle is kept only for final path validation.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="robot.singleCircleRadiusLabel">Single-Circle Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
-            <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="1.00">
-            <p class="param-hint" data-i18n="robot.singleCircleRadiusHint">Used only in single-circle mode. Capsule mode derives the circle radius directly from robot width.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="robot.lengthLabel">Robot Length (m): <span id="val_robot_length_m">0.80</span></label>
-            <input type="range" id="robot_length_m" min="0.2" max="2.0" step="0.05" value="0.8">
-            <p class="param-hint" data-i18n="robot.lengthHint">Used to build capsule checkpoint centers and to validate the final path against the actual rectangle.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="robot.widthLabel">Robot Width (m): <span id="val_robot_width_m">0.50</span></label>
-            <input type="range" id="robot_width_m" min="0.2" max="1.5" step="0.05" value="0.5">
-            <p class="param-hint" data-i18n="robot.widthHint">Capsule radius defaults to half of this width. The same width is also used for final rectangle validation.</p>
-          </div>
-          <div class="footprint-preview-card">
-            <div class="footprint-preview-card__header">
-              <span data-i18n="robot.previewTitle">Footprint Preview</span>
-              <strong id="footprint-preview-badge">Capsule</strong>
-            </div>
-            <canvas id="footprint-preview-canvas" width="220" height="160"></canvas>
-            <p id="robot-config-summary" class="param-hint">Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.</p>
-            <p id="footprint-validation-summary" class="param-hint">Rectangle validation status will appear after each plan.</p>
-            <div id="footprint-validation-details-card" class="validation-details-card" hidden>
-              <div class="validation-details-card__header">
-                <span data-i18n="robot.validationDetails">Validation Failure Details</span>
-                <strong id="validation-detail-path">--</strong>
-              </div>
-              <div class="validation-details-grid">
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.failureCode">Failure Code</span>
-                  <strong id="validation-detail-code">--</strong>
+              <div class="mini-grid compact">
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="session.start">Start</span>
+                  <strong id="start-coord">--</strong>
                 </div>
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.failureReason">Failure Reason</span>
-                  <strong id="validation-detail-reason">--</strong>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="session.goal">Goal</span>
+                  <strong id="goal-coord">--</strong>
                 </div>
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.poseIndex">Pose Index</span>
-                  <strong id="validation-detail-pose-index">--</strong>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="session.cursor">Cursor</span>
+                  <strong id="cursor-coord">--</strong>
                 </div>
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.poseXY">Pose XY</span>
-                  <strong id="validation-detail-pose-xy">--</strong>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="session.zoom">Zoom</span>
+                  <strong id="zoom-level">1.00x</strong>
                 </div>
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.poseHeading">Pose Heading</span>
-                  <strong id="validation-detail-pose-yaw">--</strong>
-                </div>
-                <div class="validation-details-item">
-                  <span class="metric-label" data-i18n="robot.collisionBounds">Collision / Bounds</span>
-                  <strong id="validation-detail-cell">--</strong>
-                </div>
-                <div class="validation-details-item validation-details-item--wide">
-                  <span class="metric-label" data-i18n="robot.cellWorldContext">Cell / Bounds World Context</span>
-                  <strong id="validation-detail-cell-world">--</strong>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="session.gesture">Gesture</span>
+                  <strong id="view-mode-label">Left-drag</strong>
                 </div>
               </div>
-              <p id="validation-detail-message" class="validation-details-message">--</p>
-            </div>
-          </div>
-        </details>
 
-        <details class="details-card">
-          <summary data-i18n="solver.title">Solver</summary>
-          <div class="param-group">
-            <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
-            <select id="optimizer_type">
-              <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
-              <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
-            </select>
-            <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
-          </div>
-          <div class="param-group">
-            <label for="linear_solver_type" data-i18n="solver.linearSolver">Linear Solver</label>
-            <select id="linear_solver_type">
-              <option value="SPARSE_NORMAL_CHOLESKY" selected>SPARSE_NORMAL_CHOLESKY</option>
-              <option value="DENSE_QR">DENSE_QR</option>
-            </select>
-            <p id="linear-solver-hint" class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
-          </div>
-          <label class="constraint-toggle" for="optimizer_debug">
-            <input type="checkbox" id="optimizer_debug">
-            <span data-i18n="solver.debugLogging">Enable per-iteration solver logging on the Flask server</span>
-          </label>
-          <div class="param-group">
-            <label data-i18n-html="solver.referenceSpacingLabel">Reference Spacing Target (m): <span id="val_reference_spacing_target_m">0.30</span></label>
-            <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
-            <p class="param-hint" data-i18n="solver.referenceSpacingHint">Controls how aggressively the dense A* path is downsampled before it becomes the Reference Path / optimizer input. Larger spacing usually means fewer reference points.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.maxIterationsLabel">Max Iterations: <span id="val_max_iterations">50</span></label>
-            <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
-            <p class="param-hint" data-i18n="solver.maxIterationsHint">Upper bound on Ceres iterations before the optimizer stops.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.maxSolverTimeLabel">Max Solver Time (s): <span id="val_max_time">10.0</span></label>
-            <input type="range" id="max_time" min="0.1" max="30.0" step="0.1" value="10.0">
-            <p class="param-hint" data-i18n="solver.maxSolverTimeHint">Wall-clock time limit for the nonlinear solve. The optimizer stops when it hits either this limit or the iteration cap.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.parameterToleranceLabel">Parameter Tolerance: <span id="val_param_tol">1.0e-8</span></label>
-            <input type="number" id="param_tol" min="0" max="0.01" step="any" value="1e-8">
-            <p class="param-hint" data-i18n="solver.parameterToleranceHint">Stops when parameter updates become sufficiently small between iterations.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.functionToleranceLabel">Function Tolerance: <span id="val_fn_tol">1.0e-6</span></label>
-            <input type="number" id="fn_tol" min="0" max="0.01" step="any" value="1e-6">
-            <p class="param-hint" data-i18n="solver.functionToleranceHint">Stops when the objective improvement falls below this threshold.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.gradientToleranceLabel">Gradient Tolerance: <span id="val_gradient_tol">1.0e-10</span></label>
-            <input type="number" id="gradient_tol" min="0" max="0.01" step="any" value="1e-10">
-            <p class="param-hint" data-i18n="solver.gradientToleranceHint">Stops when the gradient norm becomes sufficiently small near a stationary point.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.downsamplingFactorLabel">Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>
-            <input type="range" id="path_downsampling_factor" min="1" max="10" step="1" value="1">
-            <p class="param-hint" data-i18n="solver.downsamplingFactorHint">Drops intermediate reference points before optimization to reduce problem size.</p>
-          </div>
-          <div class="param-group">
-            <label data-i18n-html="solver.upsamplingFactorLabel">Upsampling Factor: <span id="val_path_upsampling_factor">1</span></label>
-            <input type="range" id="path_upsampling_factor" min="1" max="10" step="1" value="1">
-            <p class="param-hint" data-i18n="solver.upsamplingFactorHint">Reinserts points after optimization to recover path density for inspection.</p>
-          </div>
-        </details>
+              <div class="mini-grid compact">
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="session.startHeading">Start Heading</span>
+                  <strong id="start-heading-readout">45 deg</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="session.goalHeading">Goal Heading</span>
+                  <strong id="goal-heading-readout">45 deg</strong>
+                </div>
+              </div>
 
-        <section class="stack-section">
-          <div class="section-heading">
-            <h2 data-i18n="layers.title">Layers</h2>
-            <span class="pill" data-i18n="layers.toggleVisibility">toggle visibility</span>
-          </div>
-          <div class="layer-list">
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_costmap" checked>
-              <span class="swatch swatch-costmap"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.costmap">Costmap</span>
-                <span class="layer-copy" data-i18n="layers.costmapHint">free, inflated, and lethal cells</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_axes" checked>
-              <span class="swatch swatch-axes"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.mapAxes">Map Axes</span>
-                <span class="layer-copy" data-i18n="layers.mapAxesHint">world-frame coordinate overlay</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_markers" checked>
-              <span class="swatch swatch-markers"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.startGoal">Start / Goal</span>
-                <span class="layer-copy" data-i18n="layers.startGoalHint">selected endpoints</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_astar" checked>
-              <span class="swatch swatch-astar"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.astarRawPath">A* Raw Path</span>
-                <span class="layer-copy" data-i18n="layers.astarRawPathHint">dense grid-connected plan</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_reference" checked>
-              <span class="swatch swatch-reference"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.referencePath">Reference Path</span>
-                <span class="layer-copy" data-i18n="layers.referencePathHint">downsampled optimizer input</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_smoothed" checked>
-              <span class="swatch swatch-smoothed"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.smoothedPath">Smoothed Path</span>
-                <span class="layer-copy" data-i18n="layers.smoothedPathHint">Ceres output, colored by forward vs reverse motion</span>
-              </span>
-            </label>
-            <label class="layer-toggle">
-              <input type="checkbox" id="layer_robot_projection">
-              <span class="swatch swatch-robot-projection"></span>
-              <span class="layer-copy-wrap">
-                <span class="layer-name" data-i18n="layers.robotProjection">Robot Projection</span>
-                <span class="layer-copy" data-i18n="layers.robotProjectionHint">checkpoint circles with the dashed rectangle validation outline swept along the smoothed path</span>
-              </span>
-            </label>
-          </div>
-        </section>
+              <div class="mini-grid compact">
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="session.startConstraint">Start Constraint</span>
+                  <strong id="start-constraint-readout">Enabled</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="session.goalConstraint">Goal Constraint</span>
+                  <strong id="goal-constraint-readout">Enabled</strong>
+                </div>
+              </div>
 
-        <section class="stack-section">
-          <div class="section-heading">
-            <h2 data-i18n="run.title">Run Statistics</h2>
-            <span id="smooth-state" class="pill">idle</span>
-          </div>
+              <div class="constraint-toggle-row">
+                <label class="constraint-toggle" for="keep_start_orientation">
+                  <input type="checkbox" id="keep_start_orientation" checked>
+                  <span data-i18n="session.enableStartConstraint">Enable start orientation constraint</span>
+                </label>
+                <label class="constraint-toggle" for="keep_goal_orientation">
+                  <input type="checkbox" id="keep_goal_orientation" checked>
+                  <span data-i18n="session.enableGoalConstraint">Enable goal orientation constraint</span>
+                </label>
+              </div>
 
-          <div class="mini-grid compact">
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.optimizer">Optimizer</span>
-              <strong id="info-optimizer">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.astarTime">A* Time</span>
-              <strong id="info-astar-time">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.smoothTime">Smooth Time</span>
-              <strong id="info-smooth-time">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.astarPoints">A* Points</span>
-              <strong id="info-astar-pts">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.referencePoints">Reference Points</span>
-              <strong id="info-ref-pts">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.optimizationKnots">Optimization Knots</span>
-              <strong id="info-opt-knots">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.returnedPathPoints">Returned Path Points</span>
-              <strong id="info-opt-pts">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.refSpacingTarget">Ref Spacing Target</span>
-              <strong id="info-ref-spacing">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.rawLength">Raw Length</span>
-              <strong id="info-raw-length">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.referenceLength">Reference Length</span>
-              <strong id="info-ref-length">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.optimizedLength">Optimized Length</span>
-              <strong id="info-opt-length">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="run.optMinusRef">Opt - Ref</span>
-              <strong id="info-length-delta">--</strong>
-            </div>
-          </div>
+              <div class="param-group">
+                <label data-i18n-html="session.startHeadingLabel">Start Heading: <span id="val_start_yaw_deg">45 deg</span></label>
+                <input type="range" id="start_yaw_deg" min="-180" max="180" step="1" value="45">
+                <p class="param-hint" data-i18n="session.startHeadingHint">Sets the world-frame heading constraint used for the start pose during smoothing.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="session.goalHeadingLabel">Goal Heading: <span id="val_goal_yaw_deg">45 deg</span></label>
+                <input type="range" id="goal_yaw_deg" min="-180" max="180" step="1" value="45">
+                <p class="param-hint" data-i18n="session.goalHeadingHint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
+              </div>
 
-          <p id="run-note" class="section-note">Set a start and goal to generate path metrics.</p>
-          <p id="pipeline-summary" class="section-note">Pipeline status will appear after each run.</p>
-          <div id="kinematic-diagnostics-card" class="validation-details-card" hidden>
-            <div class="validation-details-card__header">
-              <span data-i18n="run.kinematicDetails">Kinematic Details</span>
-              <strong id="kinematic-detail-mode">--</strong>
-            </div>
-            <div class="validation-details-grid">
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalSegmentError">Goal Segment Error</span>
-                <strong id="kinematic-goal-segment-error">--</strong>
+              <p class="param-hint" data-i18n-html="session.reversingHint">The API now honors <strong>reversing_enabled</strong> for the kinematic smoother, but the Web Lab still keeps per-waypoint direction signs as the primary source of reversing behavior, so this compatibility flag remains hidden here.</p>
+              <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
+              <p class="section-note" data-i18n-html="session.mapNote">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
+            </section>
+
+            <section id="panel-weights" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-weights" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="weights.title">Smoother Weights</h2>
+                <span class="pill" data-i18n="solver.constrained">Constrained Smoother</span>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalTolerance">Goal Tolerance</span>
-                <strong id="kinematic-goal-tolerance">--</strong>
+              <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver.</p>
+              <div class="param-group">
+                <label data-i18n-html="weights.smoothWeightLabel">Model Weight: <span id="val_smooth_weight">20</span></label>
+                <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
+                <p class="param-hint" data-i18n="weights.smoothWeightHint">Raw weight for the kinematic model-consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalExpected">Expected Goal Heading</span>
-                <strong id="kinematic-goal-expected">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.obstacleWeightLabel">Obstacle Weight: <span id="val_costmap_weight">1.000</span></label>
+                <input type="range" id="costmap_weight" min="0" max="1.0" step="0.005" value="1.0">
+                <p class="param-hint" data-i18n="weights.obstacleWeightHint">Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalActualSegment">Actual Terminal Segment</span>
-                <strong id="kinematic-goal-actual-segment">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.cuspObstacleWeightLabel">Cusp Obstacle Weight: <span id="val_cusp_costmap_weight">3.000</span></label>
+                <input type="range" id="cusp_costmap_weight" min="0" max="10.0" step="0.05" value="3.0">
+                <p class="param-hint" data-i18n="weights.cuspObstacleWeightHint">Overrides the nominal obstacle weight around cusp neighborhoods so direction-switch regions can be pushed harder away from obstacles.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalPoseHeading">Terminal Pose Heading</span>
-                <strong id="kinematic-goal-pose-heading">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.cuspZoneLengthLabel">Cusp Zone Length (m): <span id="val_cusp_zone_length">2.50</span></label>
+                <input type="range" id="cusp_zone_length" min="0.0" max="10.0" step="0.1" value="2.5">
+                <p class="param-hint" data-i18n="weights.cuspZoneLengthHint">Sets the full arc-length span over which cusp obstacle weighting ramps up before and after a direction switch.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.goalPoseError">Terminal Pose Error</span>
-                <strong id="kinematic-goal-pose-error">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.distanceWeightLabel">Distance Weight: <span id="val_distance_weight">0.0</span></label>
+                <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
+                <p class="param-hint" data-i18n="weights.distanceWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.kinematicMaxIterations">Max Iterations</span>
-                <strong id="kinematic-param-max-iterations">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.curvatureWeightLabel">Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
+                <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
+                <p class="param-hint" data-i18n="weights.curvatureWeightHint">Discourages high-curvature turns, especially around obstacle corners.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.kinematicMaxTime">Max Solver Time</span>
-                <strong id="kinematic-param-max-time">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.curvatureRateWeightLabel">Curvature-Rate Weight: <span id="val_curvature_rate_weight">5.0</span></label>
+                <input type="range" id="curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
+                <p class="param-hint" data-i18n="weights.curvatureRateWeightHint">Applies a four-point D3 finite-difference penalty. Raise it to suppress sudden curvature changes without replacing the max-curvature constraint.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.kinematicMaxCurvature">Max Curvature</span>
-                <strong id="kinematic-param-max-curvature">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="weights.maxCurvatureLabel">Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
+                <input type="range" id="max_curvature" min="0.1" max="10.0" step="0.1" value="2.5">
+                <p id="val_min_turn_radius" class="param-hint">Minimum turning radius: 0.40 m</p>
+                <p class="param-hint" data-i18n="weights.maxCurvatureHint">Caps the turning curvature. Lower values enforce a larger minimum turning radius.</p>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.kinematicCurvatureRateWeight">Curvature Rate Weight</span>
-                <strong id="kinematic-param-curvature-rate-weight">--</strong>
+            </section>
+
+            <section id="panel-planner" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-planner" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="planner.title">Planner</h2>
+                <span class="pill">A*</span>
               </div>
-              <div class="validation-details-item">
-                <span class="metric-label" data-i18n="run.kinematicResampling">Resampling</span>
-                <strong id="kinematic-param-resampling">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="planner.penaltyWeightLabel">A* Penalty Weight: <span id="val_planner_penalty_weight">1.0</span></label>
+                <input type="range" id="planner_penalty_weight" min="0.0" max="10.0" step="0.1" value="1.0">
+                <p class="param-hint" data-i18n="planner.penaltyWeightHint">Scales how strongly A* detours away from low-clearance cells under the shared quadratic hinge loss. This affects the planner only, not the smoother obstacle weight.</p>
               </div>
-              <div class="validation-details-item validation-details-item--wide">
-                <span class="metric-label" data-i18n="run.kinematicCeresTolerances">Ceres Tolerances</span>
-                <strong id="kinematic-param-ceres-tolerances">--</strong>
+              <div class="param-group">
+                <label data-i18n-html="planner.hingeThresholdLabel">Hinge Loss Threshold (m): <span id="val_hinge_loss_threshold_m">0.50</span></label>
+                <input type="range" id="hinge_loss_threshold_m" min="0.05" max="2.00" step="0.05" value="0.50">
+                <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared hinge margin used by the C++ A* planner and constrained smoother. ESDF distances beyond this threshold incur zero penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
               </div>
-            </div>
+            </section>
+
+            <section id="panel-robot" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-robot" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="robot.title">Robot</h2>
+                <span class="pill" data-i18n="robot.previewTitle">Footprint Preview</span>
+              </div>
+              <div class="param-group">
+                <label for="footprint_mode" data-i18n="robot.footprintModel">Footprint Model</label>
+                <select id="footprint_mode">
+                  <option value="capsule" selected data-i18n="robot.footprintCapsule">Capsule Checkpoints</option>
+                  <option value="point" data-i18n="robot.footprintPoint">Single Check Circle</option>
+                </select>
+                <p class="param-hint" data-i18n="robot.footprintHint">Planning and smoothing now share the same checkpoint-plus-radius model. The rectangle is kept only for final path validation.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="robot.singleCircleRadiusLabel">Single-Circle Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
+                <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="1.00">
+                <p class="param-hint" data-i18n="robot.singleCircleRadiusHint">Used only in single-circle mode. Capsule mode derives the circle radius directly from robot width.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="robot.lengthLabel">Robot Length (m): <span id="val_robot_length_m">0.80</span></label>
+                <input type="range" id="robot_length_m" min="0.2" max="2.0" step="0.05" value="0.8">
+                <p class="param-hint" data-i18n="robot.lengthHint">Used to build capsule checkpoint centers and to validate the final path against the actual rectangle.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="robot.widthLabel">Robot Width (m): <span id="val_robot_width_m">0.50</span></label>
+                <input type="range" id="robot_width_m" min="0.2" max="1.5" step="0.05" value="0.5">
+                <p class="param-hint" data-i18n="robot.widthHint">Capsule radius defaults to half of this width. The same width is also used for final rectangle validation.</p>
+              </div>
+              <div class="footprint-preview-card">
+                <div class="footprint-preview-card__header">
+                  <span data-i18n="robot.previewTitle">Footprint Preview</span>
+                  <strong id="footprint-preview-badge">Capsule</strong>
+                </div>
+                <canvas id="footprint-preview-canvas" width="220" height="160"></canvas>
+                <p id="robot-config-summary" class="param-hint">Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.</p>
+                <p id="footprint-validation-summary" class="param-hint">Rectangle validation status will appear after each plan.</p>
+              </div>
+            </section>
+
+            <section id="panel-solver" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-solver" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="solver.title">Solver</h2>
+                <span class="pill" data-i18n="solver.backend">Optimizer Backend</span>
+              </div>
+              <div class="param-group">
+                <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
+                <select id="optimizer_type">
+                  <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
+                  <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
+                </select>
+                <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
+              </div>
+              <div class="param-group">
+                <label for="linear_solver_type" data-i18n="solver.linearSolver">Linear Solver</label>
+                <select id="linear_solver_type">
+                  <option value="SPARSE_NORMAL_CHOLESKY" selected>SPARSE_NORMAL_CHOLESKY</option>
+                  <option value="DENSE_QR">DENSE_QR</option>
+                </select>
+                <p id="linear-solver-hint" class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
+              </div>
+              <label class="constraint-toggle" for="optimizer_debug">
+                <input type="checkbox" id="optimizer_debug">
+                <span data-i18n="solver.debugLogging">Enable per-iteration solver logging on the Flask server</span>
+              </label>
+              <div class="param-group">
+                <label data-i18n-html="solver.referenceSpacingLabel">Reference Spacing Target (m): <span id="val_reference_spacing_target_m">0.30</span></label>
+                <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
+                <p class="param-hint" data-i18n="solver.referenceSpacingHint">Controls how aggressively the dense A* path is downsampled before it becomes the Reference Path / optimizer input. Larger spacing usually means fewer reference points.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.maxIterationsLabel">Max Iterations: <span id="val_max_iterations">50</span></label>
+                <input type="range" id="max_iterations" min="1" max="500" step="1" value="50">
+                <p class="param-hint" data-i18n="solver.maxIterationsHint">Upper bound on Ceres iterations before the optimizer stops.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.maxSolverTimeLabel">Max Solver Time (s): <span id="val_max_time">10.0</span></label>
+                <input type="range" id="max_time" min="0.1" max="30.0" step="0.1" value="10.0">
+                <p class="param-hint" data-i18n="solver.maxSolverTimeHint">Wall-clock time limit for the nonlinear solve. The optimizer stops when it hits either this limit or the iteration cap.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.parameterToleranceLabel">Parameter Tolerance: <span id="val_param_tol">1.0e-8</span></label>
+                <input type="number" id="param_tol" min="0" max="0.01" step="any" value="1e-8">
+                <p class="param-hint" data-i18n="solver.parameterToleranceHint">Stops when parameter updates become sufficiently small between iterations.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.functionToleranceLabel">Function Tolerance: <span id="val_fn_tol">1.0e-6</span></label>
+                <input type="number" id="fn_tol" min="0" max="0.01" step="any" value="1e-6">
+                <p class="param-hint" data-i18n="solver.functionToleranceHint">Stops when the objective improvement falls below this threshold.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.gradientToleranceLabel">Gradient Tolerance: <span id="val_gradient_tol">1.0e-10</span></label>
+                <input type="number" id="gradient_tol" min="0" max="0.01" step="any" value="1e-10">
+                <p class="param-hint" data-i18n="solver.gradientToleranceHint">Stops when the gradient norm becomes sufficiently small near a stationary point.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.downsamplingFactorLabel">Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>
+                <input type="range" id="path_downsampling_factor" min="1" max="10" step="1" value="1">
+                <p class="param-hint" data-i18n="solver.downsamplingFactorHint">Drops intermediate reference points before optimization to reduce problem size.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="solver.upsamplingFactorLabel">Upsampling Factor: <span id="val_path_upsampling_factor">1</span></label>
+                <input type="range" id="path_upsampling_factor" min="1" max="10" step="1" value="1">
+                <p class="param-hint" data-i18n="solver.upsamplingFactorHint">Reinserts points after optimization to recover path density for inspection.</p>
+              </div>
+            </section>
+
+            <section id="panel-layers" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-layers" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="layers.title">Layers</h2>
+                <span class="pill" data-i18n="layers.toggleVisibility">toggle visibility</span>
+              </div>
+              <div class="layer-list">
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_costmap" checked>
+                  <span class="swatch swatch-costmap"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.costmap">Costmap</span>
+                    <span class="layer-copy" data-i18n="layers.costmapHint">free, inflated, and lethal cells</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_axes" checked>
+                  <span class="swatch swatch-axes"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.mapAxes">Map Axes</span>
+                    <span class="layer-copy" data-i18n="layers.mapAxesHint">world-frame coordinate overlay</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_markers" checked>
+                  <span class="swatch swatch-markers"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.startGoal">Start / Goal</span>
+                    <span class="layer-copy" data-i18n="layers.startGoalHint">selected endpoints</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_astar" checked>
+                  <span class="swatch swatch-astar"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.astarRawPath">A* Raw Path</span>
+                    <span class="layer-copy" data-i18n="layers.astarRawPathHint">dense grid-connected plan</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_reference" checked>
+                  <span class="swatch swatch-reference"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.referencePath">Reference Path</span>
+                    <span class="layer-copy" data-i18n="layers.referencePathHint">downsampled optimizer input</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_smoothed" checked>
+                  <span class="swatch swatch-smoothed"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.smoothedPath">Smoothed Path</span>
+                    <span class="layer-copy" data-i18n="layers.smoothedPathHint">Ceres output, colored by forward vs reverse motion</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_robot_projection">
+                  <span class="swatch swatch-robot-projection"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.robotProjection">Robot Projection</span>
+                    <span class="layer-copy" data-i18n="layers.robotProjectionHint">checkpoint circles with the dashed rectangle validation outline swept along the smoothed path</span>
+                  </span>
+                </label>
+              </div>
+            </section>
           </div>
-        </section>
+        </div>
       </aside>
 
-      <section class="map-section panel">
-        <div class="map-toolbar">
-          <div class="toolbar-group">
-            <button id="run-btn" class="action-btn" disabled data-i18n="toolbar.runPlanning">Run Planning</button>
-            <button id="clear-btn" class="ghost-btn" data-i18n="toolbar.resetScene">Reset Scene</button>
-            <button id="reset-view-btn" class="ghost-btn" data-i18n="toolbar.resetView">Reset View</button>
-            <label class="toolbar-select" for="map-display-mode">
-              <span data-i18n="toolbar.display">Display</span>
-              <select id="map-display-mode">
-                <option value="costmap" selected data-i18n="toolbar.originalCostmap">Original Costmap</option>
-                <option value="esdf">ESDF</option>
-              </select>
-            </label>
-            <label class="toolbar-select" for="esdf-colormap">
-              <span data-i18n="toolbar.esdfColormap">ESDF Colormap</span>
-              <select id="esdf-colormap">
-                <option value="diverging" selected data-i18n="toolbar.diverging">Diverging</option>
-                <option value="viridis">Viridis</option>
-                <option value="inferno">Inferno</option>
-                <option value="turbo">Turbo</option>
-              </select>
-            </label>
-          </div>
-          <div class="toolbar-meta">
-            <div class="toolbar-pill">
-              <span data-i18n="toolbar.world">World</span>
-              <strong id="map-world-size-toolbar">--</strong>
+      <main class="dashboard-visual panel">
+        <section class="map-section">
+          <div class="map-toolbar">
+            <div class="toolbar-group">
+              <button id="run-btn" class="action-btn" disabled data-i18n="toolbar.runPlanning">Run Planning</button>
+              <button id="clear-btn" class="ghost-btn" data-i18n="toolbar.resetScene">Reset Scene</button>
+              <button id="reset-view-btn" class="ghost-btn" data-i18n="toolbar.resetView">Reset View</button>
+              <label class="toolbar-select" for="map-display-mode">
+                <span data-i18n="toolbar.display">Display</span>
+                <select id="map-display-mode">
+                  <option value="costmap" selected data-i18n="toolbar.originalCostmap">Original Costmap</option>
+                  <option value="esdf">ESDF</option>
+                </select>
+              </label>
+              <label class="toolbar-select" for="esdf-colormap">
+                <span data-i18n="toolbar.esdfColormap">ESDF Colormap</span>
+                <select id="esdf-colormap">
+                  <option value="diverging" selected data-i18n="toolbar.diverging">Diverging</option>
+                  <option value="viridis">Viridis</option>
+                  <option value="inferno">Inferno</option>
+                  <option value="turbo">Turbo</option>
+                </select>
+              </label>
             </div>
-            <div class="toolbar-pill">
-              <span data-i18n="toolbar.inflation">Inflation</span>
-              <strong id="map-inflation-toolbar">--</strong>
+            <div class="toolbar-meta">
+              <div class="toolbar-pill">
+                <span data-i18n="toolbar.world">World</span>
+                <strong id="map-world-size-toolbar">--</strong>
+              </div>
+              <div class="toolbar-pill">
+                <span data-i18n="toolbar.inflation">Inflation</span>
+                <strong id="map-inflation-toolbar">--</strong>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div class="canvas-wrap">
-          <canvas id="map-canvas" width="800" height="800"></canvas>
-          <div id="opt-point-popup" class="opt-point-popup" hidden>
-            <div class="opt-point-popup__header">
-              <span class="opt-point-popup__title" data-i18n="popup.title">Optimized Point</span>
-              <strong id="opt-point-index">--</strong>
+          <div class="canvas-wrap">
+            <canvas id="map-canvas" width="800" height="800"></canvas>
+            <div id="opt-point-popup" class="opt-point-popup" hidden>
+              <div class="opt-point-popup__header">
+                <span class="opt-point-popup__title" data-i18n="popup.title">Optimized Point</span>
+                <strong id="opt-point-index">--</strong>
+              </div>
+              <div class="opt-point-popup__grid">
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.role">Role</span>
+                  <strong id="opt-point-role">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.world">World</span>
+                  <strong id="opt-point-world">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.poseHeading">Pose Heading</span>
+                  <strong id="opt-point-heading">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.pathTangent">Path Tangent</span>
+                  <strong id="opt-point-tangent">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.arcLength">Arc Length</span>
+                  <strong id="opt-point-arc">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.prevSegment">Prev Segment</span>
+                  <strong id="opt-point-prev-segment">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.nextSegment">Next Segment</span>
+                  <strong id="opt-point-next-segment">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.turnAngle">Turn Angle</span>
+                  <strong id="opt-point-turn">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.approxCurvature">Approx Curvature</span>
+                  <strong id="opt-point-curvature">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.esdf">ESDF</span>
+                  <strong id="opt-point-esdf">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.cellCost">Cell Cost</span>
+                  <strong id="opt-point-cost">--</strong>
+                </div>
+                <div class="opt-point-popup__item">
+                  <span data-i18n="popup.cursorOffset">Cursor Offset</span>
+                  <strong id="opt-point-cursor-offset">--</strong>
+                </div>
+              </div>
+              <p id="opt-point-note" class="opt-point-popup__note">Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.</p>
             </div>
-            <div class="opt-point-popup__grid">
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.role">Role</span>
-                <strong id="opt-point-role">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.world">World</span>
-                <strong id="opt-point-world">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.poseHeading">Pose Heading</span>
-                <strong id="opt-point-heading">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.pathTangent">Path Tangent</span>
-                <strong id="opt-point-tangent">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.arcLength">Arc Length</span>
-                <strong id="opt-point-arc">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.prevSegment">Prev Segment</span>
-                <strong id="opt-point-prev-segment">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.nextSegment">Next Segment</span>
-                <strong id="opt-point-next-segment">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.turnAngle">Turn Angle</span>
-                <strong id="opt-point-turn">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.approxCurvature">Approx Curvature</span>
-                <strong id="opt-point-curvature">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.esdf">ESDF</span>
-                <strong id="opt-point-esdf">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.cellCost">Cell Cost</span>
-                <strong id="opt-point-cost">--</strong>
-              </div>
-              <div class="opt-point-popup__item">
-                <span data-i18n="popup.cursorOffset">Cursor Offset</span>
-                <strong id="opt-point-cursor-offset">--</strong>
-              </div>
-            </div>
-            <p id="opt-point-note" class="opt-point-popup__note">Hover a point on the rose smoothed path to inspect its geometry, heading, local clearance, and segment context.</p>
           </div>
-        </div>
 
-        <section class="curvature-panel">
-          <div class="section-heading">
-            <h2 data-i18n="curvature.title">Optimized Path Profiles</h2>
-            <span id="curvature-state" class="pill">idle</span>
-          </div>
-          <div class="profile-chart-stack">
-            <div class="profile-chart-block">
-              <div class="profile-chart-title-row">
-                <h3 data-i18n="curvature.curvatureKs">Curvature k(s)</h3>
-                <span class="profile-chart-tag">Plotly</span>
-              </div>
-              <div id="curvature-chart" class="profile-chart profile-chart--primary" aria-label="Optimized path curvature chart"></div>
-            </div>
-            <div class="profile-chart-grid">
-              <div class="profile-chart-block">
-                <div class="profile-chart-title-row">
-                  <h3 data-i18n="curvature.segmentSpacing">Segment Spacing ds</h3>
-                </div>
-                <div id="ds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path segment spacing chart"></div>
-              </div>
-              <div class="profile-chart-block">
-                <div class="profile-chart-title-row">
-                  <h3 data-i18n="curvature.curvatureRate">Curvature Rate dk/ds</h3>
-                </div>
-                <div id="dkds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path curvature rate chart"></div>
-              </div>
-            </div>
-          </div>
-          <div class="mini-grid compact curvature-grid">
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="curvature.peak">Peak |curvature|</span>
-              <strong id="curvature-peak">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="curvature.mean">Mean |curvature|</span>
-              <strong id="curvature-mean">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="curvature.signedMin">Signed Min</span>
-              <strong id="curvature-min">--</strong>
-            </div>
-            <div class="metric-card subtle">
-              <span class="metric-label" data-i18n="curvature.signedMax">Signed Max</span>
-              <strong id="curvature-max">--</strong>
-            </div>
-          </div>
-          <p id="curvature-note" class="hint">Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.</p>
         </section>
+      </main>
 
-        <div class="map-footer">
-          <p class="hint" data-i18n="footer.layersHint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, final optimized trajectory, or sampled robot projection along that trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
-          <p class="hint" data-i18n-html="footer.sceneHint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
+      <aside class="dashboard-insights panel">
+        <div class="insights-shell">
+          <div class="insights-grid rail-switcher rail-switcher--insights" data-panel-switcher>
+            <nav class="control-nav control-nav--compact rail-switcher__nav" aria-label="Insight groups">
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn is-active" data-panel-target="panel-map-overview" aria-controls="panel-map-overview" aria-selected="true">
+              <span data-i18n="map.title">Map Overview</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-cursor-inspector" aria-controls="panel-cursor-inspector" aria-selected="false">
+              <span data-i18n="loupe.title">Cursor Inspector</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-run-statistics" aria-controls="panel-run-statistics" aria-selected="false">
+              <span data-i18n="run.title">Run Statistics</span>
+            </button>
+            <button type="button" class="control-nav-btn rail-switcher__nav-btn" data-panel-target="panel-diagnostics" aria-controls="panel-diagnostics" aria-selected="false">
+              <span data-i18n="diagnostics.title">Diagnostics</span>
+            </button>
+            </nav>
+
+            <div class="insights-column rail-switcher__panel-column">
+              <section id="panel-map-overview" class="control-panel rail-switcher__panel stack-section control-table is-active" data-panel-id="panel-map-overview">
+              <div class="section-heading">
+                <h2 data-i18n="map.title">Map Overview</h2>
+                <span id="map-kind" class="pill">Synthetic field</span>
+              </div>
+
+              <div class="mini-grid compact">
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.grid">Grid</span>
+                  <strong id="map-grid">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.world">World</span>
+                  <strong id="map-world-size">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.resolution">Resolution</span>
+                  <strong id="map-resolution">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.origin">Origin</span>
+                  <strong id="map-origin">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.obstacleBlocks">Obstacle Blocks</span>
+                  <strong id="map-obstacles">--</strong>
+                </div>
+                <div class="metric-card">
+                  <span class="metric-label" data-i18n="map.inflationRadius">Inflation Radius</span>
+                  <strong id="map-inflation">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="map.freeCells">Free Cells</span>
+                  <strong id="map-free-cells">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="map.inflatedCells">Inflated Cells</span>
+                  <strong id="map-inflated-cells">--</strong>
+                </div>
+                <div class="metric-card subtle diagnostic-span">
+                  <span class="metric-label" data-i18n="map.lethalCells">Lethal Cells</span>
+                  <strong id="map-lethal-cells">--</strong>
+                </div>
+              </div>
+
+              <p id="map-description" class="section-note">--</p>
+            </section>
+
+            <section id="panel-cursor-inspector" class="control-panel rail-switcher__panel stack-section" data-panel-id="panel-cursor-inspector" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="loupe.title">Cursor Inspector</h2>
+                <span class="pill" data-i18n="loupe.liveHover">live hover</span>
+              </div>
+
+              <div id="costmap-loupe" class="costmap-loupe" aria-live="polite">
+                <div class="costmap-loupe__header">
+                  <span class="costmap-loupe__title" data-i18n="loupe.title">Cursor Inspector</span>
+                  <strong id="loupe-cost-value">ESDF --</strong>
+                </div>
+                <canvas id="loupe-canvas" width="132" height="132"></canvas>
+                <div class="costmap-loupe__stats">
+                  <div class="costmap-loupe__stat">
+                    <span data-i18n="loupe.cellCost">Cell Cost</span>
+                    <strong id="loupe-cell-cost">--</strong>
+                  </div>
+                  <div class="costmap-loupe__stat">
+                    <span data-i18n="loupe.esdfDistance">ESDF Distance</span>
+                    <strong id="loupe-esdf-distance">--</strong>
+                  </div>
+                </div>
+                <div class="costmap-loupe__meta">
+                  <span id="loupe-world">World: --</span>
+                  <span id="loupe-cell">Cell: --</span>
+                </div>
+                <div class="costmap-loupe__footer">
+                  <span id="loupe-kind" class="costmap-loupe__badge">Outside map</span>
+                </div>
+              </div>
+            </section>
+
+            <section id="panel-run-statistics" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-run-statistics" hidden>
+              <div class="section-heading">
+                <h2 data-i18n="run.title">Run Statistics</h2>
+                <span id="smooth-state" class="pill">idle</span>
+              </div>
+
+              <div class="mini-grid compact">
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.optimizer">Optimizer</span>
+                  <strong id="info-optimizer">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.astarTime">A* Time</span>
+                  <strong id="info-astar-time">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.smoothTime">Smooth Time</span>
+                  <strong id="info-smooth-time">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.astarPoints">A* Points</span>
+                  <strong id="info-astar-pts">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.referencePoints">Reference Points</span>
+                  <strong id="info-ref-pts">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.optimizationKnots">Optimization Knots</span>
+                  <strong id="info-opt-knots">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.returnedPathPoints">Returned Path Points</span>
+                  <strong id="info-opt-pts">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.refSpacingTarget">Ref Spacing Target</span>
+                  <strong id="info-ref-spacing">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.rawLength">Raw Length</span>
+                  <strong id="info-raw-length">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.referenceLength">Reference Length</span>
+                  <strong id="info-ref-length">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.optimizedLength">Optimized Length</span>
+                  <strong id="info-opt-length">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.optMinusRef">Opt - Ref</span>
+                  <strong id="info-length-delta">--</strong>
+                </div>
+              </div>
+
+              <p id="run-note" class="section-note">Set a start and goal to generate path metrics.</p>
+              <p id="pipeline-summary" class="section-note">Pipeline status will appear after each run.</p>
+            </section>
+
+            <section id="panel-diagnostics" class="control-panel rail-switcher__panel" data-panel-id="panel-diagnostics" hidden>
+              <section class="stack-section">
+                <div class="section-heading">
+                  <h2 data-i18n="diagnostics.title">Diagnostics</h2>
+                </div>
+                <p class="section-note" data-i18n="diagnostics.pending">Validation and kinematic details appear here when a run exposes them.</p>
+              </section>
+
+              <div id="footprint-validation-details-card" class="validation-details-card" hidden>
+                <div class="validation-details-card__header">
+                  <span data-i18n="robot.validationDetails">Validation Failure Details</span>
+                  <strong id="validation-detail-path">--</strong>
+                </div>
+                <div class="validation-details-grid">
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.failureCode">Failure Code</span>
+                    <strong id="validation-detail-code">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.failureReason">Failure Reason</span>
+                    <strong id="validation-detail-reason">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.poseIndex">Pose Index</span>
+                    <strong id="validation-detail-pose-index">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.poseXY">Pose XY</span>
+                    <strong id="validation-detail-pose-xy">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.poseHeading">Pose Heading</span>
+                    <strong id="validation-detail-pose-yaw">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="robot.collisionBounds">Collision / Bounds</span>
+                    <strong id="validation-detail-cell">--</strong>
+                  </div>
+                  <div class="validation-details-item validation-details-item--wide">
+                    <span class="metric-label" data-i18n="robot.cellWorldContext">Cell / Bounds World Context</span>
+                    <strong id="validation-detail-cell-world">--</strong>
+                  </div>
+                </div>
+                <p id="validation-detail-message" class="validation-details-message">--</p>
+              </div>
+
+              <div id="kinematic-diagnostics-card" class="validation-details-card" hidden>
+                <div class="validation-details-card__header">
+                  <span data-i18n="run.kinematicDetails">Kinematic Details</span>
+                  <strong id="kinematic-detail-mode">--</strong>
+                </div>
+                <div class="validation-details-grid">
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalSegmentError">Goal Segment Error</span>
+                    <strong id="kinematic-goal-segment-error">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalTolerance">Goal Tolerance</span>
+                    <strong id="kinematic-goal-tolerance">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalExpected">Expected Goal Heading</span>
+                    <strong id="kinematic-goal-expected">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalActualSegment">Actual Terminal Segment</span>
+                    <strong id="kinematic-goal-actual-segment">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalPoseHeading">Terminal Pose Heading</span>
+                    <strong id="kinematic-goal-pose-heading">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.goalPoseError">Terminal Pose Error</span>
+                    <strong id="kinematic-goal-pose-error">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.kinematicMaxIterations">Max Iterations</span>
+                    <strong id="kinematic-param-max-iterations">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.kinematicMaxTime">Max Solver Time</span>
+                    <strong id="kinematic-param-max-time">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.kinematicMaxCurvature">Max Curvature</span>
+                    <strong id="kinematic-param-max-curvature">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.kinematicCurvatureRateWeight">Curvature Rate Weight</span>
+                    <strong id="kinematic-param-curvature-rate-weight">--</strong>
+                  </div>
+                  <div class="validation-details-item">
+                    <span class="metric-label" data-i18n="run.kinematicResampling">Resampling</span>
+                    <strong id="kinematic-param-resampling">--</strong>
+                  </div>
+                  <div class="validation-details-item validation-details-item--wide">
+                    <span class="metric-label" data-i18n="run.kinematicCeresTolerances">Ceres Tolerances</span>
+                    <strong id="kinematic-param-ceres-tolerances">--</strong>
+                  </div>
+                </div>
+              </div>
+              </section>
+            </div>
+          </div>
+
+          <section class="curvature-panel curvature-panel--sidebar">
+            <div class="section-heading">
+              <h2 data-i18n="curvature.title">Optimized Path Profiles</h2>
+              <span id="curvature-state" class="pill">idle</span>
+            </div>
+            <div class="profile-chart-stack">
+              <div class="profile-chart-block">
+                <div class="profile-chart-title-row">
+                  <h3 data-i18n="curvature.curvatureKs">Curvature k(s)</h3>
+                  <span class="profile-chart-tag">Plotly</span>
+                </div>
+                <div id="curvature-chart" class="profile-chart profile-chart--primary" aria-label="Optimized path curvature chart"></div>
+              </div>
+              <div class="profile-chart-grid">
+                <div class="profile-chart-block">
+                  <div class="profile-chart-title-row">
+                    <h3 data-i18n="curvature.segmentSpacing">Segment Spacing ds</h3>
+                  </div>
+                  <div id="ds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path segment spacing chart"></div>
+                </div>
+                <div class="profile-chart-block">
+                  <div class="profile-chart-title-row">
+                    <h3 data-i18n="curvature.curvatureRate">Curvature Rate dk/ds</h3>
+                  </div>
+                  <div id="dkds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path curvature rate chart"></div>
+                </div>
+              </div>
+            </div>
+            <div class="mini-grid compact curvature-grid">
+              <div class="metric-card subtle">
+                <span class="metric-label" data-i18n="curvature.peak">Peak |curvature|</span>
+                <strong id="curvature-peak">--</strong>
+              </div>
+              <div class="metric-card subtle">
+                <span class="metric-label" data-i18n="curvature.mean">Mean |curvature|</span>
+                <strong id="curvature-mean">--</strong>
+              </div>
+              <div class="metric-card subtle">
+                <span class="metric-label" data-i18n="curvature.signedMin">Signed Min</span>
+                <strong id="curvature-min">--</strong>
+              </div>
+              <div class="metric-card subtle">
+                <span class="metric-label" data-i18n="curvature.signedMax">Signed Max</span>
+                <strong id="curvature-max">--</strong>
+              </div>
+            </div>
+            <p id="curvature-note" class="hint">Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.</p>
+            <div class="profile-support-notes">
+              <p class="hint" data-i18n="footer.layersHint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, final optimized trajectory, or sampled robot projection along that trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
+              <p class="hint" data-i18n-html="footer.sceneHint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
+            </div>
+          </section>
         </div>
-      </section>
+      </aside>
     </div>
   </div>
 
