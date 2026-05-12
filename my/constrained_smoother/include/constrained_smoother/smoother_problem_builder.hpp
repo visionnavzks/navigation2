@@ -38,8 +38,8 @@ namespace constrained_smoother
 
 /// 几何版 smoother 的问题构建器。
 ///
-/// 它负责把 ESDF 准备、三点/四点残差连接、cusp 邻域障碍物重赋权和边界冻结
-/// 聚合成一个可复用的构建阶段，而不是把这些步骤继续留在顶层 smoother 里。
+/// 负责 ESDF 准备、局部残差连接、cusp 邻域障碍物重赋权与边界冻结。
+/// 详细的遍历与重赋权流程说明放在 docs/SMOOTHER_DESIGN.md。
 class SmootherProblemBuilder
 {
 public:
@@ -76,24 +76,30 @@ private:
     {
     }
 
+    // 最近几个被采纳控制点的索引，用于拼接三点/四点局部残差。
     int preprelast_i{-1};
     int prelast_i{-1};
     int last_i{0};
+
+    // 最近一段路径的方向符号；异号翻转表示穿过 cusp。
     double last_direction;
+
+    // 上一条三点残差是否跨越 cusp。
     bool last_was_cusp{false};
+
+    // 当前局部段是否处于倒车方向。
     bool last_is_reversing{false};
-    // 最近创建出的几何残差块，按路径遍历顺序保存为
-    // (该残差对应的段长, 残差对象指针)。
-    // 一旦后续检测到 cusp，会回头只修改这批“离 cusp 足够近”的旧残差块，
-    // 把它们的 obstacle 权重向 cusp_costmap_weight_sqrt 提升。
+
+    // 候选 cusp 回溯窗口：(段长, 已接入 problem 的三点残差对象)。
     std::deque<std::pair<double, SmootherCostFunction *>> potential_cusp_funcs{};
+
+    // 上一条被采纳 segment 的长度。
     double last_segment_len{EPSILON};
-    // potential_cusp_funcs 中所有段长的累计和。
-    // 它用于把队列裁剪成一个滑动窗口：窗口总弧长始终不超过 cusp_half_length。
-    // 这样当遍历到 cusp 时，只会回溯修改 cusp 前半区的残差块，而不会影响更早的路径。
+
+    // 回溯窗口覆盖的累计弧长，用于把窗口裁剪到 cusp_half_length 以内。
     double potential_cusp_funcs_len{0.0};
-    // 从最近一个 cusp 往后累计的弧长。
-    // 用来给 cusp 后半区新创建的残差块做前向插值重赋权。
+
+    // 与最近一个 cusp 的前向弧长距离，用于 cusp 后半区的权重插值。
     double len_since_cusp{std::numeric_limits<double>::infinity()};
   };
 
@@ -102,6 +108,7 @@ private:
     double cusp_half_length,
     const SmootherParams & params)
   {
+    // 距离 cusp 越近越接近 cusp_costmap_weight_sqrt，越远越退回普通权重。
     return params.cusp_costmap_weight_sqrt * (1.0 - distance_from_cusp / cusp_half_length) +
            params.costmap_weight_sqrt * distance_from_cusp / cusp_half_length;
   }
@@ -149,6 +156,7 @@ private:
 
       bool is_cusp = false;
       if (i != path_optim.size() - 1) {
+        // 方向符号翻转表示这里穿过 cusp。
         is_cusp = pt[2] * state.last_direction < 0;
         state.last_direction = pt[2];
 
@@ -157,20 +165,19 @@ private:
           i < path_optim.size() - (params.keep_goal_orientation ? 2 : 1) &&
           static_cast<int>(i - state.last_i) < params.path_downsampling_factor)
         {
+          // 普通点允许按 downsampling factor 跳过；cusp 必须保留。
           continue;
         }
       }
 
+      // 当前采纳 segment 的长度，同时用于几何比例和 cusp 邻域计数。
       double current_segment_len =
         (path_optim[i] - path_optim[state.last_i]).block<2, 1>(0, 0).norm();
 
-      // 先把当前段长计入“候选 cusp 回溯窗口”的累计长度。
-      // 这个窗口保存的是最近创建过的 obstacle 残差块；如果稍后发现当前位置是 cusp，
-      // 我们会回头把窗口里的旧残差块重新加权。
+      // 把当前段长计入候选 cusp 回溯窗口的累计长度。
       state.potential_cusp_funcs_len += current_segment_len;
 
-      // 维护一个长度受限的滑动窗口：只保留距离当前位置不超过 cusp_half_length
-      // 的那部分旧残差块。队头是最老、离当前位置最远的残差；超出范围就弹掉。
+      // 只保留 cusp 前半区可能用到的最近残差。
       while (!state.potential_cusp_funcs.empty() &&
         state.potential_cusp_funcs_len > cusp_half_length)
       {
@@ -179,23 +186,23 @@ private:
       }
 
       if (is_cusp) {
-        // 已经确认当前位置穿过了一个 cusp。
-        // 现在反向遍历窗口中的旧残差块，按它们距离 cusp 的弧长做线性插值，
-        // 让 cusp 前半区的 obstacle 权重从普通值逐渐过渡到 cusp 增强值。
+        // 回溯修改 cusp 前半区的 obstacle 权重。
         double len_to_cusp = current_segment_len;
         for (int i_cusp = state.potential_cusp_funcs.size() - 1; i_cusp >= 0; i_cusp--) {
           auto & f = state.potential_cusp_funcs[i_cusp];
           double new_weight = interpolateCuspZoneWeight(len_to_cusp, cusp_half_length, params);
+
+          // 多个 cusp zone 重叠时保留更强的那次提权。
           if (std::abs(new_weight - params.cusp_costmap_weight_sqrt) <
             std::abs(f.second->getCostmapWeightSqrt() - params.cusp_costmap_weight_sqrt))
           {
             f.second->setCostmapWeightSqrt(new_weight);
           }
+
           len_to_cusp += f.first;
         }
 
-        // cusp 前半区已经处理完；清空回溯窗口，并把“距最近 cusp 的距离”置零。
-        // 后续新创建的残差块会用 len_since_cusp 负责 cusp 后半区的前向重赋权。
+        // 清空回溯窗口，并开始记录 cusp 后半区的前向距离。
         state.potential_cusp_funcs_len = 0;
         state.potential_cusp_funcs.clear();
         state.len_since_cusp = 0;
@@ -205,13 +212,13 @@ private:
       if (state.prelast_i != -1) {
         double costmap_weight_sqrt = params.costmap_weight_sqrt;
 
-        // 如果当前残差块处在最近一个 cusp 之后的半个作用区间内，直接按与 cusp 的
-        // 弧长距离插值得到更高的 obstacle 权重；超过该范围则退回普通权重。
+        // cusp 后半区内的新残差使用插值后的 obstacle 权重。
         if (state.len_since_cusp <= cusp_half_length) {
           costmap_weight_sqrt =
             interpolateCuspZoneWeight(state.len_since_cusp, cusp_half_length, params);
         }
 
+        // 三点主 residual：smooth / curvature / distance / obstacle 打包在一起。
         SmootherCostFunction * cost_function = new SmootherCostFunction(
           path[state.last_i].template block<2, 1>(0, 0),
           (state.last_was_cusp ? -1 : 1) * state.last_segment_len / current_segment_len,
@@ -224,6 +231,10 @@ private:
           cost_function->AutoDiff(), loss_function,
           path_optim[state.last_i].data(), pt.data(), path_optim[state.prelast_i].data());
 
+        // 记入候选回溯窗口，供未来 cusp 可能回头提权。
+        state.potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
+
+        // 可选的四点 curvature-rate 附加约束。
         if (params.curvature_rate_weight_sqrt > 0.0 &&
           state.preprelast_i != -1 &&
           path_optim[state.preprelast_i][2] * path_optim[state.prelast_i][2] > 0.0 &&
@@ -237,17 +248,16 @@ private:
             path_optim[state.preprelast_i].data(), path_optim[state.prelast_i].data(),
             path_optim[state.last_i].data(), pt.data());
         }
-
-        // 这个新残差块从现在开始进入“可能被未来某个 cusp 回溯修改”的候选集合。
-        // 与之配套的 segment length 会被 potential_cusp_funcs_len 累计，用于维持窗口大小。
-        state.potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
       }
 
+      // 更新滚动窗口状态，供下一次迭代使用。
       state.last_was_cusp = is_cusp;
       state.last_is_reversing = state.last_direction < 0;
       state.preprelast_i = state.prelast_i;
       state.prelast_i = state.last_i;
       state.last_i = i;
+
+      // 沿路径前向累加与最近 cusp 的距离。
       state.len_since_cusp += current_segment_len;
       state.last_segment_len = std::max(EPSILON, current_segment_len);
     }

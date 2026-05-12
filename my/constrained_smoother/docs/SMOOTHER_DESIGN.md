@@ -549,6 +549,15 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
    - 构建器把 `len_since_cusp` 置零。
    - 在后续残差创建时，只要离 cusp 的累计弧长仍在 `cusp_half_length` 之内，就直接按同一条线性规则给更高的障碍物权重。
 
+实现上还有两个容易在代码里看晕的点：
+
+1. `current_segment_len` 为什么在识别到 cusp 之前就先加入窗口长度。
+   - 这里维护的是“当前位置之前最近一段路径覆盖了多长”的滑动窗口，而不是“已经入队 residual 的个数”。
+   - 先加再裁剪，能保证一旦当前点正好是 cusp，窗口里留下的正好是 cusp 前半区能回溯到的那批旧 residual。
+2. 为什么三点主 residual 先接入问题，再把对象放进 `potential_cusp_funcs`。
+   - 队列里保存的是已经 `AddResidualBlock` 进 `ceres::Problem` 的 `SmootherCostFunction` 对象指针。
+   - 这样后面检测到 cusp 时，调用 `setCostmapWeightSqrt()` 修改的就是问题里那条旧 residual 的 obstacle 权重，而不是某个还没接入的问题外对象。
+
 这里有一个容易忽略的边界：被重赋权的只有障碍物残差项。
 
 - 平滑项权重不会因为 cusp 提高。
