@@ -561,7 +561,6 @@ private:
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< ESDF 数据的 Ceres Grid2D 封装
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器
 };
-};
 
 }  // namespace kinematic_smoother_detail
 }  // namespace constrained_smoother
