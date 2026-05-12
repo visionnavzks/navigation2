@@ -327,15 +327,7 @@ $$
 对每个被接受的三点窗口，`SmootherCostFunction` 会生成
 
 $$
-r_i^{\text{main}} =
-\begin{bmatrix}
-r_{s,x} \\
-r_{s,y} \\
-r_{\kappa} \\
-r_{d,x} \\
-r_{d,y} \\
-r_{obs}
-\end{bmatrix}.
+r_i^{\mathrm{main}} = \begin{bmatrix} r_{s,x} \\ r_{s,y} \\ r_{\kappa} \\ r_{d,x} \\ r_{d,y} \\ r_{obs} \end{bmatrix}
 $$
 
 #### 1. 平滑项
@@ -343,9 +335,7 @@ $$
 实现里的平滑项是一个二维向量残差：
 
 $$
-r_i^{\text{smooth}}
-=
-\sqrt{w_s}\left(\rho_i^{\pm} \Delta_i^+ - \Delta_i^-\right).
+r_i^{\mathrm{smooth}} = \sqrt{w_s}\left(\rho_i^{\pm} \Delta_i^+ - \Delta_i^-\right)
 $$
 
 展开成两个标量分量，就是：
@@ -427,12 +417,7 @@ $$
 如果配置了扩展足迹采样点 $(u_j, v_j, \beta_j)$，则先根据当前点的局部切向方向构造位姿变换 $T_i$，把局部足迹点变到世界坐标：
 
 $$
-q_{i,j} = T_i
-\begin{bmatrix}
-u_j \\
-v_j \\
-1
-\end{bmatrix}.
+q_{i,j} = T_i \begin{bmatrix} u_j \\ v_j \\ 1 \end{bmatrix}
 $$
 
 随后实现中的单个标量障碍物残差是
@@ -453,8 +438,7 @@ $$
 当四点窗口 $(p_{i-1}, p_i, p_{i+1}, p_{i+2})$ 跨越的所有局部段方向一致时，系统才会额外添加 `CurvatureRateCostFunction`：
 
 $$
-r_i^{\text{rate}} = \sqrt{w_{\dot \kappa}}
-\left(p_{i+2} - 3p_{i+1} + 3p_i - p_{i-1}\right).
+r_i^{\mathrm{rate}} = \sqrt{w_{\dot \kappa}}\left(p_{i+2} - 3p_{i+1} + 3p_i - p_{i-1}\right)
 $$
 
 它是一个二维向量残差，本质上是对控制点链三阶有限差分的惩罚，用来抑制局部曲率代理量的剧烈变化。
@@ -466,16 +450,7 @@ $$
 如果忽略边界冻结和是否接入的条件判断，可以把实现近似理解成：
 
 $$
-J
-=
-\sum_i
-\Big(
-\lVert r_i^{\text{smooth}} \rVert_2^2
-+ r_{\kappa,i}^2
-+ \lVert r_i^{\text{dist}} \rVert_2^2
-+ r_{obs,i}^2
-\Big)
-+ \sum_i \lVert r_i^{\text{rate}} \rVert_2^2.
+J = \sum_i \left( \| r_i^{\mathrm{smooth}} \|_2^2 + r_{\kappa,i}^2 + \| r_i^{\mathrm{dist}} \|_2^2 + r_{\mathrm{obs},i}^2 \right) + \sum_i \| r_i^{\mathrm{rate}} \|_2^2
 $$
 
 其中各权重和 `SmootherParams` 字段的对应关系是：

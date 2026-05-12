@@ -82,9 +82,18 @@ private:
     double last_direction;
     bool last_was_cusp{false};
     bool last_is_reversing{false};
+    // 最近创建出的几何残差块，按路径遍历顺序保存为
+    // (该残差对应的段长, 残差对象指针)。
+    // 一旦后续检测到 cusp，会回头只修改这批“离 cusp 足够近”的旧残差块，
+    // 把它们的 obstacle 权重向 cusp_costmap_weight_sqrt 提升。
     std::deque<std::pair<double, SmootherCostFunction *>> potential_cusp_funcs{};
     double last_segment_len{EPSILON};
+    // potential_cusp_funcs 中所有段长的累计和。
+    // 它用于把队列裁剪成一个滑动窗口：窗口总弧长始终不超过 cusp_half_length。
+    // 这样当遍历到 cusp 时，只会回溯修改 cusp 前半区的残差块，而不会影响更早的路径。
     double potential_cusp_funcs_len{0.0};
+    // 从最近一个 cusp 往后累计的弧长。
+    // 用来给 cusp 后半区新创建的残差块做前向插值重赋权。
     double len_since_cusp{std::numeric_limits<double>::infinity()};
   };
 
@@ -155,7 +164,13 @@ private:
       double current_segment_len =
         (path_optim[i] - path_optim[state.last_i]).block<2, 1>(0, 0).norm();
 
+      // 先把当前段长计入“候选 cusp 回溯窗口”的累计长度。
+      // 这个窗口保存的是最近创建过的 obstacle 残差块；如果稍后发现当前位置是 cusp，
+      // 我们会回头把窗口里的旧残差块重新加权。
       state.potential_cusp_funcs_len += current_segment_len;
+
+      // 维护一个长度受限的滑动窗口：只保留距离当前位置不超过 cusp_half_length
+      // 的那部分旧残差块。队头是最老、离当前位置最远的残差；超出范围就弹掉。
       while (!state.potential_cusp_funcs.empty() &&
         state.potential_cusp_funcs_len > cusp_half_length)
       {
@@ -164,6 +179,9 @@ private:
       }
 
       if (is_cusp) {
+        // 已经确认当前位置穿过了一个 cusp。
+        // 现在反向遍历窗口中的旧残差块，按它们距离 cusp 的弧长做线性插值，
+        // 让 cusp 前半区的 obstacle 权重从普通值逐渐过渡到 cusp 增强值。
         double len_to_cusp = current_segment_len;
         for (int i_cusp = state.potential_cusp_funcs.size() - 1; i_cusp >= 0; i_cusp--) {
           auto & f = state.potential_cusp_funcs[i_cusp];
@@ -175,6 +193,9 @@ private:
           }
           len_to_cusp += f.first;
         }
+
+        // cusp 前半区已经处理完；清空回溯窗口，并把“距最近 cusp 的距离”置零。
+        // 后续新创建的残差块会用 len_since_cusp 负责 cusp 后半区的前向重赋权。
         state.potential_cusp_funcs_len = 0;
         state.potential_cusp_funcs.clear();
         state.len_since_cusp = 0;
@@ -183,6 +204,9 @@ private:
       optimized[i] = true;
       if (state.prelast_i != -1) {
         double costmap_weight_sqrt = params.costmap_weight_sqrt;
+
+        // 如果当前残差块处在最近一个 cusp 之后的半个作用区间内，直接按与 cusp 的
+        // 弧长距离插值得到更高的 obstacle 权重；超过该范围则退回普通权重。
         if (state.len_since_cusp <= cusp_half_length) {
           costmap_weight_sqrt =
             interpolateCuspZoneWeight(state.len_since_cusp, cusp_half_length, params);
@@ -214,6 +238,8 @@ private:
             path_optim[state.last_i].data(), pt.data());
         }
 
+        // 这个新残差块从现在开始进入“可能被未来某个 cusp 回溯修改”的候选集合。
+        // 与之配套的 segment length 会被 potential_cusp_funcs_len 累计，用于维持窗口大小。
         state.potential_cusp_funcs.emplace_back(current_segment_len, cost_function);
       }
 
