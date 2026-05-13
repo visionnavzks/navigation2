@@ -50,13 +50,15 @@
    - 终点切向方向向量，不是 yaw 角。
    - 当 `keep_goal_orientation=true` 时，用它来锚定倒数第二个点的位置。
 4. `costmap: const Costmap2D *`
-   - 障碍物距离场的来源。
+   - 当障碍物相关项启用时，它是障碍物距离场的来源。
+   - 当 `costmap_weight_sqrt=0` 且 `cusp_costmap_weight_sqrt=0` 时，可以为 `nullptr`。
    - 生命周期必须覆盖整个 `smooth()` 调用。
 5. `params: const SmootherParams &`
-   - 提供残差权重、曲率阈值、下采样倍率、上采样倍率、是否保持端点朝向等运行参数。
+   - 提供残差权重、曲率阈值、下采样倍率、上采样倍率、是否保持端点朝向，以及终点 lon/lat 容差等运行参数。
 6. `precomputed_esdf: const std::vector<double> *`（可选）
    - 若提供，则直接复用这份扁平化 ESDF。
-   - 若为空，则内部根据 `costmap` 现场生成。
+   - 若为空，则在启用障碍物项时内部根据 `costmap` 现场生成。
+   - 若障碍物项关闭，这份输入会被忽略。
    - 若尺寸与 `costmap` 不匹配，会抛出 `PrecomputedEsdfSizeMismatch`。
 7. `failure: SmoothingFailureInfo *`（可选）
    - 仅用于“失败走普通返回值而不是异常”的调用模式。
@@ -69,6 +71,7 @@
 - `path` 是唯一会被原地改写的输入缓冲区。
 - `start_dir` 和 `end_dir` 始终按几何切向量解释，不应传 yaw 标量的 `cos/sin` 之外的任何编码。
 - `costmap` 和 `precomputed_esdf` 都是借用视图，`Smoother` 不拥有它们的生命周期。
+- 若障碍物项关闭，则允许 `costmap == nullptr`，同时 `precomputed_esdf` 也不会被消费。
 - `params` 中多数权重使用平方根形式，因为残差会先缩放、再由 Ceres 在目标函数中平方。
 - 即使 `reversing_enabled=false` 是保留字段，几何版这条代码路径仍然按输入路径现有的方向符号工作。
 
@@ -84,9 +87,9 @@
 3. 激活掩码 `optimized_`
    - 标记哪些点在下采样、cusp 保留和冻结规则之后仍参与求解。
 4. `ceres::Problem`
-   - 承载三点平滑残差、可选四点曲率变化率残差、障碍物净空残差和边界冻结约束。
+   - 承载三点平滑残差、可选四点曲率变化率残差、障碍物净空残差、可选的终点位置带宽残差和边界冻结约束。
 5. 扁平化 ESDF 缓存 `esdf_values_`
-   - 同时服务于优化阶段的障碍物残差与求解后的净空校验。
+   - 当障碍物项启用时，同时服务于优化阶段的障碍物残差与求解后的净空校验。
 
 这些中间量解释了为什么系统的“输入路径”和“最终输出路径”之间并不是一一对应的原样求解，而是会经过“锚定、下采样求解、上采样重建”三段变换。
 
@@ -99,7 +102,9 @@
    - `yaw` 是重建值，不是优化阶段直接求解的状态。
 2. 路径点数量可能变化。
    - 当 `path_upsampling_factor > 1` 时，系统会在关键控制点之间补插中间点。
-3. 起点和终点位置保持固定。
+3. 起点位置保持固定，终点位置则分两种情况。
+   - 若 `goal_longitudinal_tolerance=0` 且 `goal_lateral_tolerance=0`，终点位置仍然固定。
+   - 若配置了终点 lon/lat 容差，终点位置只需落在允许带宽内。
    - 若启用了端点朝向保持，对应切向约束也应在输出上继续成立。
 4. `getLastOptimizedKnotCount()` 可返回最近一次真正参与求解的控制点数量。
    - 这个值反映的是下采样后的优化控制点数，不是最终输出路径长度。
@@ -111,7 +116,7 @@
 失败分成两类，输出面不同：
 
 1. 输入前置条件失败。
-   - 典型情况包括路径过短、`costmap` 无效、预计算 ESDF 尺寸不匹配。
+   - 典型情况包括路径过短、在启用障碍物项时 `costmap` 无效、预计算 ESDF 尺寸不匹配。
    - 这类错误直接抛结构化异常，如 `InvalidPath`、`InvalidCostmap`、`PrecomputedEsdfSizeMismatch`。
 2. 求解失败或后验校验失败。
    - 如果 `failure == nullptr`，会抛 `FailedToSmoothPath`。
@@ -141,7 +146,7 @@
 输入:
   path(x, y, direction_sign)
   + start_dir / end_dir
-  + costmap
+   + optional costmap
   + params
   + optional precomputed_esdf
 
@@ -167,7 +172,8 @@
 2. 保存参考路径快照。
    - 原始路径会被保留，供后续后验校验固定边界位置时使用。
 3. 构建 ESDF 插值器。
-   - 要么复用调用方传入的扁平化 ESDF，要么从 costmap 现算。
+   - 若启用障碍物项，要么复用调用方传入的扁平化 ESDF，要么从 costmap 现算。
+   - 若障碍物项关闭，这一步会被直接跳过。
 4. 准备优化路径。
    - 复制输入路径。
    - 根据需要重新定位第二个点和倒数第二个点，以施加端点朝向锚定。
@@ -176,8 +182,10 @@
    - 即使正常下采样会跳过，也必须保留 cusp。
    - 添加主三点平滑残差。
    - 当局部运动方向一致时，添加可选四点曲率变化率残差。
+   - 若配置了终点 lon/lat 容差，还会给最后一个点添加单独的目标带宽残差。
 6. 冻结端点锚定。
-   - 起点和终点位置始终固定。
+   - 起点位置始终固定。
+   - 终点位置只在未配置 lon/lat 容差时才会被冻结。
    - 如果启用了切向约束，对应锚点在所有残差连接完成后也会被冻结。
 7. 使用 Ceres 求解。
    - 如果求解结果不可用，或目标函数没有改进，则直接判为失败。
@@ -273,11 +281,12 @@ $$
 那么几何版实际最小化的是一组残差平方和：
 
 $$
-J = \sum_i \left\|r_i^{\text{main}}\right\|_2^2 + \sum_i \left\|r_i^{\text{rate}}\right\|_2^2,
+J = \sum_i \left\|r_i^{\text{main}}\right\|_2^2 + \sum_i \left\|r_i^{\text{rate}}\right\|_2^2 + \left\|r^{\text{goal}}\right\|_2^2,
 $$
 
 其中主残差块 `r_i^{main}` 来自 `SmootherCostFunction`，维度是 6；
-可选的曲率变化率残差块 `r_i^{rate}` 来自 `CurvatureRateCostFunction`，维度是 2。
+可选的曲率变化率残差块 `r_i^{rate}` 来自 `CurvatureRateCostFunction`，维度是 2；
+可选的终点位置带宽残差 `r^{goal}` 来自 `GoalPositionCostFunction`，维度是 2。
 
 ### 记号约定
 
@@ -319,6 +328,8 @@ $$
   - 对超过 `max_curvature` 的局部曲率施加惩罚。
 - 曲率变化率项。
   - 可选四点残差，用于抑制曲率突变。
+- 终点位置带宽项。
+   - 可选的终点 lon / lat hinge 残差，用于表达“范围停”而不是精准停。
 
 `SmootherParams` 中的权重都采用平方根形式，因为每个残差会先被缩放，再由 Ceres 在目标函数里做平方。
 
@@ -445,12 +456,76 @@ $$
 
 也正因为它要求四段局部方向一致，只要窗口穿过 cusp，这一项就不会被接入优化问题。
 
+### 终点位置带宽残差
+
+几何版不直接优化 `theta`，所以终点的“姿态”部分仍然只通过 `keep_goal_orientation` 的几何锚定和后验 yaw 校验来保证；
+这次新增的是终点**位置**的带宽约束，而不是 `theta` 容差残差。
+
+若终点参考点为
+
+$$
+p_g = \begin{bmatrix} x_g \\ y_g \end{bmatrix},
+$$
+
+终点位置优化变量为
+
+$$
+p_N = \begin{bmatrix} x_N \\ y_N \end{bmatrix},
+$$
+
+再设目标坐标系的单位前向轴为
+
+$$
+t_g,
+$$
+
+其来源优先取终点局部参考段方向；如果该段退化，则回退到输入的 `end_dir`。
+
+定义位置偏差
+
+$$
+\delta_g = p_N - p_g,
+$$
+
+以及目标坐标系下的 lon / lat 分量
+
+$$
+\delta_{lon} = t_g^\top \delta_g,
+\qquad
+\delta_{lat} = t_{g,\perp}^\top \delta_g.
+$$
+
+若配置容差
+
+$$
+b_{lon} = \texttt{goal\_longitudinal\_tolerance},
+\qquad
+b_{lat} = \texttt{goal\_lateral\_tolerance},
+$$
+
+则当前实现添加的二维残差是
+
+$$
+r^{goal} = \begin{bmatrix}
+\sqrt{w_g} \max(0, |\delta_{lon}| - b_{lon}) \\
+\sqrt{w_g} \max(0, |\delta_{lat}| - b_{lat})
+\end{bmatrix}.
+$$
+
+如果
+
+$$
+b_{lon} = b_{lat} = 0,
+$$
+
+则不会添加这条残差，终点位置继续按原来的方式直接冻结。
+
 ### 目标函数和参数的对应关系
 
 如果忽略边界冻结和是否接入的条件判断，可以把实现近似理解成：
 
 $$
-J = \sum_i \left( \| r_i^{\mathrm{smooth}} \|_2^2 + r_{\kappa,i}^2 + \| r_i^{\mathrm{dist}} \|_2^2 + r_{\mathrm{obs},i}^2 \right) + \sum_i \| r_i^{\mathrm{rate}} \|_2^2
+J = \sum_i \left( \| r_i^{\mathrm{smooth}} \|_2^2 + r_{\kappa,i}^2 + \| r_i^{\mathrm{dist}} \|_2^2 + r_{\mathrm{obs},i}^2 \right) + \sum_i \| r_i^{\mathrm{rate}} \|_2^2 + \|r^{goal}\|_2^2
 $$
 
 其中各权重和 `SmootherParams` 字段的对应关系是：
@@ -467,6 +542,7 @@ $$
 2. 对每一个可连接的三点窗口添加主残差。
 3. 如果当前四点窗口跨越的所有段方向一致，再补一个曲率变化率残差。
 4. 如果当前点位于 cusp 邻域，则对障碍物残差使用更高权重。
+5. 如果终点配置了 lon / lat 容差，则再单独给最后一个点添加终点位置带宽残差。
 
 ## 下采样策略
 
@@ -589,10 +665,11 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 
 ## 端点朝向锚定
 
-平滑器始终固定起点和终点的位置，并可选地施加朝向约束。
+平滑器始终固定起点位置，并可选地对终点位置使用“硬固定”或“带宽约束”；朝向仍按几何锚定处理。
 
 - `keep_start_orientation` 会把第二个点移动到 `start_dir` 定义的射线上。
 - `keep_goal_orientation` 会把倒数第二个点移动到 `end_dir` 定义的射线上。
+- 如果 `goal_longitudinal_tolerance` 或 `goal_lateral_tolerance` 大于 0，终点位置本身不再被冻结，而是通过单独的 goal residual 约束在允许带宽内。
 
 这些锚定在构建残差之前施加，随后在 Ceres 问题中被冻结。
 
@@ -627,6 +704,12 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 - 曲率限制是否满足。
 - 是否仍满足与优化阶段一致的 ESDF 障碍物净空要求。
 
+这里的“终点位置是否保持固定”在当前实现里应更准确理解为：
+
+- 起点位置始终固定。
+- 终点位置若配置了 lon / lat 容差，则只需落在对应目标带宽内。
+- 终点朝向仍然没有单独的容差残差，继续由 `keep_goal_orientation` 与后验 yaw 校验控制。
+
 如果任何一项校验失败，`smooth(...)` 会根据调用方式选择抛异常或填充 `SmoothingFailureInfo`。
 
 ## ESDF 所有权
@@ -637,6 +720,7 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 - 后验校验阶段按网格采样有符号距离的检查逻辑。
 
 正因为这份数据被多个阶段共享，调用方传入的 `precomputed_esdf` 才必须与 costmap 尺寸完全一致。
+如果障碍物项关闭，这份 ESDF 既不会构建，也不会被消费。
 
 ## 建议结合阅读的文件
 
