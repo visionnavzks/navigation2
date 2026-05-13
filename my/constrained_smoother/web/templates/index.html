@@ -143,6 +143,16 @@
                 <input type="range" id="goal_yaw_deg" min="-180" max="180" step="1" value="45">
                 <p class="param-hint" data-i18n="session.goalHeadingHint">Sets the world-frame heading constraint used for the goal pose during smoothing.</p>
               </div>
+              <div class="param-group">
+                <label data-i18n-html="session.goalLongitudinalToleranceLabel">Goal Longitudinal Tolerance (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span></label>
+                <input type="range" id="goal_longitudinal_tolerance_m" min="0.00" max="3.00" step="0.05" value="0.00">
+                <p class="param-hint" data-i18n="session.goalLongitudinalToleranceHint">Allows the final point to slide forward or backward inside the goal frame before the hinge penalty turns on. Set both goal tolerances to zero to keep the goal position fixed.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="session.goalLateralToleranceLabel">Goal Lateral Tolerance (m): <span id="val_goal_lateral_tolerance_m">0.00</span></label>
+                <input type="range" id="goal_lateral_tolerance_m" min="0.00" max="3.00" step="0.05" value="0.00">
+                <p class="param-hint" data-i18n="session.goalLateralToleranceHint">Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.</p>
+              </div>
 
               <p class="param-hint" data-i18n-html="session.reversingHint">The API now honors <strong>reversing_enabled</strong> for the kinematic smoother, but the Web Lab still keeps per-waypoint direction signs as the primary source of reversing behavior, so this compatibility flag remains hidden here.</p>
               <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
@@ -153,6 +163,14 @@
               <div class="section-heading">
                 <h2 data-i18n="weights.title">Smoother Weights</h2>
                 <span id="weights-optimizer-badge" class="pill" data-i18n="solver.constrained">Constrained Smoother</span>
+              </div>
+              <div class="param-group param-group--stacked">
+                <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
+                <select id="optimizer_type">
+                  <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
+                  <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
+                </select>
+                <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
               </div>
               <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver; Constrained Smoother uses smooth_weight plus geometric curvature weights, while Kinematic Smoother uses model_weight plus its own kinematic curvature weights.</p>
               <div id="smooth-weight-group" class="param-group">
@@ -272,15 +290,7 @@
             <section id="panel-solver" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-solver" hidden>
               <div class="section-heading">
                 <h2 data-i18n="solver.title">Solver</h2>
-                <span class="pill" data-i18n="solver.backend">Optimizer Backend</span>
-              </div>
-              <div class="param-group param-group--stacked">
-                <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
-                <select id="optimizer_type">
-                  <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
-                  <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
-                </select>
-                <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
+                <span class="pill" data-i18n="solver.linearSolver">Linear Solver</span>
               </div>
               <div class="param-group param-group--stacked">
                 <label for="linear_solver_type" data-i18n="solver.linearSolver">Linear Solver</label>
@@ -405,6 +415,7 @@
       </aside>
 
       <main class="dashboard-visual panel">
+        <div class="visual-stack">
         <section class="map-section">
           <div class="map-toolbar">
             <div class="toolbar-group">
@@ -502,6 +513,60 @@
           </div>
 
         </section>
+
+        <section class="curvature-panel curvature-panel--main">
+          <div class="section-heading">
+            <h2 data-i18n="curvature.title">Optimized Path Profiles</h2>
+            <span id="curvature-state" class="pill">idle</span>
+          </div>
+          <div class="profile-chart-stack">
+            <div class="profile-chart-block">
+              <div class="profile-chart-title-row">
+                <h3 data-i18n="curvature.curvatureKs">Curvature k(s)</h3>
+                <span class="profile-chart-tag">Plotly</span>
+              </div>
+              <div id="curvature-chart" class="profile-chart profile-chart--primary" aria-label="Optimized path curvature chart"></div>
+            </div>
+            <div class="profile-chart-grid">
+              <div class="profile-chart-block">
+                <div class="profile-chart-title-row">
+                  <h3 data-i18n="curvature.segmentSpacing">Segment Spacing ds</h3>
+                </div>
+                <div id="ds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path segment spacing chart"></div>
+              </div>
+              <div class="profile-chart-block">
+                <div class="profile-chart-title-row">
+                  <h3 data-i18n="curvature.curvatureRate">Curvature Rate dk/ds</h3>
+                </div>
+                <div id="dkds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path curvature rate chart"></div>
+              </div>
+            </div>
+          </div>
+          <div class="mini-grid compact curvature-grid">
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="curvature.peak">Peak |curvature|</span>
+              <strong id="curvature-peak">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="curvature.mean">Mean |curvature|</span>
+              <strong id="curvature-mean">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="curvature.signedMin">Signed Min</span>
+              <strong id="curvature-min">--</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="curvature.signedMax">Signed Max</span>
+              <strong id="curvature-max">--</strong>
+            </div>
+          </div>
+          <p id="curvature-note" class="hint">Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.</p>
+          <div class="profile-support-notes">
+            <p class="hint" data-i18n="footer.layersHint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, final optimized trajectory, or sampled robot projection along that trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
+            <p class="hint" data-i18n-html="footer.sceneHint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
+          </div>
+        </section>
+        </div>
       </main>
 
       <aside class="dashboard-insights panel">
@@ -770,58 +835,6 @@
             </div>
           </div>
 
-          <section class="curvature-panel curvature-panel--sidebar">
-            <div class="section-heading">
-              <h2 data-i18n="curvature.title">Optimized Path Profiles</h2>
-              <span id="curvature-state" class="pill">idle</span>
-            </div>
-            <div class="profile-chart-stack">
-              <div class="profile-chart-block">
-                <div class="profile-chart-title-row">
-                  <h3 data-i18n="curvature.curvatureKs">Curvature k(s)</h3>
-                  <span class="profile-chart-tag">Plotly</span>
-                </div>
-                <div id="curvature-chart" class="profile-chart profile-chart--primary" aria-label="Optimized path curvature chart"></div>
-              </div>
-              <div class="profile-chart-grid">
-                <div class="profile-chart-block">
-                  <div class="profile-chart-title-row">
-                    <h3 data-i18n="curvature.segmentSpacing">Segment Spacing ds</h3>
-                  </div>
-                  <div id="ds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path segment spacing chart"></div>
-                </div>
-                <div class="profile-chart-block">
-                  <div class="profile-chart-title-row">
-                    <h3 data-i18n="curvature.curvatureRate">Curvature Rate dk/ds</h3>
-                  </div>
-                  <div id="dkds-chart" class="profile-chart profile-chart--secondary" aria-label="Optimized path curvature rate chart"></div>
-                </div>
-              </div>
-            </div>
-            <div class="mini-grid compact curvature-grid">
-              <div class="metric-card subtle">
-                <span class="metric-label" data-i18n="curvature.peak">Peak |curvature|</span>
-                <strong id="curvature-peak">--</strong>
-              </div>
-              <div class="metric-card subtle">
-                <span class="metric-label" data-i18n="curvature.mean">Mean |curvature|</span>
-                <strong id="curvature-mean">--</strong>
-              </div>
-              <div class="metric-card subtle">
-                <span class="metric-label" data-i18n="curvature.signedMin">Signed Min</span>
-                <strong id="curvature-min">--</strong>
-              </div>
-              <div class="metric-card subtle">
-                <span class="metric-label" data-i18n="curvature.signedMax">Signed Max</span>
-                <strong id="curvature-max">--</strong>
-              </div>
-            </div>
-            <p id="curvature-note" class="hint">Run planning to plot curvature, segment spacing, and curvature rate against the optimized path arc length.</p>
-            <div class="profile-support-notes">
-              <p class="hint" data-i18n="footer.layersHint">Toggle individual layers in the left panel to isolate the costmap, dense A* path, downsampled reference, final optimized trajectory, or sampled robot projection along that trajectory. The axis overlay stays visible to keep the world frame readable while you inspect trajectories.</p>
-              <p class="hint" data-i18n-html="footer.sceneHint">This synthetic map now supports direct scene editing: drag endpoint markers or the outlined obstacle rectangles, left-drag empty space to move the camera, and double-click or use <strong>Reset View</strong> to return to the full-map framing.</p>
-            </div>
-          </section>
         </div>
       </aside>
     </div>

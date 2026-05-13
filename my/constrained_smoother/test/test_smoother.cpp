@@ -1295,6 +1295,49 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsGoalSlack)
       &failure));
 }
 
+TEST(SmootherValidatorTest, KinematicGoalPositionToleranceUsesReferenceGoalFrameWhenOrientationDisabled)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    1.0, 2.0, 0.0, 0.0, 0.5,
+    1.5, 2.0, 0.0, 0.0, 0.5,
+    2.15, 2.0, M_PI / 2.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 2.0},
+    {1.5, 2.0},
+    {2.0, 2.0},
+  };
+  const std::vector<double> gears = {1.0, 1.0};
+  const std::vector<bool> is_cusp_segment = {false, false};
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = false;
+  params.keep_start_orientation = true;
+  params.goal_longitudinal_tolerance = 0.2;
+  params.goal_lateral_tolerance = 0.0;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        3,
+        0.0,
+        M_PI / 2.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+}
+
 TEST(SmootherValidatorTest, KinematicGoalPositionToleranceRejectsOutsideGoalBand)
 {
   constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);

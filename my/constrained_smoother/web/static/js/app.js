@@ -59,6 +59,10 @@ document.addEventListener('DOMContentLoaded', () => {
     'session.startHeadingHint': '设置平滑时起点位姿使用的世界坐标系朝向约束。',
     'session.goalHeadingLabel': '终点朝向: <span id="val_goal_yaw_deg">45 deg</span>',
     'session.goalHeadingHint': '设置平滑时终点位姿使用的世界坐标系朝向约束。',
+    'session.goalLongitudinalToleranceLabel': '终点纵向容差 (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span>',
+    'session.goalLongitudinalToleranceHint': '允许终点在目标坐标系前后方向内先自由滑动，超出带宽后才触发 hinge 惩罚。若纵向和横向容差都为 0，则终点位置保持固定。',
+    'session.goalLateralToleranceLabel': '终点横向容差 (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
+    'session.goalLateralToleranceHint': '允许终点在目标坐标系侧向内先自由偏移，超出带宽后才触发 hinge 惩罚。这就是文档里的终点位置带宽残差。',
     'session.reversingHint': '当前 API 已支持运动学平滑器的 <strong>reversing_enabled</strong>，但 Web Lab 仍以路径点自带的方向符号作为倒车语义来源，因此这个兼容开关依旧不在界面中显示。',
     'session.knownLimitation': '已知限制：当前独立版平滑器不会单独优化转向状态。它先优化 <strong>x/y</strong> 几何，再根据局部切线重建 <strong>yaw</strong>，因此这里的尖点更像几何方向切换，而不是机器人原地不动、只改变转向角的真实停转机动。',
     'session.mapNote': '地图现在显示世界坐标系叠加层，原点位于左下角，<strong>X</strong> 向右增大，<strong>Y</strong> 向上增大。可左键拖拽 <strong>起点</strong>、<strong>终点</strong> 或任意描边障碍块来编辑场景；左键拖拽空白画布可平移；在画布任意处双击可恢复整图视角。滑块变动仍会自动重新规划。',
@@ -274,6 +278,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.leftDrag': 'Left-drag',
       'optimizer.constrained': 'Constrained Smoother',
       'optimizer.kinematic': 'Kinematic Smoother',
+      'session.goalLongitudinalToleranceLabel': 'Goal Longitudinal Tolerance (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span>',
+      'session.goalLongitudinalToleranceHint': 'Allows the final point to slide forward or backward inside the goal frame before the hinge penalty turns on. Set both goal tolerances to zero to keep the goal position fixed.',
+      'session.goalLateralToleranceLabel': 'Goal Lateral Tolerance (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
+      'session.goalLateralToleranceHint': 'Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.',
       'weights.modelWeightLabel': 'Model Weight: <span id="val_model_weight">20</span>',
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
       'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
@@ -557,6 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const sliderConfig = {
     start_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
     goal_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
+    goal_longitudinal_tolerance_m: value => Number(value).toFixed(2),
+    goal_lateral_tolerance_m: value => Number(value).toFixed(2),
     planner_penalty_weight: value => Number(value).toFixed(1),
     hinge_loss_threshold_m: value => Number(value).toFixed(2),
     point_robot_radius_m: value => Number(value).toFixed(2),
@@ -1007,10 +1017,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (canvasWrap) {
       new window.ResizeObserver(() => scheduleMapCanvasResize()).observe(canvasWrap);
     }
-    const sidebarProfiles = document.querySelector('.curvature-panel--sidebar');
-    if (sidebarProfiles) {
-      new window.ResizeObserver(() => scheduleProfileChartResize()).observe(sidebarProfiles);
-    }
+    document.querySelectorAll('.curvature-panel').forEach(profilePanel => {
+      new window.ResizeObserver(() => scheduleProfileChartResize()).observe(profilePanel);
+    });
   }
 
   Object.entries(layerBindings).forEach(([id, key]) => {

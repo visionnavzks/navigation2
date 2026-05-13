@@ -223,9 +223,19 @@ public:
       false);
     problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
 
+    double goal_position_theta = processed.end_theta;
+    if (!params.keep_goal_orientation && processed.reference_points.size() >= 2) {
+      const Eigen::Vector2d goal_delta =
+        processed.reference_points.back() -
+        processed.reference_points[processed.reference_points.size() - 2];
+      if (goal_delta.norm() > 1e-6) {
+        goal_position_theta = std::atan2(goal_delta.y(), goal_delta.x());
+      }
+    }
+
     auto * goal_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
       processed.reference_points.back(),
-      processed.end_theta,
+      goal_position_theta,
       params.keep_goal_orientation,
       params.goal_longitudinal_tolerance,
       params.goal_lateral_tolerance,
