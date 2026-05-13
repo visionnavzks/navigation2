@@ -309,7 +309,24 @@ private:
 
     const auto & goal_pose = request.path.back();
     const auto & reference_goal = request.reference_path.back();
-    if ((goal_pose.template head<2>() - reference_goal.template head<2>()).norm() > position_tol) {
+    Eigen::Vector2d goal_frame = normalizedDirection(request.end_dir);
+    if (!request.params.keep_goal_orientation && request.reference_path.size() >= 2) {
+      goal_frame =
+        (request.reference_path.back() - request.reference_path[request.reference_path.size() - 2])
+        .template head<2>();
+      if (goal_frame.norm() <= EPSILON) {
+        goal_frame = normalizedDirection(request.end_dir);
+      } else {
+        goal_frame.normalize();
+      }
+    }
+
+    const Eigen::Vector2d goal_delta = goal_pose.template head<2>() - reference_goal.template head<2>();
+    const double goal_lon = goal_frame.x() * goal_delta.x() + goal_frame.y() * goal_delta.y();
+    const double goal_lat = -goal_frame.y() * goal_delta.x() + goal_frame.x() * goal_delta.y();
+    const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
+    const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
+    if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::GoalPositionConstraint,
@@ -511,7 +528,13 @@ private:
     const double * goal_state = request.variables.data() + 5 * (request.state_count - 1);
     const double goal_dx = goal_state[0] - request.reference_points.back().x();
     const double goal_dy = goal_state[1] - request.reference_points.back().y();
-    if (std::hypot(goal_dx, goal_dy) > position_tol) {
+    const double cos_goal = std::cos(request.end_theta);
+    const double sin_goal = std::sin(request.end_theta);
+    const double goal_lon = cos_goal * goal_dx + sin_goal * goal_dy;
+    const double goal_lat = -sin_goal * goal_dx + cos_goal * goal_dy;
+    const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
+    const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
+    if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::GoalPositionConstraint,
@@ -519,7 +542,8 @@ private:
         static_cast<int>(request.state_count - 1));
     }
     if (request.params.keep_goal_orientation &&
-      std::abs(angleDifference(goal_state[2], request.end_theta)) > angle_tol)
+      std::abs(angleDifference(goal_state[2], request.end_theta)) >
+      std::max(request.params.goal_orientation_tolerance, angle_tol))
     {
       return throwOrStoreSmoothingFailure(
         failure,

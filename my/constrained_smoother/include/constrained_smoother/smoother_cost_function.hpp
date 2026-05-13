@@ -291,6 +291,56 @@ protected:
   double weight_sqrt_;
 };
 
+/**
+ * @brief Goal-position residual in the goal-aligned lon/lat frame.
+ */
+class GoalPositionCostFunction
+{
+public:
+  GoalPositionCostFunction(
+    const Eigen::Vector2d & reference_point,
+    const Eigen::Vector2d & goal_direction,
+    double longitudinal_tolerance,
+    double lateral_tolerance,
+    double weight_sqrt)
+  : reference_point_(reference_point),
+    goal_direction_(goal_direction.normalized()),
+    longitudinal_tolerance_(std::max(longitudinal_tolerance, 0.0)),
+    lateral_tolerance_(std::max(lateral_tolerance, 0.0)),
+    weight_sqrt_(weight_sqrt)
+  {
+  }
+
+  ceres::CostFunction * AutoDiff()
+  {
+    return new ceres::AutoDiffCostFunction<GoalPositionCostFunction, 2, 2>(this);
+  }
+
+  template<typename T>
+  bool operator()(const T * const pt, T * residuals) const
+  {
+    using std::abs;
+
+    const T dx = pt[0] - T(reference_point_.x());
+    const T dy = pt[1] - T(reference_point_.y());
+    const T lon = T(goal_direction_.x()) * dx + T(goal_direction_.y()) * dy;
+    const T lat = -T(goal_direction_.y()) * dx + T(goal_direction_.x()) * dy;
+    const T lon_violation = abs(lon) - T(longitudinal_tolerance_);
+    const T lat_violation = abs(lat) - T(lateral_tolerance_);
+
+    residuals[0] = lon_violation > T(0.0) ? T(weight_sqrt_) * lon_violation : T(0.0);
+    residuals[1] = lat_violation > T(0.0) ? T(weight_sqrt_) * lat_violation : T(0.0);
+    return true;
+  }
+
+private:
+  Eigen::Vector2d reference_point_;
+  Eigen::Vector2d goal_direction_;
+  double longitudinal_tolerance_;
+  double lateral_tolerance_;
+  double weight_sqrt_;
+};
+
 }  // namespace constrained_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__SMOOTHER_COST_FUNCTION_HPP_

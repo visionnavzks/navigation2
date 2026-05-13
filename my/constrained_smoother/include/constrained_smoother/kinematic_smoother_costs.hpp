@@ -232,12 +232,13 @@ private:
  * @brief 路径端点（起点/终点）的边界约束代价函数
  *
  * 该代价函数用于将路径的起点或终点锚定到参考位置（和朝向）。
+ * 对终点还可配置 lon / lat / theta 容差，从而表达“范围停”而不是绝对硬锚定。
  * 每个状态向量包含 5 个分量：[x, y, theta, kappa, ds]
  *
  * 输出 4 个残差：
- *   [0] x 位置误差（强制端点 x 与参考一致）
- *   [1] y 位置误差（强制端点 y 与参考一致）
- *   [2] 朝向角误差（仅在 keep_orientation=true 时生效）
+ *   [0] 目标坐标系 lon 方向位置误差（超出容差才惩罚）
+ *   [1] 目标坐标系 lat 方向位置误差（超出容差才惩罚）
+ *   [2] 朝向角误差（仅在 keep_orientation=true 时生效，且超出容差才惩罚）
  *   [3] 步长约束（仅在 constrain_stop=true 时生效，强制端点 ds 为零；
  *       但因终点 ds 不被任何 TransitionCostFunctor 消费，该残差实际无效）
  */
@@ -257,11 +258,17 @@ public:
     const Eigen::Vector2d & reference_point,
     double target_theta,
     bool keep_orientation,
+    double longitudinal_tolerance,
+    double lateral_tolerance,
+    double orientation_tolerance,
     double fix_weight,
     bool constrain_stop)
   : reference_point_(reference_point),
     target_theta_(target_theta),
     keep_orientation_(keep_orientation),
+    longitudinal_tolerance_(std::max(longitudinal_tolerance, 0.0)),
+    lateral_tolerance_(std::max(lateral_tolerance, 0.0)),
+    orientation_tolerance_(std::max(orientation_tolerance, 0.0)),
     fix_weight_(fix_weight),
     constrain_stop_(constrain_stop)
   {
@@ -284,13 +291,28 @@ public:
   template<typename T>
   bool operator()(const T * const state, T * residuals) const
   {
-    // 残差[0][1]：强制端点位置与参考点一致
-    residuals[0] = T(fix_weight_) * (state[0] - T(reference_point_.x()));
-    residuals[1] = T(fix_weight_) * (state[1] - T(reference_point_.y()));
+    using std::abs;
 
-    // 残差[2]：若启用朝向约束，强制端点朝向角与参考值一致；否则残差为零
-    residuals[2] =
-      keep_orientation_ ? T(fix_weight_) * angleDiff(state[2], T(target_theta_)) : T(0.0);
+    const T dx = state[0] - T(reference_point_.x());
+    const T dy = state[1] - T(reference_point_.y());
+    const T cos_theta = T(std::cos(target_theta_));
+    const T sin_theta = T(std::sin(target_theta_));
+    const T lon_error = cos_theta * dx + sin_theta * dy;
+    const T lat_error = -sin_theta * dx + cos_theta * dy;
+    const T lon_violation = abs(lon_error) - T(longitudinal_tolerance_);
+    const T lat_violation = abs(lat_error) - T(lateral_tolerance_);
+
+    residuals[0] = lon_violation > T(0.0) ? T(fix_weight_) * lon_violation : T(0.0);
+    residuals[1] = lat_violation > T(0.0) ? T(fix_weight_) * lat_violation : T(0.0);
+
+    // 残差[2]：若启用朝向约束，只在超出允许朝向容差时惩罚
+    if (keep_orientation_) {
+      const T heading_error = abs(angleDiff(state[2], T(target_theta_)));
+      const T heading_violation = heading_error - T(orientation_tolerance_);
+      residuals[2] = heading_violation > T(0.0) ? T(fix_weight_) * heading_violation : T(0.0);
+    } else {
+      residuals[2] = T(0.0);
+    }
 
     // 残差[3]：若启用停止约束，约束端点 ds（state[4]）为零；否则残差为零
     // 注意：对终点而言，ds 从未被 TransitionCostFunctor 使用，此约束实际上无效（冗余）
@@ -319,6 +341,9 @@ private:
   Eigen::Vector2d reference_point_; ///< 参考位置（世界坐标）
   double target_theta_;             ///< 参考朝向角（弧度）
   bool keep_orientation_;           ///< 是否约束朝向角
+  double longitudinal_tolerance_;   ///< lon 方向允许容差（米）
+  double lateral_tolerance_;        ///< lat 方向允许容差（米）
+  double orientation_tolerance_;    ///< 朝向允许容差（弧度）
   double fix_weight_;               ///< 约束权重
   bool constrain_stop_;             ///< 是否约束 ds 为零（冗余：终点 ds 不参与任何过渡代价计算）
 };

@@ -78,6 +78,12 @@ struct SmootherParams
   int path_upsampling_factor{1};
   /// 为保持 API 兼容而保留；当前独立版求解器并未实际使用。
   bool reversing_enabled{true};
+  /// 终点在目标坐标系前向轴上的允许位置容差，单位米；0 表示严格固定。
+  double goal_longitudinal_tolerance{0.0};
+  /// 终点在目标坐标系横向轴上的允许位置容差，单位米；0 表示严格固定。
+  double goal_lateral_tolerance{0.0};
+  /// 终点朝向允许容差，单位弧度；仅在 keep_goal_orientation=true 时生效。
+  double goal_orientation_tolerance{0.0};
   /// 通过锚定终点前一个点来固定终点切向方向。
   bool keep_goal_orientation{true};
   /// 通过锚定第二个点来固定起点切向方向。

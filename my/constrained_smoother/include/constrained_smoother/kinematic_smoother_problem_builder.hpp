@@ -216,6 +216,9 @@ public:
       processed.reference_points.front(),
       processed.start_theta,
       params.keep_start_orientation,
+      0.0,
+      0.0,
+      0.0,
       fix_weight,
       false);
     problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
@@ -224,6 +227,9 @@ public:
       processed.reference_points.back(),
       processed.end_theta,
       params.keep_goal_orientation,
+      params.goal_longitudinal_tolerance,
+      params.goal_lateral_tolerance,
+      params.goal_orientation_tolerance,
       fix_weight,
       true);
     problem.AddResidualBlock(

@@ -64,6 +64,7 @@ public:
     // 调用方必须先准备好 path_optim / optimized；这里专注于 ESDF 和残差构建。
     auto esdf_interpolator = initializeEsdfInterpolator(costmap, params, precomputed_esdf);
     addPathResidualBlocks(path, costmap, params, esdf_interpolator, problem, path_optim, optimized);
+    addGoalPositionResidualBlock(path, path_optim, params, problem);
     return finalizeOptimizationProblem(problem, path_optim, params);
   }
 
@@ -274,11 +275,17 @@ private:
     const std::vector<Eigen::Vector3d> & path_optim,
     const SmootherParams & params)
   {
-    int posesToOptimize = problem.NumParameterBlocks() - 2;
+    const bool goal_position_fixed =
+      params.goal_longitudinal_tolerance <= 1e-9 && params.goal_lateral_tolerance <= 1e-9;
+
+    int posesToOptimize = problem.NumParameterBlocks() - 1;
     if (params.keep_goal_orientation) {
       posesToOptimize -= 1;
     }
     if (params.keep_start_orientation) {
+      posesToOptimize -= 1;
+    }
+    if (goal_position_fixed) {
       posesToOptimize -= 1;
     }
     if (posesToOptimize <= 0) {
@@ -292,8 +299,41 @@ private:
     if (params.keep_goal_orientation) {
       problem.SetParameterBlockConstant(path_optim[path_optim.size() - 2].data());
     }
-    problem.SetParameterBlockConstant(path_optim.back().data());
+    if (goal_position_fixed) {
+      problem.SetParameterBlockConstant(path_optim.back().data());
+    }
     return true;
+  }
+
+  static void addGoalPositionResidualBlock(
+    const std::vector<Eigen::Vector3d> & path,
+    std::vector<Eigen::Vector3d> & path_optim,
+    const SmootherParams & params,
+    ceres::Problem & problem)
+  {
+    if (
+      path_optim.size() < 2 ||
+      (params.goal_longitudinal_tolerance <= 1e-9 && params.goal_lateral_tolerance <= 1e-9))
+    {
+      return;
+    }
+
+    Eigen::Vector2d goal_direction =
+      (path_optim.back() - path_optim[path_optim.size() - 2]).template block<2, 1>(0, 0);
+    if (goal_direction.norm() <= EPSILON && path.size() >= 2) {
+      goal_direction = (path.back() - path[path.size() - 2]).template block<2, 1>(0, 0);
+    }
+    if (goal_direction.norm() <= EPSILON) {
+      goal_direction = Eigen::Vector2d(1.0, 0.0);
+    }
+
+    auto * goal_position_cost = new GoalPositionCostFunction(
+      path.back().template block<2, 1>(0, 0),
+      goal_direction,
+      params.goal_longitudinal_tolerance,
+      params.goal_lateral_tolerance,
+      100.0);
+    problem.AddResidualBlock(goal_position_cost->AutoDiff(), nullptr, path_optim.back().data());
   }
 
   std::vector<double> & esdf_values_;

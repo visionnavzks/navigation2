@@ -378,6 +378,15 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "path_upsampling_factor",
     &constrained_smoother::SmootherParams::path_upsampling_factor)
+    .def_readwrite(
+    "goal_longitudinal_tolerance",
+    &constrained_smoother::SmootherParams::goal_longitudinal_tolerance)
+    .def_readwrite(
+    "goal_lateral_tolerance",
+    &constrained_smoother::SmootherParams::goal_lateral_tolerance)
+    .def_readwrite(
+    "goal_orientation_tolerance",
+    &constrained_smoother::SmootherParams::goal_orientation_tolerance)
     .def_readwrite("reversing_enabled", &constrained_smoother::SmootherParams::reversing_enabled)
     .def_readwrite(
     "keep_goal_orientation",

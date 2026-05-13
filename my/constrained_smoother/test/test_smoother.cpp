@@ -290,6 +290,28 @@ TEST(CostFunctionTest, CurvatureRateResidual)
   EXPECT_DOUBLE_EQ(residual[1], 2.0);
 }
 
+TEST(CostFunctionTest, GoalPositionResidualUsesGoalFrameTolerances)
+{
+  constrained_smoother::GoalPositionCostFunction goal_cost(
+    Eigen::Vector2d(0.0, 0.0),
+    Eigen::Vector2d(0.0, 1.0),
+    0.2,
+    0.1,
+    10.0);
+
+  double point_within_tolerance[2] = {0.05, 0.15};
+  double residuals_within[2] = {};
+  EXPECT_TRUE(goal_cost(point_within_tolerance, residuals_within));
+  EXPECT_DOUBLE_EQ(residuals_within[0], 0.0);
+  EXPECT_DOUBLE_EQ(residuals_within[1], 0.0);
+
+  double point_outside_tolerance[2] = {0.15, 0.25};
+  double residuals_outside[2] = {};
+  EXPECT_TRUE(goal_cost(point_outside_tolerance, residuals_outside));
+  EXPECT_NEAR(residuals_outside[0], 0.5, 1e-9);
+  EXPECT_NEAR(residuals_outside[1], 0.5, 1e-9);
+}
+
 TEST(UtilsTest, ArcCenterAndTangent)
 {
   Eigen::Vector2d pt(1.0, 0.0);
@@ -468,6 +490,33 @@ TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
   EXPECT_TRUE(curvature_rate_cost(rate_current_state, rate_next_state, curvature_rate_residuals));
   EXPECT_DOUBLE_EQ(curvature_rate_residuals[3], 0.0);
   EXPECT_DOUBLE_EQ(curvature_rate_residuals[4], 4.0);
+}
+
+TEST(KinematicSmootherCostTest, BoundaryCostUsesGoalFrameTolerances)
+{
+  constrained_smoother::kinematic_smoother_detail::BoundaryCostFunctor goal_cost(
+    Eigen::Vector2d(0.0, 0.0),
+    M_PI / 2.0,
+    true,
+    0.2,
+    0.1,
+    0.05,
+    10.0,
+    false);
+
+  double state_within_tolerance[5] = {0.05, 0.15, M_PI / 2.0 + 0.03, 0.0, 0.0};
+  double residuals_within[4] = {};
+  EXPECT_TRUE(goal_cost(state_within_tolerance, residuals_within));
+  EXPECT_DOUBLE_EQ(residuals_within[0], 0.0);
+  EXPECT_DOUBLE_EQ(residuals_within[1], 0.0);
+  EXPECT_DOUBLE_EQ(residuals_within[2], 0.0);
+
+  double state_outside_tolerance[5] = {0.05, 0.25, M_PI / 2.0 + 0.07, 0.0, 0.0};
+  double residuals_outside[4] = {};
+  EXPECT_TRUE(goal_cost(state_outside_tolerance, residuals_outside));
+  EXPECT_NEAR(residuals_outside[0], 0.5, 1e-9);
+  EXPECT_DOUBLE_EQ(residuals_outside[1], 0.0);
+  EXPECT_NEAR(residuals_outside[2], 0.2, 1e-9);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryBlocks)
@@ -1126,6 +1175,168 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
   EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::Unknown);
   EXPECT_EQ(failure.failed_index, -1);
   EXPECT_TRUE(failure.message.empty());
+}
+
+TEST(SmootherValidatorTest, GeometricGoalPositionToleranceAllowsGoalSlack)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 0.0},
+    {1.5, 2.0, 0.0},
+    {2.05, 2.15, M_PI / 2.0},
+  };
+  const std::vector<Eigen::Vector3d> reference_path = {
+    {1.0, 2.0, 0.0},
+    {1.5, 2.0, 0.0},
+    {2.0, 2.0, 0.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.goal_longitudinal_tolerance = 0.2;
+  params.goal_lateral_tolerance = 0.1;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateSmoothedPath(
+      {
+        path,
+        reference_path,
+        Eigen::Vector2d(1.0, 0.0),
+        Eigen::Vector2d(0.0, 1.0),
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+}
+
+TEST(SmootherValidatorTest, GeometricGoalPositionToleranceRejectsOutsideGoalBand)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 0.0},
+    {1.5, 2.0, 0.0},
+    {2.15, 2.25, M_PI / 2.0},
+  };
+  const std::vector<Eigen::Vector3d> reference_path = {
+    {1.0, 2.0, 0.0},
+    {1.5, 2.0, 0.0},
+    {2.0, 2.0, 0.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.goal_longitudinal_tolerance = 0.2;
+  params.goal_lateral_tolerance = 0.1;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_FALSE(validator.validateSmoothedPath(
+      {
+        path,
+        reference_path,
+        Eigen::Vector2d(1.0, 0.0),
+        Eigen::Vector2d(0.0, 1.0),
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalPositionConstraint);
+}
+
+TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsGoalSlack)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    2.0, 1.0, M_PI / 2.0, 0.0, 0.5,
+    2.0, 1.5, M_PI / 2.0, 0.0, 0.5,
+    2.05, 2.15, M_PI / 2.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {2.0, 1.0},
+    {2.0, 1.5},
+    {2.0, 2.0},
+  };
+  const std::vector<double> gears = {1.0, 1.0};
+  const std::vector<bool> is_cusp_segment = {false, false};
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = true;
+  params.goal_longitudinal_tolerance = 0.2;
+  params.goal_lateral_tolerance = 0.1;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        3,
+        M_PI / 2.0,
+        M_PI / 2.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+}
+
+TEST(SmootherValidatorTest, KinematicGoalPositionToleranceRejectsOutsideGoalBand)
+{
+  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    2.0, 1.0, M_PI / 2.0, 0.0, 0.5,
+    2.0, 1.5, M_PI / 2.0, 0.0, 0.5,
+    2.05, 2.25, M_PI / 2.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {2.0, 1.0},
+    {2.0, 1.5},
+    {2.0, 2.0},
+  };
+  const std::vector<double> gears = {1.0, 1.0};
+  const std::vector<bool> is_cusp_segment = {false, false};
+
+  constrained_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = true;
+  params.goal_longitudinal_tolerance = 0.2;
+  params.goal_lateral_tolerance = 0.1;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  constrained_smoother::SmoothingFailureInfo failure;
+  constrained_smoother::SmootherValidator validator;
+
+  EXPECT_FALSE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        3,
+        M_PI / 2.0,
+        M_PI / 2.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalPositionConstraint);
 }
 
 TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)

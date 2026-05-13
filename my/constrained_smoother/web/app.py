@@ -1357,6 +1357,9 @@ def plan_and_smooth():
         goal_yaw_deg = float(req.get("goal_yaw_deg", 45.0))
         keep_start_orientation = _coerce_bool(req.get("keep_start_orientation"), True)
         keep_goal_orientation = _coerce_bool(req.get("keep_goal_orientation"), True)
+        goal_longitudinal_tolerance_m = max(0.0, float(req.get("goal_longitudinal_tolerance_m", 0.0)))
+        goal_lateral_tolerance_m = max(0.0, float(req.get("goal_lateral_tolerance_m", 0.0)))
+        goal_orientation_tolerance_deg = max(0.0, float(req.get("goal_orientation_tolerance_deg", 0.0)))
         footprint_mode = str(req.get("footprint_mode", "capsule")).strip().lower()
         if footprint_mode not in {"point", "capsule"}:
             footprint_mode = "capsule"
@@ -1460,6 +1463,9 @@ def plan_and_smooth():
         smoother_params.max_time = max_time
         smoother_params.keep_start_orientation = keep_start_orientation
         smoother_params.keep_goal_orientation = keep_goal_orientation
+        smoother_params.goal_longitudinal_tolerance = goal_longitudinal_tolerance_m
+        smoother_params.goal_lateral_tolerance = goal_lateral_tolerance_m
+        smoother_params.goal_orientation_tolerance = math.radians(goal_orientation_tolerance_deg)
         smoother_params.cost_check_points = footprint_model["smoother_points"]
         smoother_params.path_downsampling_factor = path_downsample
         smoother_params.path_upsampling_factor = path_upsample
