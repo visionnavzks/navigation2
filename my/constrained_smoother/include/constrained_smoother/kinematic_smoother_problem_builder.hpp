@@ -64,6 +64,11 @@ public:
     const SmootherParams & params,
     const std::vector<double> * precomputed_esdf)
   {
+    if (!params.obstacleTermsEnabled()) {
+      esdf_values_.clear();
+      return;
+    }
+
     // 这份 ESDF 会被障碍物残差和最终后验校验共同复用。
     const size_t expected_esdf_size =
       static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
@@ -159,7 +164,7 @@ public:
 
     processed.target_spacing = spacing_count > 0 ?
       spacing_sum / static_cast<double>(spacing_count) :
-      std::max(costmap->getResolution(), 1e-3);
+      (costmap != nullptr ? std::max(costmap->getResolution(), 1e-3) : processed.target_spacing);
 
     processed.initial_variables.reserve(processed.state_count * 5);
     for (size_t index = 0; index < processed.state_count; ++index) {
@@ -188,7 +193,7 @@ public:
     const double spacing_weight = 1.0;
     const double fix_weight = 100.0;
     const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);
-    const bool has_obstacle_cost = std::max(params.costmap_weight_sqrt, 0.0) > 1e-9;
+    const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
       auto * transition_cost = new kinematic_smoother_detail::TransitionCostFunctor(

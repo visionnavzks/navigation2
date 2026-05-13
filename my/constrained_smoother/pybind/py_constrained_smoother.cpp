@@ -76,6 +76,15 @@ std::vector<Eigen::Vector3d> copy_path3d(const py::handle & handle, const char *
   return path;
 }
 
+const constrained_smoother::Costmap2D * copy_optional_costmap(const py::handle & handle)
+{
+  if (handle.is_none()) {
+    return nullptr;
+  }
+
+  return &py::cast<const constrained_smoother::Costmap2D &>(handle);
+}
+
 // ---- Failure parsing / folding helpers ----
 
 // Structured result schema used by all try_* bindings:
@@ -453,21 +462,22 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     const py::handle & path_handle,
     const py::handle & start_dir_handle,
     const py::handle & end_dir_handle,
-    const constrained_smoother::Costmap2D & costmap,
+    const py::handle & costmap_handle,
     const constrained_smoother::SmootherParams & params) -> PyObject *
     {
       std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
       const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
       const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
+      const auto * costmap = copy_optional_costmap(costmap_handle);
       constrained_smoother::SmoothingFailureInfo failure;
-      if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
+      if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
         return make_python_smoothing_failure(failure);
       }
       return py::cast(path).release().ptr();
     },
     py::return_value_policy::take_ownership,
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap"), py::arg("params"),
+    py::arg("costmap") = py::none(), py::arg("params"),
     // 异常式接口：失败时抛 Python 异常，成功时直接返回平滑后的路径。
     "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
@@ -476,15 +486,16 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     const py::handle & path_handle,
     const py::handle & start_dir_handle,
     const py::handle & end_dir_handle,
-    const constrained_smoother::Costmap2D & costmap,
+    const py::handle & costmap_handle,
     const constrained_smoother::SmootherParams & params) -> py::dict
     {
       try {
         std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
         const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
         const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
+        const auto * costmap = copy_optional_costmap(costmap_handle);
         constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
+        if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
           return make_error_result(failure, py::cast(path));
         }
 
@@ -516,7 +527,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       }
     },
     py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap"), py::arg("params"),
+    py::arg("costmap") = py::none(), py::arg("params"),
     // 结构化接口：把 native 失败统一折叠成 ok/error_* 字段，适合脚本和服务层。
     "Try to smooth a path and return a structured result with ok/path/error_code/error_message.")
     .def(
@@ -612,21 +623,22 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
-      const constrained_smoother::Costmap2D & costmap,
+      const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> PyObject *
       {
         std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
         const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
         const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
+        const auto * costmap = copy_optional_costmap(costmap_handle);
         constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
+        if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
           return make_python_smoothing_failure(failure);
         }
         return py::cast(path).release().ptr();
       },
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-      py::arg("costmap"), py::arg("params"),
+      py::arg("costmap") = py::none(), py::arg("params"),
       // 异常式接口：失败时抛 Python 异常，成功时返回运动学平滑后的路径。
       "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
     .def(
@@ -635,15 +647,16 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
-      const constrained_smoother::Costmap2D & costmap,
+      const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> py::dict
       {
         try {
           std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
           const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
           const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
+          const auto * costmap = copy_optional_costmap(costmap_handle);
           constrained_smoother::SmoothingFailureInfo failure;
-          if (!self.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure)) {
+          if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
             return make_error_result(failure, py::cast(path));
           }
 
@@ -675,7 +688,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
         }
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-      py::arg("costmap"), py::arg("params"),
+      py::arg("costmap") = py::none(), py::arg("params"),
       // 结构化接口：把运动学后端失败统一折叠成 ok/error_* 字段。
       "Try to smooth a path with the kinematic backend and return a structured result.")
     .def(

@@ -163,7 +163,7 @@ private:
 
   static double positionTolerance(const Costmap2D * costmap)
   {
-    return std::max(costmap->getResolution() * 0.5, 1e-3);
+    return costmap != nullptr ? std::max(costmap->getResolution() * 0.5, 1e-3) : 1e-3;
   }
 
   static double orientationTolerance()
@@ -211,7 +211,7 @@ private:
 
   static double displacementTolerance(const Costmap2D * costmap)
   {
-    return std::max(costmap->getResolution() * 0.25, 1e-4);
+    return costmap != nullptr ? std::max(costmap->getResolution() * 0.25, 1e-4) : 1e-4;
   }
 
   static std::pair<int, int> worldToGrid(const Costmap2D * costmap, double wx, double wy)
@@ -405,6 +405,10 @@ private:
     const SmoothedPathRequest & request,
     SmoothingFailureInfo * failure) const
   {
+    if (!request.params.obstacleTermsEnabled() || request.costmap == nullptr) {
+      return true;
+    }
+
     const double radius = std::max(request.params.cost_check_radius, 0.0);
 
     for (size_t pose_index = 0; pose_index < request.path.size(); ++pose_index) {
@@ -587,6 +591,10 @@ private:
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
   {
+    if (!request.params.obstacleTermsEnabled() || request.costmap == nullptr) {
+      return true;
+    }
+
     const double radius = std::max(request.params.cost_check_radius, 0.0);
     if (radius <= 1e-9) {
       return true;

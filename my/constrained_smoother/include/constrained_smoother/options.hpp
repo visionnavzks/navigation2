@@ -37,6 +37,11 @@ struct SmootherParams
 {
   SmootherParams() {}
 
+  bool obstacleTermsEnabled() const
+  {
+    return std::max(costmap_weight_sqrt, cusp_costmap_weight_sqrt) > 1e-9;
+  }
+
   /// 三点平滑残差的平方根权重。
   double smooth_weight_sqrt{0.0};
   /// 运动学状态转移一致性残差的平方根权重。

@@ -97,7 +97,11 @@ private:
     void prepare()
     {
       auto builder = this->owner().makeProblemBuilder();
-      this->owner().validateCommonInputs(this->request().path, this->request().costmap, "Kinematic smoother");
+      this->owner().validateCommonInputs(
+        this->request().path,
+        this->request().costmap,
+        this->request().params,
+        "Kinematic smoother");
       this->owner().setMaxSolverTime(this->request().params.max_time);
       builder.initializeEsdfValues(
         this->request().costmap, this->request().params, this->request().precomputed_esdf);

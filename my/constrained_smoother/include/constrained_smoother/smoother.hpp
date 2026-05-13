@@ -136,7 +136,11 @@ private:
     /// 第 1 阶段：校验请求、准备工作路径，并构建待求解的问题。
     void prepare()
     {
-      this->owner().validateCommonInputs(this->request().path, this->request().costmap, "Constrained smoother");
+      this->owner().validateCommonInputs(
+        this->request().path,
+        this->request().costmap,
+        this->request().params,
+        "Constrained smoother");
       reference_path_ = this->request().path;
       path_ops_ = std::make_unique<SmootherPathOps>(
         this->request().start_dir, this->request().end_dir, this->request().params);

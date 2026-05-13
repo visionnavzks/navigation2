@@ -200,10 +200,11 @@ TEST(SmootherRunBaseTest, ExecuteShortCircuitsFinalizeWhenSolveFails)
   EXPECT_EQ(owner.finalize_calls, 0);
 }
 
-TEST(SolverBackedSmootherBaseTest, ValidateCommonInputsRejectsShortPathAndNullCostmap)
+TEST(SolverBackedSmootherBaseTest, ValidateCommonInputsRejectsShortPathAndOnlyRequiresCostmapForObstacleSlices)
 {
   TestSolverBackedSmootherBase base;
   constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
+  constrained_smoother::SmootherParams params;
   const std::vector<Eigen::Vector3d> short_path = {{0.0, 0.0, 1.0}};
   const std::vector<Eigen::Vector3d> valid_path = {
     {0.0, 0.0, 1.0},
@@ -211,10 +212,14 @@ TEST(SolverBackedSmootherBaseTest, ValidateCommonInputsRejectsShortPathAndNullCo
   };
 
   EXPECT_THROW(
-    base.validateCommonInputs(short_path, &costmap, "Test smoother"),
+    base.validateCommonInputs(short_path, &costmap, params, "Test smoother"),
     constrained_smoother::InvalidPath);
+
+  EXPECT_NO_THROW(base.validateCommonInputs(valid_path, nullptr, params, "Test smoother"));
+
+  params.costmap_weight_sqrt = 1.0;
   EXPECT_THROW(
-    base.validateCommonInputs(valid_path, nullptr, "Test smoother"),
+    base.validateCommonInputs(valid_path, nullptr, params, "Test smoother"),
     constrained_smoother::InvalidCostmap);
 }
 
@@ -668,7 +673,7 @@ TEST(SmootherTest, PathTooShortThrows)
     constrained_smoother::InvalidPath);
 }
 
-TEST(SmootherTest, NullCostmapThrowsStructuredError)
+TEST(SmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
 {
   std::vector<Eigen::Vector3d> path = {
     {0.0, 0.0, 1.0},
@@ -679,6 +684,26 @@ TEST(SmootherTest, NullCostmapThrowsStructuredError)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   constrained_smoother::SmootherParams params;
+  constrained_smoother::OptimizerParams opt_params;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, nullptr, params));
+}
+
+TEST(SmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+  };
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  constrained_smoother::SmootherParams params;
+  params.costmap_weight_sqrt = 1.0;
   constrained_smoother::OptimizerParams opt_params;
 
   constrained_smoother::Smoother smoother;
@@ -928,7 +953,7 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
 }
 
-TEST(KinematicSmootherTest, NullCostmapThrowsStructuredError)
+TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
 {
   std::vector<Eigen::Vector3d> path = {
     {0.0, 0.0, 1.0},
@@ -939,6 +964,25 @@ TEST(KinematicSmootherTest, NullCostmapThrowsStructuredError)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   constrained_smoother::SmootherParams params;
+  constrained_smoother::OptimizerParams opt_params;
+  constrained_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, nullptr, params));
+}
+
+TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+  };
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  constrained_smoother::SmootherParams params;
+  params.costmap_weight_sqrt = 1.0;
   constrained_smoother::OptimizerParams opt_params;
   constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);

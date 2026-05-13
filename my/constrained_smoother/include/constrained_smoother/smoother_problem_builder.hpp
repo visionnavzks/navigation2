@@ -118,6 +118,12 @@ private:
     const SmootherParams & params,
     const std::vector<double> * precomputed_esdf)
   {
+    if (!params.obstacleTermsEnabled()) {
+      esdf_values_.clear();
+      esdf_grid_.reset();
+      return nullptr;
+    }
+
     const size_t expected_esdf_size =
       static_cast<size_t>(costmap->getSizeInCellsX()) * costmap->getSizeInCellsY();
     if (precomputed_esdf != nullptr) {

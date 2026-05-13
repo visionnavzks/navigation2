@@ -19,7 +19,7 @@ For the high-level C++ failure flow, also see the “失败传播路径” secti
 | --- | --- | --- | --- | --- |
 | `CS_INVALID_PATH` | C++, pybind `try_*` | Input path is too short or malformed for smoothing. | Fewer than 2 knots passed to smoother backends. | Validate path length before smoothing; keep the reference path. |
 | `CS_SMOOTHING_FAILED` | C++, pybind `try_*`, web `smooth_error` | Optimizer ran but did not produce a usable solution. | Non-usable solution, no cost decrease, backend convergence failure, or post-solve validation finding boundary / motion-direction / footprint violations. | Fall back to the reference path, and inspect `error_reason` or `smooth_error.details.failure_reason` to see which condition failed. |
-| `CS_INVALID_COSTMAP` | C++, pybind `try_*` | Planner or smoother received no valid costmap. | Null or otherwise invalid costmap object. | Rebuild or reinitialize the costmap before retrying. |
+| `CS_INVALID_COSTMAP` | C++, pybind `try_*` | Planner or smoother received no valid costmap when obstacle or planner map terms were active. | Null costmap passed while obstacle residuals, obstacle validation, or planner/ESDF reuse still required a map. | Provide a valid costmap, or disable obstacle-dependent terms before retrying. |
 | `CS_PRECOMPUTED_ESDF_SIZE_MISMATCH` | C++, pybind `try_*` | The supplied ESDF does not match costmap dimensions. | Reusing planner ESDF with mismatched map dimensions. | Discard cached ESDF and recompute from the active map. |
 
 ## Error Surface Mapping

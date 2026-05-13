@@ -54,12 +54,13 @@ protected:
   void validateCommonInputs(
     const PathT & path,
     const Costmap2D * costmap,
+    const SmootherParams & params,
     const char * smoother_name) const
   {
     if (path.size() < 2) {
       throw InvalidPath(std::string(smoother_name) + ": Path must have at least 2 points");
     }
-    if (costmap == nullptr) {
+    if (params.obstacleTermsEnabled() && costmap == nullptr) {
       throw InvalidCostmap(std::string(smoother_name) + ": Costmap must not be null");
     }
   }

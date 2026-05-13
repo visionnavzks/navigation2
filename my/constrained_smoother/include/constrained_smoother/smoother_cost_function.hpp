@@ -67,8 +67,8 @@ public:
     reversing_(reversing),
     params_(params),
     costmap_weight_sqrt_(costmap_weight_sqrt),
-    costmap_origin_(costmap->getOriginX(), costmap->getOriginY()),
-    costmap_resolution_(costmap->getResolution()),
+    costmap_origin_(costmap != nullptr ? costmap->getOriginX() : 0.0, costmap != nullptr ? costmap->getOriginY() : 0.0),
+    costmap_resolution_(costmap != nullptr ? costmap->getResolution() : 1.0),
     esdf_interpolator_(esdf_interpolator)
   {
   }
@@ -192,6 +192,10 @@ protected:
     const Eigen::Matrix<T, 2, 1> & pt_prev,
     T & r) const
   {
+    if (weight_sqrt <= 1e-9 || esdf_interpolator_ == nullptr) {
+      return;
+    }
+
     if (params_.cost_check_points.empty()) {
       Eigen::Matrix<T, 2, 1> interp_pos =
         (pt - costmap_origin_.template cast<T>()) / (T)costmap_resolution_;
