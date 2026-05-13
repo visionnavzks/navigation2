@@ -621,11 +621,11 @@ $$
 - 问题和限制：
   - 当前边界针对的是 `κ`
 
-## 9. 摩擦圆
+## 9. 摩擦椭圆（摩擦圆为特例）
 
 需求：
 
-- 可能有偏置，例如货物位置变化
+- 可能希望约束车身上某个偏置点，而不是重心点
 - 与速度耦合
 
 ### 几何版 `Smoother`
@@ -634,7 +634,7 @@ $$
 - 当前怎么实现：
   - 没有速度状态，因此实际上无从实现
 - 数学原理：
-  - 摩擦圆本质是横纵向动力学耦合，不是几何约束
+  - 摩擦椭圆本质是横纵向动力学耦合，不是几何约束
   - 几何版没有 $v$，也没有 $a_{lon}$，自然无从表达
 - 应该怎么实现：
   - 不建议在几何版实现
@@ -648,35 +648,102 @@ $$
 - 当前怎么实现：
   - 当前没有速度状态，因此还没法写
 - 数学原理：
-  - 如果已经有速度，则最常见近似是
+  - 如果已经有速度与时间，并采用无侧偏的自行车模型近似，则重心处常见运动学量是
 
 $$
-a_{lat} = v^2 κ
+ω = \dot ψ = v κ
 $$
 
 $$
-a_{lon} = dv/dt
+α = \ddot ψ = \frac{d}{dt}(vκ) = \dot v \, κ + v \, \dot κ
 $$
 
-  - 摩擦圆约束可写成
+$$
+a_{C} = \begin{bmatrix} a_{lon,C} \\ a_{lat,C} \end{bmatrix}
+= \begin{bmatrix} \dot v \\ v^2 κ \end{bmatrix}
+$$
+
+  - 这里下标 $C$ 表示重心
+  - 现在设要约束的不是重心，而是车身坐标系中一个固定偏置点 $P$
 
 $$
-\left(a_{lat} / a_{lat,max}\right)^2 + \left(a_{lon} / a_{lon,max}\right)^2 \le 1
+\mathbf{r}_{CP} = \begin{bmatrix} x_p \\ y_p \end{bmatrix}
+$$
+
+  - 对平面刚体，点 $P$ 的加速度满足
+
+$$
+\mathbf{a}_{P} = \mathbf{a}_{C} + α \times \mathbf{r}_{CP} + ω \times (ω \times \mathbf{r}_{CP})
+$$
+
+  - 在车体系 $(x$ 前向，$y$ 左向$)$ 中展开后，有
+
+$$
+ a_{lon,P} = \dot v - α y_p - ω^2 x_p
+$$
+
+$$
+ a_{lat,P} = v^2 κ + α x_p - ω^2 y_p
+$$
+
+  - 再代入 $ω = vκ$ 与 $α = \dot v \, κ + v \, \dot κ$，可写成
+
+$$
+ a_{lon,P} = \dot v - (\dot v \, κ + v \, \dot κ) y_p - (vκ)^2 x_p
+$$
+
+$$
+ a_{lat,P} = v^2 κ + (\dot v \, κ + v \, \dot κ) x_p - (vκ)^2 y_p
+$$
+
+  - 如果更喜欢空间域写法，利用 $\dot κ = v \, dκ/ds$，也可写成
+
+$$
+ α = \dot v \, κ + v^2 \frac{dκ}{ds}
+$$
+
+  - 于是“偏置点摩擦椭圆”应直接对点 $P$ 的加速度施加二次约束
+
+$$
+\left(a_{lon,P} / a_{lon,max}\right)^2 + \left(a_{lat,P} / a_{lat,max}\right)^2 \le 1
+$$
+
+  - 当 $a_{lon,max} \ne a_{lat,max}$ 时，这是标准摩擦椭圆
+  - 当 $a_{lon,max} = a_{lat,max} = a_{total}$ 时，它退化为摩擦圆
+
+$$
+a_{lon,P}^2 + a_{lat,P}^2 \le a_{total}^2
+$$
+
+  - 代入上面的展开式，可得
+
+$$
+\left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
+\left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 \le 1
 $$
 
   - 如果写成软惩罚，可写成
 
 $$
-r_{fric} = w_f \cdot \max(0, \left(a_{lat} / a_{lat,max}\right)^2 + \left(a_{lon} / a_{lon,max}\right)^2 - 1)
+r_{fric} = w_f \cdot \max\left(
+0,
+\left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
+\left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 - 1
+\right)
 $$
 
-  - 如果考虑载荷偏置，本质上就是让 $a_{lat,max}$、$a_{lon,max}$ 变成依赖载荷和姿态的函数
+  - 这里的“偏置”不是常量平移偏置
+  - 它本质上是刚体上偏置点相对重心多出来的切向项 $α \times r$ 和向心项 $ω \times (ω \times r)$
+  - 所以它是一个随 $v, \dot v, κ, \dot κ$ 变化的状态相关修正，而不是固定的 $(b_{lon}, b_{lat})$
 - 应该怎么实现：
   - 先引入速度状态和时间维
-  - 再考虑摩擦圆
-  - 最后才考虑载荷偏置、质心偏置、轮荷转移等更复杂项
+  - 再明确摩擦约束到底施加在重心、后轴、前轴还是车身某个监测点
+  - 若是偏置点，就按上式把该点加速度显式展开后再入约束
+  - 如果未来再考虑载荷转移，可进一步把 $a_{lon,max}$、$a_{lat,max}$ 做成状态相关量
 - 问题和限制：
   - 这已经明显超出当前“空间域运动学 smoother”的范围，属于真正 MPC 的领域
+  - 仅靠空间域路径变量无法正确表达 $\dot v$ 和摩擦约束
+  - 如果偏置点不在重心，约束里还会自然引入 $\dot κ$ 或 $dκ/ds$，比重心摩擦圆多一层动态耦合
 
 ## 最后总结
 
