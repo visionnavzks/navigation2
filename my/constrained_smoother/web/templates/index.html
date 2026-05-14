@@ -242,9 +242,9 @@
                 <p class="param-hint" data-i18n="planner.penaltyWeightHint">Scales how strongly A* detours away from low-clearance cells under the shared quadratic hinge loss. This affects the planner only, not the smoother obstacle weight.</p>
               </div>
               <div class="param-group">
-                <label data-i18n-html="planner.hingeThresholdLabel">Hinge Loss Threshold (m): <span id="val_hinge_loss_threshold_m">0.50</span></label>
-                <input type="range" id="hinge_loss_threshold_m" min="0.05" max="2.00" step="0.05" value="0.50">
-                <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared hinge margin used by the C++ A* planner and constrained smoother. ESDF distances beyond this threshold incur zero penalty. In point-robot mode, the effective threshold is this value plus the robot radius.</p>
+                <label data-i18n-html="planner.hingeThresholdLabel">Obstacle Surface Clearance (m): <span id="val_surface_clearance_margin_m">0.50</span></label>
+                <input type="range" id="surface_clearance_margin_m" min="0.05" max="2.00" step="0.05" value="0.50">
+                <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared obstacle surface clearance margin used by the C++ A* planner and constrained smoother. Once the checkpoint-to-obstacle surface distance exceeds this value, the ESDF hinge penalty becomes zero. The total checkpoint-center no-penalty clearance is this value plus the robot check radius.</p>
               </div>
             </section>
 
@@ -706,6 +706,14 @@
                 <div class="metric-card subtle">
                   <span class="metric-label" data-i18n="run.refSpacingTarget">Ref Spacing Target</span>
                   <strong id="info-ref-spacing">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.hingeThreshold">Surface Clearance Margin</span>
+                  <strong id="info-hinge-threshold">--</strong>
+                </div>
+                <div class="metric-card subtle">
+                  <span class="metric-label" data-i18n="run.totalNoPenaltyClearance">Total No-Penalty Clearance</span>
+                  <strong id="info-total-clearance">--</strong>
                 </div>
                 <div class="metric-card subtle">
                   <span class="metric-label" data-i18n="run.rawLength">Raw Length</span>

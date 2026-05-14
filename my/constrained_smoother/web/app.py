@@ -1040,7 +1040,7 @@ def _build_capsule_center_offsets(limit_x, radius, tolerance):
 
 def _build_robot_footprint_model(
     footprint_mode,
-    hinge_loss_threshold_m,
+    surface_clearance_margin_m,
     point_robot_radius_m,
     robot_length_m,
     robot_width_m,
@@ -1072,7 +1072,7 @@ def _build_robot_footprint_model(
             "y": round(float(point_y), 4),
         })
 
-    safe_distance = hinge_loss_threshold_m
+    safe_distance = surface_clearance_margin_m
     return {
         "mode": mode,
         "safe_distance": safe_distance,
@@ -1363,7 +1363,10 @@ def plan_and_smooth():
         footprint_mode = str(req.get("footprint_mode", "capsule")).strip().lower()
         if footprint_mode not in {"point", "capsule"}:
             footprint_mode = "capsule"
-        hinge_loss_threshold_m = max(0.05, float(req.get("hinge_loss_threshold_m", 0.5)))
+        surface_clearance_margin_m = max(
+            0.05,
+            float(req.get("surface_clearance_margin_m", req.get("hinge_loss_threshold_m", 0.5))),
+        )
         point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 1.0)))
         robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
         robot_width_m = max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5)))
@@ -1404,7 +1407,7 @@ def plan_and_smooth():
 
         footprint_model = _build_robot_footprint_model(
             footprint_mode,
-            hinge_loss_threshold_m,
+            surface_clearance_margin_m,
             point_robot_radius_m,
             robot_length_m,
             robot_width_m,
@@ -1616,7 +1619,8 @@ def plan_and_smooth():
             "goal_yaw_deg": round(goal_yaw_deg, 2),
             "keep_start_orientation": keep_start_orientation,
             "keep_goal_orientation": keep_goal_orientation,
-            "hinge_loss_threshold_m": round(hinge_loss_threshold_m, 3),
+            "hinge_loss_threshold_m": round(surface_clearance_margin_m, 3),
+            "surface_clearance_margin_m": round(surface_clearance_margin_m, 3),
             "point_robot_radius_m": round(point_robot_radius_m, 3),
             "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
             "footprint_mode": footprint_model["mode"],

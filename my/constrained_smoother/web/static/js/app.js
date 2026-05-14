@@ -107,8 +107,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'planner.title': '规划器',
     'planner.penaltyWeightLabel': 'A* 惩罚权重: <span id="val_planner_penalty_weight">1.0</span>',
     'planner.penaltyWeightHint': '缩放共享二次铰链损失下 A* 对低净空栅格的绕行强度。它只影响规划器，不影响平滑器的障碍权重。',
-    'planner.hingeThresholdLabel': '铰链损失阈值 (m): <span id="val_hinge_loss_threshold_m">0.50</span>',
-    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的铰链边界。ESDF 距离超过该阈值后不再产生惩罚。点机器人模式下，有效阈值等于该值加上机器人半径。',
+    'planner.hingeThresholdLabel': '障碍表面净空 (m): <span id="val_surface_clearance_margin_m">0.50</span>',
+    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的障碍表面净空边界。检查点到障碍物表面的距离超过该值后，ESDF 铰链惩罚为 0。真正的检查点中心无惩罚净空等于这个值再加上机器人检查半径。',
     'robot.title': '机器人',
     'robot.footprintModel': '足迹模型',
     'robot.footprintCapsule': '胶囊检查点',
@@ -178,6 +178,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.optimizationKnots': '优化结点数',
     'run.returnedPathPoints': '返回路径点数',
     'run.refSpacingTarget': '参考间距目标',
+    'run.hingeThreshold': '表面净空边界',
+    'run.totalNoPenaltyClearance': '总无惩罚净空',
     'run.rawLength': '原始长度',
     'run.referenceLength': '参考长度',
     'run.optimizedLength': '优化长度',
@@ -327,6 +329,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.note.rejected': '{optimizerLabel} failed validation, but the rejected smoothed candidate is still being shown for inspection. {smoothMessage}',
       'diagnostics.title': 'Diagnostics',
       'diagnostics.pending': 'Validation and kinematic details appear here when a run exposes them.',
+      'run.hingeThreshold': 'Surface Clearance Margin',
+      'run.totalNoPenaltyClearance': 'Total No-Penalty Clearance',
       'run.kinematicDetails': 'Kinematic Details',
       'run.goalSegmentError': 'Goal Segment Error',
       'run.goalTolerance': 'Goal Tolerance',
@@ -568,7 +572,7 @@ document.addEventListener('DOMContentLoaded', () => {
     goal_longitudinal_tolerance_m: value => Number(value).toFixed(2),
     goal_lateral_tolerance_m: value => Number(value).toFixed(2),
     planner_penalty_weight: value => Number(value).toFixed(1),
-    hinge_loss_threshold_m: value => Number(value).toFixed(2),
+    surface_clearance_margin_m: value => Number(value).toFixed(2),
     point_robot_radius_m: value => Number(value).toFixed(2),
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
@@ -621,7 +625,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const planInfoIds = [
     'info-optimizer', 'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-knots', 'info-opt-pts',
-    'info-ref-spacing', 'info-raw-length', 'info-ref-length', 'info-opt-length', 'info-length-delta',
+    'info-ref-spacing', 'info-hinge-threshold', 'info-total-clearance', 'info-raw-length', 'info-ref-length', 'info-opt-length',
+    'info-length-delta',
   ];
   const AUTO_REPLAN_DELAY_MS = 220;
   const OPTIMIZED_POINT_HOVER_RADIUS_PX = 11;
@@ -801,7 +806,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSelectionInfo();
         draw();
       }
-      if (id === 'hinge_loss_threshold_m' || id === 'point_robot_radius_m' ||
+      if (id === 'surface_clearance_margin_m' || id === 'point_robot_radius_m' ||
         id === 'robot_length_m' || id === 'robot_width_m') {
         updateRobotConfigUi();
         draw();
@@ -2630,6 +2635,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('info-opt-knots', String(data.num_opt_knots));
     setText('info-opt-pts', String(data.num_returned_pts ?? data.num_opt_pts));
     setText('info-ref-spacing', formatMeters(data.reference_spacing_target_m));
+    setText(
+      'info-hinge-threshold',
+      formatMeters(data.surface_clearance_margin_m ?? data.hinge_loss_threshold_m)
+    );
+    setText(
+      'info-total-clearance',
+      formatMeters(Number(data.effective_safe_distance_m) + Number(data.collision_check_radius_m))
+    );
     setText('info-raw-length', formatMeters(data.raw_path_length_m));
     setText('info-ref-length', formatMeters(data.ref_path_length_m));
     setText('info-opt-length', formatMeters(data.opt_path_length_m));
