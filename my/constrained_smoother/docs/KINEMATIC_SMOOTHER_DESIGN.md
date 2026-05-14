@@ -43,50 +43,50 @@
 `KinematicSmoother::smooth(...)` 与 Python 版 `_optimize_impl(...)` 都遵循同一条主线：
 
 1. 校验输入合法性。
-   - 至少要有起点和终点。
-   - Python 版还会校验 `raw_path` 形状和 `gear_directions` 长度。
+    - 至少要有起点和终点。
+    - Python 版还会校验 `raw_path` 形状和 `gear_directions` 长度。
 2. 准备 ESDF 或障碍物上下文。
-   - C++ 版会构建或接收预计算 ESDF，供障碍物残差和后验校验共用。
-   - Python 版当前不带 ESDF 障碍物项，主要聚焦运动学残差本身。
+    - C++ 版会构建或接收预计算 ESDF，供障碍物残差和后验校验共用。
+    - Python 版当前不带 ESDF 障碍物项，主要聚焦运动学残差本身。
 3. 把原始路径展开成运动学状态链。
-   - 遇到换向时插入 cusp 停驻状态。
+    - 遇到换向时插入 cusp 停驻状态。
 4. 用参考几何初始化 `(x, y, theta, kappa, ds)`。
-   - 这是整个非线性求解的初值来源。
+    - 这是整个非线性求解的初值来源。
 5. 构建残差问题。
-   - 包括过渡残差、边界残差、参考路径残差，以及 C++ 版本中的障碍物残差。
+    - 包括过渡残差、边界残差、参考路径残差，以及 C++ 版本中的障碍物残差。
 6. 施加显式变量边界。
-   - 主要是曲率上下界和非负弧长约束。
+    - 主要是曲率上下界和非负弧长约束。
 7. 交给求解器优化。
-   - C++ 版使用 Ceres。
-   - Python 版使用 `scipy.optimize.least_squares`。
+    - C++ 版使用 Ceres。
+    - Python 版使用 `scipy.optimize.least_squares`。
 8. 执行后验校验。
-   - C++ 版会检查有限值、边界约束、换向一致性、cusp 停驻行为和障碍物净空。
+    - C++ 版会检查有限值、边界约束、换向一致性、cusp 停驻行为和障碍物净空。
 9. 回写公共输出路径。
-   - 只保留 `(x, y, yaw)`。
+    - 只保留 `(x, y, yaw)`。
 
 ## 当前 C++ 分层
 
 当前运动学版实现建议按下面的对象边界来理解：
 
 1. 顶层对象：`include/constrained_smoother/kinematic_smoother.hpp`
-   - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
-   - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化状态数。
+    - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
+    - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化状态数。
 2. 单次执行对象：`KinematicSmoother::Run`
-   - 表示一次 `smooth()` 调用的生命周期。
-   - 负责驱动“准备 -> 求解 -> 校验 -> 回写输出”。
+    - 表示一次 `smooth()` 调用的生命周期。
+    - 负责驱动“准备 -> 求解 -> 校验 -> 回写输出”。
 3. 问题构建器：`include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
-   - 负责 ESDF 准备、状态展开、变量初值生成、残差拼接、显式边界约束和输出解包。
+    - 负责 ESDF 准备、状态展开、变量初值生成、残差拼接、显式边界约束和输出解包。
 4. 残差定义：`include/constrained_smoother/kinematic_smoother_costs.hpp`
-   - 定义过渡、边界、参考路径和障碍物各类 cost functor。
+    - 定义过渡、边界、参考路径和障碍物各类 cost functor。
 
 共享层还包括：
 
 - `include/constrained_smoother/smoother_base.hpp`
-  - 统一 solver 配置、调试状态和公共输入校验。
+    - 统一 solver 配置、调试状态和公共输入校验。
 - `include/constrained_smoother/smoother_request.hpp`
-  - 统一单次调用请求结构。
+    - 统一单次调用请求结构。
 - `include/constrained_smoother/smoother_run_base.hpp`
-  - 统一 `prepare -> solve -> finalize` 的执行骨架。
+    - 统一 `prepare -> solve -> finalize` 的执行骨架。
 
 ## 第一个关键点：为什么要插入 cusp 状态
 
@@ -109,10 +109,10 @@
 
 1. `x` 和 `y` 直接来自展开后的参考点。
 2. `theta` 来自相邻参考点的几何朝向。
-   - 如果该段是倒车，则会额外加上 `pi`，使朝向与运动方向一致。
+    - 如果该段是倒车，则会额外加上 `pi`，使朝向与运动方向一致。
 3. `kappa` 初始为零。
 4. `ds` 初始为相邻参考点的欧式距离。
-   - cusp 段的 `ds` 会直接置零。
+    - cusp 段的 `ds` 会直接置零。
 
 这一步对求解稳定性很重要，因为运动学残差是强非线性的。
 
@@ -186,17 +186,17 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 如果你准备直接看 C++ 实现，推荐按下面顺序读：
 
 1. `smooth(...)` in `kinematic_smoother.hpp`
-   - 先建立总流程视角。
+    - 先建立总流程视角。
 2. `KinematicSmoother::Run`
-   - 理解单次调用如何持有请求、驱动准备、求解和结果回写。
+    - 理解单次调用如何持有请求、驱动准备、求解和结果回写。
 3. `KinematicSmootherProblemBuilder::buildProcessedPath(...)`
-   - 理解状态链是怎么从原始路径展开出来的。
+    - 理解状态链是怎么从原始路径展开出来的。
 4. `KinematicSmootherProblemBuilder::buildProblem(...)`
-   - 理解各类残差是怎么进入求解问题的。
+    - 理解各类残差是怎么进入求解问题的。
 5. `KinematicSmootherProblemBuilder::applyBounds(...)`
-   - 理解哪些约束是边界，而不是软残差。
+    - 理解哪些约束是边界，而不是软残差。
 6. `KinematicSmootherProblemBuilder::unpackPath(...)`
-   - 理解内部状态是如何恢复成对外输出路径的。
+    - 理解内部状态是如何恢复成对外输出路径的。
 
 如果你准备先看 Python 实现，推荐顺序是：
 
@@ -214,15 +214,15 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
 如果你只想先把 C++ 版的整体骨架看明白，建议按下面顺序读：
 
 1. `include/constrained_smoother/kinematic_smoother.hpp`
-   - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
+    - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
 2. `include/constrained_smoother/smoother_request.hpp`
-   - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
+    - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
 3. `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
-   - 理解 ESDF 准备、状态展开、问题拼接、边界约束和输出解包。
+    - 理解 ESDF 准备、状态展开、问题拼接、边界约束和输出解包。
 4. `include/constrained_smoother/kinematic_smoother_costs.hpp`
-   - 再回头看过渡、边界、参考路径和障碍物残差各自编码了什么。
+    - 再回头看过渡、边界、参考路径和障碍物残差各自编码了什么。
 5. `include/constrained_smoother/smoother_validator.hpp`
-   - 最后确认哪些运动学约束只是优化偏好，哪些会在求解后被硬性拒绝。
+    - 最后确认哪些运动学约束只是优化偏好，哪些会在求解后被硬性拒绝。
 
 如果你接下来要改失败处理或对外错误语义，再补读 [Error Codes](error-codes.md) 和 [Package Guide](package-guide.md) 里的“失败传播路径”小节。
 
@@ -241,13 +241,13 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
 如果你准备改实现，最容易把行为改坏的地方通常有这些：
 
 - 改 `buildProcessedPath(...)` 时只顾状态维度，不同步 `state_count`、`gears`、`is_cusp_segment` 的索引契约。
-   - 这三个量是一整套展开语义，错一处通常会连锁破坏求解和后验校验。
+    - 这三个量是一整套展开语义，错一处通常会连锁破坏求解和后验校验。
 - 在 `buildProblem(...)` 里改残差顺序或边界逻辑时，忘记它和 `applyBounds(...)`、validator 是配套设计。
-   - 软残差、显式边界和后验拒绝各自承担不同职责，不建议混写。
+    - 软残差、显式边界和后验拒绝各自承担不同职责，不建议混写。
 - 把 cusp 段当成普通运动段处理。
-   - cusp 段的 `gear == 0`，语义是停驻过渡，不是普通短段。
+    - cusp 段的 `gear == 0`，语义是停驻过渡，不是普通短段。
 - 修改 Python 原型或 pybind 返回格式时，不同步 README / `ERROR_CODES.md` 的结构化错误约定。
-   - 这类漂移最容易让 web 和 notebook 调用层出现“能跑但语义对不上”的问题。
+    - 这类漂移最容易让 web 和 notebook 调用层出现“能跑但语义对不上”的问题。
 
 ## 建议结合阅读的文件
 

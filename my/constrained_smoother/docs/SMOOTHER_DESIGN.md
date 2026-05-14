@@ -43,74 +43,74 @@
 `Smoother::smooth(...)` 会依次执行以下阶段：
 
 1. 校验输入形状。
-   - 少于两个点的路径会立即被拒绝。
+    - 少于两个点的路径会立即被拒绝。
 2. 保存参考路径快照。
-   - 原始路径会被保留，供后续后验校验固定边界位置时使用。
+    - 原始路径会被保留，供后续后验校验固定边界位置时使用。
 3. 构建 ESDF 插值器。
-   - 若启用障碍物项，要么复用调用方传入的扁平化 ESDF，要么从 costmap 现算。
-   - 若障碍物项关闭，这一步会被直接跳过。
+    - 若启用障碍物项，要么复用调用方传入的扁平化 ESDF，要么从 costmap 现算。
+    - 若障碍物项关闭，这一步会被直接跳过。
 4. 准备优化路径。
-   - 复制输入路径。
-   - 根据需要重新定位第二个点和倒数第二个点，以施加端点朝向锚定。
+    - 复制输入路径。
+    - 根据需要重新定位第二个点和倒数第二个点，以施加端点朝向锚定。
 5. 单次遍历路径并添加残差块。
-   - 对内部点做下采样。
-   - 即使正常下采样会跳过，也必须保留 cusp。
-   - 添加主三点平滑残差。
-   - 当局部运动方向一致时，添加可选四点曲率变化率残差。
-   - 若配置了终点 lon/lat 容差，还会给最后一个点添加单独的目标带宽残差。
+    - 对内部点做下采样。
+    - 即使正常下采样会跳过，也必须保留 cusp。
+    - 添加主三点平滑残差。
+    - 当局部运动方向一致时，添加可选四点曲率变化率残差。
+    - 若配置了终点 lon/lat 容差，还会给最后一个点添加单独的目标带宽残差。
 6. 冻结端点锚定。
-   - 起点位置始终固定。
-   - 终点位置只在未配置 lon/lat 容差时才会被冻结。
-   - 如果启用了切向约束，对应锚点在所有残差连接完成后也会被冻结。
+    - 起点位置始终固定。
+    - 终点位置只在未配置 lon/lat 容差时才会被冻结。
+    - 如果启用了切向约束，对应锚点在所有残差连接完成后也会被冻结。
 7. 使用 Ceres 求解。
-   - 如果求解结果不可用，或目标函数没有改进，则直接判为失败。
+    - 如果求解结果不可用，或目标函数没有改进，则直接判为失败。
 8. 重建对外输出路径。
-   - 对被跳过的路径段使用三次 Bezier 插值补点。
-   - 根据局部切向方向重新计算 yaw。
+    - 对被跳过的路径段使用三次 Bezier 插值补点。
+    - 根据局部切向方向重新计算 yaw。
 9. 执行后验校验。
-   - 检查输出是否有限。
-   - 检查边界约束。
-   - 检查曲率限制。
-   - 检查是否满足和优化阶段一致的 ESDF 净空要求。
+    - 检查输出是否有限。
+    - 检查边界约束。
+    - 检查曲率限制。
+    - 检查是否满足和优化阶段一致的 ESDF 净空要求。
 
 ## 当前代码分层
 
 当前几何版实现已经不再是“一个头文件包办全部细节”，而是分成四层：
 
 1. 顶层对象：`include/constrained_smoother/smoother.hpp`
-   - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
-   - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化点数。
+    - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
+    - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化点数。
 2. 单次执行对象：`Smoother::Run`
-   - 表示一次 `smooth()` 调用的生命周期。
-   - 持有本次请求、参考路径快照、工作路径、副本问题对象和优化标记。
+    - 表示一次 `smooth()` 调用的生命周期。
+    - 持有本次请求、参考路径快照、工作路径、副本问题对象和优化标记。
 3. 路径侧 helper：`include/constrained_smoother/smoother_path_ops.hpp`
-   - 负责端点朝向锚定、上采样和 yaw 重建。
+    - 负责端点朝向锚定、上采样和 yaw 重建。
 4. 问题构建 helper：`include/constrained_smoother/smoother_problem_builder.hpp`
-   - 负责 ESDF 准备、主残差连接、cusp 邻域重赋权和边界冻结。
+    - 负责 ESDF 准备、主残差连接、cusp 邻域重赋权和边界冻结。
 
 共享层还包括：
 
 - `include/constrained_smoother/smoother_base.hpp`
-  - 统一 solver 配置、调试状态和公共输入校验。
+    - 统一 solver 配置、调试状态和公共输入校验。
 - `include/constrained_smoother/smoother_request.hpp`
-  - 统一单次调用请求结构。
+    - 统一单次调用请求结构。
 - `include/constrained_smoother/smoother_run_base.hpp`
-  - 统一 `prepare -> solve -> finalize` 执行骨架。
+    - 统一 `prepare -> solve -> finalize` 执行骨架。
 
 ## 按代码阅读的主线
 
 如果你是从 `smoother.hpp` 直接往下读，建议按下面顺序理解：
 
 1. `smooth(...)` in `smoother.hpp`
-   - 这是总入口，负责把请求对象交给内部 `Run`。
+    - 这是总入口，负责把请求对象交给内部 `Run`。
 2. `Smoother::Run`
-   - 这是单次执行对象，负责把“路径准备、问题构建、求解、路径重建、后验校验”串成一条主线。
+    - 这是单次执行对象，负责把“路径准备、问题构建、求解、路径重建、后验校验”串成一条主线。
 3. `SmootherPathOps`
-   - 这里处理参考路径副本、端点朝向锚定和输出重建。
+    - 这里处理参考路径副本、端点朝向锚定和输出重建。
 4. `SmootherProblemBuilder`
-   - 这里处理 ESDF 初始化、残差连接、cusp 邻域回溯重赋权和边界冻结。
+    - 这里处理 ESDF 初始化、残差连接、cusp 邻域回溯重赋权和边界冻结。
 5. `SmootherValidator`
-   - 这里统一做求解后的硬性校验。
+    - 这里统一做求解后的硬性校验。
 
 如果你先建立这条主线，再回头看具体 cost functor，会更容易理解每一段代码为什么出现在那个位置。
 
@@ -119,15 +119,15 @@
 如果你只想用最少跳转快速建立实现心智模型，建议按下面顺序读：
 
 1. `include/constrained_smoother/smoother.hpp`
-   - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
+    - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
 2. `include/constrained_smoother/smoother_request.hpp`
-   - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
+    - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
 3. `include/constrained_smoother/smoother_path_ops.hpp`
-   - 理解端点锚定、关键点链和输出 yaw 是怎么重建出来的。
+    - 理解端点锚定、关键点链和输出 yaw 是怎么重建出来的。
 4. `include/constrained_smoother/smoother_problem_builder.hpp`
-   - 理解 ESDF、下采样、cusp 重赋权和残差连接是怎么进入求解问题的。
+    - 理解 ESDF、下采样、cusp 重赋权和残差连接是怎么进入求解问题的。
 5. `include/constrained_smoother/smoother_validator.hpp`
-   - 最后确认哪些条件只是优化目标，哪些条件会在求解后被硬性拒绝。
+    - 最后确认哪些条件只是优化目标，哪些条件会在求解后被硬性拒绝。
 
 如果你接下来要改失败处理或对外错误语义，再补读 [Error Codes](error-codes.md) 和 [Package Guide](package-guide.md) 里的“失败传播路径”小节。
 
@@ -194,17 +194,17 @@ $$
 主要项包括：
 
 - 平滑项。
-  - 鼓励相邻路径点形成平滑局部曲线。
+    - 鼓励相邻路径点形成平滑局部曲线。
 - 参考路径距离项。
-  - 防止优化结果偏离原始路径过远。
+    - 防止优化结果偏离原始路径过远。
 - 障碍物净空项。
-  - 使用 costmap 的 ESDF 采样结果惩罚净空不足。
+    - 使用 costmap 的 ESDF 采样结果惩罚净空不足。
 - 曲率限制项。
-  - 对超过 `max_curvature` 的局部曲率施加惩罚。
+    - 对超过 `max_curvature` 的局部曲率施加惩罚。
 - 曲率变化率项。
-  - 可选四点残差，用于抑制曲率突变。
+    - 可选四点残差，用于抑制曲率突变。
 - 终点位置带宽项。
-   - 可选的终点 lon / lat hinge 残差，用于表达“范围停”而不是精准停。
+    - 可选的终点 lon / lat hinge 残差，用于表达“范围停”而不是精准停。
 
 `SmootherParams` 中的权重都采用平方根形式，因为每个残差会先被缩放，再由 Ceres 在目标函数里做平方。
 
@@ -315,9 +315,9 @@ $$
 这里有两个实现细节值得单独记住：
 
 1. `\phi(\cdot)` 内部已经先做了一次平方。
-   - 因为 Ceres 还会再对整个残差平方，所以真正进入目标函数的是四次型的净空缺口惩罚。
+    - 因为 Ceres 还会再对整个残差平方，所以真正进入目标函数的是四次型的净空缺口惩罚。
 2. 多个扩展足迹采样点不是“各自独立成残差后再求平方和”。
-   - 当前实现是先把 $\sum_j \beta_j \phi(q_{i,j})$ 聚合成一个标量残差，再由 Ceres 对这个总和平方。
+    - 当前实现是先把 $\sum_j \beta_j \phi(q_{i,j})$ 聚合成一个标量残差，再由 Ceres 对这个总和平方。
 
 ### 曲率变化率残差的实际公式
 
@@ -467,10 +467,10 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 这个负号会带来两个直接后果：
 
 1. 平滑项不再把 cusp 两侧视为同向连续曲线。
-   - 在残差内部，前后段差分会按“翻转后的后继段”来比较，避免把 gear 切换位置错误地拉直。
+    - 在残差内部，前后段差分会按“翻转后的后继段”来比较，避免把 gear 切换位置错误地拉直。
 2. 曲率和切向方向的几何辅助函数会进入 cusp 模式。
-   - `arcCenter(...)` 和 `tangentDir(...)` 在 `is_cusp=true` 时会把后继段方向取反，再计算圆心和切线。
-   - 这样得到的是“跨过方向切换之后仍保持几何连续”的代理曲率，而不是把 cusp 当成普通单向转弯。
+    - `arcCenter(...)` 和 `tangentDir(...)` 在 `is_cusp=true` 时会把后继段方向取反，再计算圆心和切线。
+    - 这样得到的是“跨过方向切换之后仍保持几何连续”的代理曲率，而不是把 cusp 当成普通单向转弯。
 
 此外，四点曲率变化率残差还有一个额外限制：只有四个相邻控制点跨越的所有局部段方向符号都一致时，才会添加这一项。只要窗口内穿过了 cusp，曲率变化率残差就不会接入问题。
 
@@ -490,24 +490,24 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 从实现机制看，这个过程分成“回看 cusp 之前”和“处理 cusp 之后”两半：
 
 1. 遍历到 cusp 之前。
-   - 构建器会把最近创建的障碍物残差函数和对应段长放进一个双端队列 `potential_cusp_funcs`。
-   - 队列只保留累计弧长不超过 `cusp_half_length` 的那部分最近残差。
+    - 构建器会把最近创建的障碍物残差函数和对应段长放进一个双端队列 `potential_cusp_funcs`。
+    - 队列只保留累计弧长不超过 `cusp_half_length` 的那部分最近残差。
 2. 一旦检测到 cusp。
-   - 构建器会从离 cusp 最近的残差开始反向遍历这个队列。
-   - 按距离把这些“已经创建完”的残差障碍物权重向 `cusp_costmap_weight_sqrt` 提升。
-   - 这一步是回溯修改，所以 cusp 前半区不需要二次建图或重新建问题。
+    - 构建器会从离 cusp 最近的残差开始反向遍历这个队列。
+    - 按距离把这些“已经创建完”的残差障碍物权重向 `cusp_costmap_weight_sqrt` 提升。
+    - 这一步是回溯修改，所以 cusp 前半区不需要二次建图或重新建问题。
 3. cusp 之后继续向前遍历。
-   - 构建器把 `len_since_cusp` 置零。
-   - 在后续残差创建时，只要离 cusp 的累计弧长仍在 `cusp_half_length` 之内，就直接按同一条线性规则给更高的障碍物权重。
+    - 构建器把 `len_since_cusp` 置零。
+    - 在后续残差创建时，只要离 cusp 的累计弧长仍在 `cusp_half_length` 之内，就直接按同一条线性规则给更高的障碍物权重。
 
 实现上还有两个容易在代码里看晕的点：
 
 1. `current_segment_len` 为什么在识别到 cusp 之前就先加入窗口长度。
-   - 这里维护的是“当前位置之前最近一段路径覆盖了多长”的滑动窗口，而不是“已经入队 residual 的个数”。
-   - 先加再裁剪，能保证一旦当前点正好是 cusp，窗口里留下的正好是 cusp 前半区能回溯到的那批旧 residual。
+    - 这里维护的是“当前位置之前最近一段路径覆盖了多长”的滑动窗口，而不是“已经入队 residual 的个数”。
+    - 先加再裁剪，能保证一旦当前点正好是 cusp，窗口里留下的正好是 cusp 前半区能回溯到的那批旧 residual。
 2. 为什么三点主 residual 先接入问题，再把对象放进 `potential_cusp_funcs`。
-   - 队列里保存的是已经 `AddResidualBlock` 进 `ceres::Problem` 的 `SmootherCostFunction` 对象指针。
-   - 这样后面检测到 cusp 时，调用 `setCostmapWeightSqrt()` 修改的就是问题里那条旧 residual 的 obstacle 权重，而不是某个还没接入的问题外对象。
+    - 队列里保存的是已经 `AddResidualBlock` 进 `ceres::Problem` 的 `SmootherCostFunction` 对象指针。
+    - 这样后面检测到 cusp 时，调用 `setCostmapWeightSqrt()` 修改的就是问题里那条旧 residual 的 obstacle 权重，而不是某个还没接入的问题外对象。
 
 这里有一个容易忽略的边界：被重赋权的只有障碍物残差项。
 
@@ -530,11 +530,11 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 ### 如果你要改 cusp 行为，先看这几处
 
 - `include/constrained_smoother/smoother_problem_builder.hpp`
-  - 看 cusp 检测、控制点保留、双端队列回溯重赋权和负段长比值是怎么传进 cost functor 的。
+    - 看 cusp 检测、控制点保留、双端队列回溯重赋权和负段长比值是怎么传进 cost functor 的。
 - `include/constrained_smoother/smoother_cost_function.hpp`
-  - 看负的 `last_to_current_length_ratio` 如何改变平滑项、曲率项和切向方向的几何解释。
+    - 看负的 `last_to_current_length_ratio` 如何改变平滑项、曲率项和切向方向的几何解释。
 - `include/constrained_smoother/utils.hpp`
-  - 看 `arcCenter(...)` 和 `tangentDir(...)` 在 `is_cusp=true` 时怎样把后继段翻转后再计算。
+    - 看 `arcCenter(...)` 和 `tangentDir(...)` 在 `is_cusp=true` 时怎样把后继段翻转后再计算。
 
 如果你误把输入第三个分量当成 yaw，而不是 `direction_sign`，上面这整套 cusp 检测、重赋权和几何解释都会一起失效。
 
@@ -627,13 +627,13 @@ cusp 不只是“多保留一个控制点”这么简单，它还会改变三点
 如果你准备改实现，最容易把行为改坏的地方通常有这些：
 
 - 误把输入路径第三个分量当成 yaw。
-   - 对几何版来说，优化前它仍然是 `direction_sign`，过早按 yaw 解释会破坏 cusp 检测和重建逻辑。
+    - 对几何版来说，优化前它仍然是 `direction_sign`，过早按 yaw 解释会破坏 cusp 检测和重建逻辑。
 - 在 `SmootherPathOps` 里修改残差或 ESDF 逻辑。
-   - 这个 helper 只负责路径副本和输出重建；残差连接应留在 `SmootherProblemBuilder`。
+    - 这个 helper 只负责路径副本和输出重建；残差连接应留在 `SmootherProblemBuilder`。
 - 在 `SmootherProblemBuilder` 里直接写后验拒绝策略。
-   - 求解后是否接受结果应继续收口在 `SmootherValidator`，不要把“优化目标”和“交付门槛”混在一起。
+    - 求解后是否接受结果应继续收口在 `SmootherValidator`，不要把“优化目标”和“交付门槛”混在一起。
 - 新增 failure reason 时只改抛错文本，不改稳定 reason / code 文档。
-   - 相关改动至少要同步 `exceptions.hpp`、`ERROR_CODES.md`，必要时同步 README 的失败传播说明。
+    - 相关改动至少要同步 `exceptions.hpp`、`ERROR_CODES.md`，必要时同步 README 的失败传播说明。
 
 ## 建议扩展点
 
