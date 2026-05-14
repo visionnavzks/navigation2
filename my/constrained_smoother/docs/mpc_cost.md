@@ -100,21 +100,21 @@ $$
     - 当前边界残差是一个二次残差
     - 起点位置约束可以写成
 
-$$
-r_{start,pos} = w_f [x_0 - x_0^{ref}, y_0 - y_0^{ref}]
-$$
+        $$
+        r_{start,pos} = w_f [x_0 - x_0^{ref}, y_0 - y_0^{ref}]
+        $$
 
     - 如果启用朝向约束，再加上
 
-$$
-r_{start,heading} = w_f \cdot \mathrm{wrap}(θ_0 - θ_0^{target})
-$$
+        $$
+        r_{start,heading} = w_f \cdot \mathrm{wrap}(θ_0 - θ_0^{target})
+        $$
 
     - 如果要固定起点曲率，可以直接增加
 
-$$
-r_{start,\kappa} = w_{\kappa 0} (κ_0 - κ_0^{target})
-$$
+        $$
+        r_{start,\kappa} = w_{\kappa 0} (κ_0 - κ_0^{target})
+        $$
 
 - 应该怎么实现：
     - 不需要再额外引入新的转角状态
@@ -151,20 +151,20 @@ $$
     - 设目标朝向为 $θ_g$，旋转矩阵 $R_g = \begin{bmatrix} \cos θ_g & \sin θ_g \\ -\sin θ_g & \cos θ_g \end{bmatrix}$
     - 把终点偏差投影到目标坐标系
 
-$$
-\begin{bmatrix} δ_{lon} \\ δ_{lat} \end{bmatrix} = R_g (p_N - p_g)
-$$
+        $$
+        \begin{bmatrix} δ_{lon} \\ δ_{lat} \end{bmatrix} = R_g (p_N - p_g)
+        $$
 
     - 位置部分（lon/lat 两轴）仍然可以写，因为 $R_g$ 只依赖 $θ_g$（固定参数），与优化变量无关
     - 两轴残差为
 
-$$
-r_{goal,lon} = w_{lon} \cdot \max(0,\ |δ_{lon}| - b_{lon})
-$$
+        $$
+        r_{goal,lon} = w_{lon} \cdot \max(0,\ |δ_{lon}| - b_{lon})
+        $$
 
-$$
-r_{goal,lat} = w_{lat} \cdot \max(0,\ |δ_{lat}| - b_{lat})
-$$
+        $$
+        r_{goal,lat} = w_{lat} \cdot \max(0,\ |δ_{lat}| - b_{lat})
+        $$
 
     - 朝向：直接使用现有硬约束（`keep_goal_orientation = true` 锁定边界点切向），自动满足，无需额外残差
     - 三种模式通过容差参数区分（几何版无朝向容差，θ 由硬约束开关控制）：
@@ -190,9 +190,9 @@ $$
 - 数学原理：
     - 当前边界项可以写成
 
-$$
-r_{goal} = [w_f(x_N - x_N^{ref}), w_f(y_N - y_N^{ref}), w_f \cdot \mathrm{wrap}(θ_N - θ_N^{target}), w_f ds_N]
-$$
+        $$
+        r_{goal} = [w_f(x_N - x_N^{ref}), w_f(y_N - y_N^{ref}), w_f \cdot \mathrm{wrap}(θ_N - θ_N^{target}), w_f ds_N]
+        $$
 
     - 其中第三项是可选的，第四项用于把最后一步长压向 0
     - 这更像“停在指定终点，并结束运动”，不是“停在允许区域内”
@@ -202,23 +202,23 @@ $$
     - 设目标朝向为 $θ_g$，旋转矩阵 $R_g = \begin{bmatrix} \cos θ_g & \sin θ_g \\ -\sin θ_g & \cos θ_g \end{bmatrix}$
     - 把终点偏差投影到目标坐标系
 
-$$
-\begin{bmatrix} δ_{lon} \\ δ_{lat} \end{bmatrix} = R_g \begin{bmatrix} x_N - x_g \\ y_N - y_g \end{bmatrix}
-$$
+        $$
+        \begin{bmatrix} δ_{lon} \\ δ_{lat} \end{bmatrix} = R_g \begin{bmatrix} x_N - x_g \\ y_N - y_g \end{bmatrix}
+        $$
 
     - 三轴残差分别为
 
-$$
-r_{goal,lon} = w_{lon} \cdot \max(0,\ |δ_{lon}| - b_{lon})
-$$
+        $$
+        r_{goal,lon} = w_{lon} \cdot \max(0,\ |δ_{lon}| - b_{lon})
+        $$
 
-$$
-r_{goal,lat} = w_{lat} \cdot \max(0,\ |δ_{lat}| - b_{lat})
-$$
+        $$
+        r_{goal,lat} = w_{lat} \cdot \max(0,\ |δ_{lat}| - b_{lat})
+        $$
 
-$$
-r_{goal,θ} = w_θ \cdot \max(0,\ |\mathrm{wrap}(θ_N - θ_g)| - b_θ)
-$$
+        $$
+        r_{goal,θ} = w_θ \cdot \max(0,\ |\mathrm{wrap}(θ_N - θ_g)| - b_θ)
+        $$
 
     - 三种模式通过容差参数区分：
 
@@ -229,8 +229,8 @@ $$
 | 航向精准 | $> 0$（有限阈值） | $> 0$（有限阈值） | 0 |
     - 参数接口只需暴露 $(b_{lon}, b_{lat}, b_θ)$ 和对应权重，不需要 mode 枚举
     - 自动目标偏移建议放在 smoother 外层 orchestrator：
-    - 候选点搜索
-    - 评分函数综合 ESDF 净空、朝向误差、离原目标距离
+        - 候选点搜索
+        - 评分函数综合 ESDF 净空、朝向误差、离原目标距离
 - 问题和限制：
     - 当前“终点固定 + 障碍物净空”在某些场景会直接冲突，引入容差后可以缓解但不能完全消除
     - 容差参数和障碍物净空参数需要联合调，否则容差允许的落点可能仍然在障碍物内
@@ -250,25 +250,25 @@ $$
     - 先取世界点到最近障碍物的 signed distance，记为 $d$
     - 再减去足迹半径 $r_f$，得到表面净空
 
-$$
-d_{surf} = d - r_f
-$$
+        $$
+        d_{surf} = d - r_f
+        $$
 
     - 若要求安全净空 $d_{safe}$，当前惩罚是分段二次函数
 
-$$
-\phi_{obs}(d_{surf}) = 0, \text{if } d_{surf} \ge d_{safe}
-$$
+        $$
+        \phi_{obs}(d_{surf}) = 0, \text{if } d_{surf} \ge d_{safe}
+        $$
 
-$$
-\phi_{obs}(d_{surf}) = \left((d_{safe} - d_{surf}) / d_{safe}\right)^2, \text{if } d_{surf} < d_{safe}
-$$
+        $$
+        \phi_{obs}(d_{surf}) = \left((d_{safe} - d_{surf}) / d_{safe}\right)^2, \text{if } d_{surf} < d_{safe}
+        $$
 
     - 对应残差可理解为
 
-$$
-r_{obs} = w_{obs} \cdot \phi_{obs}(d_{surf})
-$$
+        $$
+        r_{obs} = w_{obs} \cdot \phi_{obs}(d_{surf})
+        $$
 
 - 应该怎么实现：
     - 这一项本身已经可用
@@ -318,21 +318,21 @@ $$
 - 数学原理：
     - 当前参考项是点对点吸引
 
-$$
-r_{ref,i} = w_r (p_i - p_i^{ref})
-$$
+        $$
+        r_{ref,i} = w_r (p_i - p_i^{ref})
+        $$
 
     - 对应目标项是
 
-$$
-J_{ref} = \sum_i w_r^2 \lVert p_i - p_i^{ref} \rVert^2
-$$
+        $$
+        J_{ref} = \sum_i w_r^2 \lVert p_i - p_i^{ref} \rVert^2
+        $$
 
     - 如果不要求持续贴近，只要求“不要离参考点太远”，可以用同一锚点改写成带阈值的 hinge 版本
 
-$$
-r_{band,i} = w_b \cdot \max(0, \lVert p_i - p_i^{ref} \rVert - b_i)
-$$
+        $$
+        r_{band,i} = w_b \cdot \max(0, \lVert p_i - p_i^{ref} \rVert - b_i)
+        $$
 
     - 因而“参考线吸引”和“参考点带宽约束”本质上是同一参考锚点上的两种 loss：一个是二次吸引，一个是超阈值才惩罚
     - 这不是点到参考曲线最短距离，而是点到参考采样点的二次偏差
@@ -359,34 +359,14 @@ $$
     - 不支持直线/圆弧 primitive
     - 当前 cusp 还没有显式允许原地打舵
 - 数学原理：
-    - 当前参考项也是点对点吸引
-
-$$
-r_{ref,i} = w_r [x_i - x_i^{ref}, y_i - y_i^{ref}]
-$$
-
-    - 如果只要求状态中心不要偏离参考点太远，可改写成带宽版本
-
-$$
-r_{band,i} = w_b \cdot \max(0, \lVert c_i - p_i^{ref} \rVert - b_i)
-$$
-
-    - 其中 $c_i = (x_i, y_i)$ 是状态中心点
+    - 当前参考项也是点对点吸引：\(r_{ref,i} = w_r [x_i - x_i^{ref}, y_i - y_i^{ref}]\)
+    - 如果只要求状态中心不要偏离参考点太远，可改写成带宽版本：\(r_{band,i} = w_b \cdot \max(0, \lVert c_i - p_i^{ref} \rVert - b_i)\)
+    - 其中 \(c_i = (x_i, y_i)\) 是状态中心点
     - 这同样是“参考点锚定”的一类，只是 loss 从二次吸引改成了距离上界
     - 当前实现里，cusp 的数学含义还不是“原地打舵”，而是“位置不动、朝向不突变、步长接近 0”
-    - 对 cusp 段，现有残差近似是
-
-$$
-r_{cusp} = [w_f(x_{i+1}-x_i), w_f(y_{i+1}-y_i), w_f \cdot \mathrm{wrap}(θ_{i+1}-θ_i), 0, 0, 10 w_{ds} ds_i]
-$$
-
+    - 对 cusp 段，现有残差近似是：\(r_{cusp} = [w_f(x_{i+1}-x_i), w_f(y_{i+1}-y_i), w_f \cdot \mathrm{wrap}(θ_{i+1}-θ_i), 0, 0, 10 w_{ds} ds_i]\)
     - 因此运动学版对 cusp path 的支持，是把换向点扩成一个显式的“停驻换向过渡段”再做优化
-    - 如果按需求允许 cusp 原地打舵，那么更合适的语义应是
-
-$$
-x_{i+1} = x_i, \quad y_{i+1} = y_i, \quad θ_{i+1} = θ_i, \quad ds_i \approx 0
-$$
-
+    - 如果按需求允许 cusp 原地打舵，那么更合适的语义应是：\(x_{i+1} = x_i, \quad y_{i+1} = y_i, \quad θ_{i+1} = θ_i, \quad ds_i \approx 0\)
     - 同时允许 `κ` 在 cusp 两侧重新配置，而不强迫它连续
 
 - 应该怎么实现：
@@ -413,37 +393,37 @@ $$
 - 数学原理：
     - 平滑项本质上是三点二阶差分
 
-$$
-r_{smooth,i} = w_s \cdot \left(\lambda (p_{i+1} - p_i) - (p_i - p_{i-1})\right)
-$$
+        $$
+        r_{smooth,i} = w_s \cdot \left(\lambda (p_{i+1} - p_i) - (p_i - p_{i-1})\right)
+        $$
 
     - 等长采样时退化为
 
-$$
-r_{smooth,i} = w_s \cdot (p_{i+1} - 2p_i + p_{i-1})
-$$
+        $$
+        r_{smooth,i} = w_s \cdot (p_{i+1} - 2p_i + p_{i-1})
+        $$
 
     - 它可以看成离散曲率的几何代理，因此会间接偏好更小的弯折
     - 真正的曲率上限项仍然是通过三点外接圆估计曲率
 
-$$
-κ_i ≈ 1 / R_i
-$$
+        $$
+        κ_i ≈ 1 / R_i
+        $$
 
     - 再使用 hinge penalty
 
-$$
-r_{curv,limit} = w_c \cdot \max(0, κ_i - κ_{max})
-$$
+        $$
+        r_{curv,limit} = w_c \cdot \max(0, κ_i - κ_{max})
+        $$
 
     - 所以当前实现是“二阶差分代理 regularization + 曲率上限 hinge penalty”
     - 它不是显式的 $κ$ 能量，但也不只是“超限才罚”
 - 应该怎么实现：
     - 真正的曲率能量应直接惩罚曲率大小，例如
 
-$$
-r_{curv,energy} = w_k \cdot κ_i
-$$
+        $$
+        r_{curv,energy} = w_k \cdot κ_i
+        $$
 
     - 或者对多个点的离散曲率平方求和
     - 最好和当前最大曲率上限同时保留：一个负责 regularization，一个负责 safety
@@ -461,31 +441,31 @@ $$
 - 数学原理：
     - 当前曲率能量项近似为
 
-$$
-r_{curv,i} = w_κ \cdot (κ_i + κ_{i+1}) / 2
-$$
+        $$
+        r_{curv,i} = w_κ \cdot (κ_i + κ_{i+1}) / 2
+        $$
 
     - 由于 Ceres 会对残差平方求和，真正进入目标函数的是
 
-$$
-J_{curv,i} \propto w_κ^2 \cdot \left(\frac{κ_i + κ_{i+1}}{2}\right)^2
-$$
+        $$
+        J_{curv,i} \propto w_κ^2 \cdot \left(\frac{κ_i + κ_{i+1}}{2}\right)^2
+        $$
 
     - 它可以看成对段中心曲率平方的离散近似
     - 但当前没有乘上 $ds_i$ 弧长权重，所以更准确地说是“等步长假设下的曲率正则”
     - `κ` 的上下界不是通过残差项实现，而是通过参数边界实现
 
-$$
--κ_{max} \le κ_i \le κ_{max}
-$$
+        $$
+        -κ_{max} \le κ_i \le κ_{max}
+        $$
 
 - 应该怎么实现：
     - 当前工程上合理
     - 如果以后想更贴近 $\int κ^2 ds$，可把残差改成
 
-$$
-r_{curv,i} = w_κ \cdot \sqrt{ds_i} \cdot (κ_i + κ_{i+1}) / 2
-$$
+        $$
+        r_{curv,i} = w_κ \cdot \sqrt{ds_i} \cdot (κ_i + κ_{i+1}) / 2
+        $$
 
     - 如果以后需要更强的起终点曲率控制，可以把曲率正则和端点曲率边界一起考虑
 - 问题和限制：
@@ -507,15 +487,15 @@ $$
 - 数学原理：
     - 当前起作用的仍然是二阶差分平滑项
 
-$$
-r_{smooth,i} = w_s \cdot \left(\lambda (p_{i+1} - p_i) - (p_i - p_{i-1})\right)
-$$
+        $$
+        r_{smooth,i} = w_s \cdot \left(\lambda (p_{i+1} - p_i) - (p_i - p_{i-1})\right)
+        $$
 
     - 等长采样时就是
 
-$$
-r_{smooth,i} = w_s \cdot (p_{i+1} - 2p_i + p_{i-1})
-$$
+        $$
+        r_{smooth,i} = w_s \cdot (p_{i+1} - 2p_i + p_{i-1})
+        $$
 
     - 它更像离散曲率或局部弯折的代理，而不是显式曲率导数
 - 应该怎么实现：
@@ -534,21 +514,21 @@ $$
 - 数学原理：
     - 当前残差近似是
 
-$$
-r_{dκ,i} = w_{dκ} \cdot (κ_{i+1} - κ_i) / \sqrt{\max(ds_i, ε)}
-$$
+        $$
+        r_{dκ,i} = w_{dκ} \cdot (κ_{i+1} - κ_i) / \sqrt{\max(ds_i, ε)}
+        $$
 
     - 这个残差本身不是 $dκ/ds$，但经过 Ceres 平方后，目标函数对应
 
-$$
-J_{dκ,i} \propto w_{dκ}^2 \cdot \frac{(κ_{i+1} - κ_i)^2}{\max(ds_i, ε)}
-$$
+        $$
+        J_{dκ,i} \propto w_{dκ}^2 \cdot \frac{(κ_{i+1} - κ_i)^2}{\max(ds_i, ε)}
+        $$
 
     - 这正对应离散化后的曲率变化率能量
 
-$$
-\int \left(\frac{dκ}{ds}\right)^2 ds
-$$
+        $$
+        \int \left(\frac{dκ}{ds}\right)^2 ds
+        $$
 
     - 因而这里除以 $\sqrt{ds_i}$ 不是随意近似，而是为了让“平方后的代价”得到正确的弧长尺度
 - 应该怎么实现：
@@ -586,15 +566,15 @@ $$
     - 直接对 `κ_i` 施加参数边界
 - 数学原理：
 
-$$
--κ_{max} \le κ_i \le κ_{max}
-$$
+    $$
+    -κ_{max} \le κ_i \le κ_{max}
+    $$
 
     - 这等价于
 
-$$
-R_i \ge 1 / κ_{max}
-$$
+        $$
+        R_i \ge 1 / κ_{max}
+        $$
 
     - 这是比几何版更硬的实现方式
 - 应该怎么实现：
@@ -632,87 +612,87 @@ $$
 - 数学原理：
     - 如果已经有速度与时间，并采用无侧偏的自行车模型近似，则重心处常见运动学量是
 
-$$
-ω = \dot ψ = v κ
-$$
+        $$
+        ω = \dot ψ = v κ
+        $$
 
-$$
-α = \ddot ψ = \frac{d}{dt}(vκ) = \dot v \, κ + v \, \dot κ
-$$
+        $$
+        α = \ddot ψ = \frac{d}{dt}(vκ) = \dot v \, κ + v \, \dot κ
+        $$
 
-$$
-a_{C} = \begin{bmatrix} a_{lon,C} \\ a_{lat,C} \end{bmatrix}
-= \begin{bmatrix} \dot v \\ v^2 κ \end{bmatrix}
-$$
+        $$
+        a_{C} = \begin{bmatrix} a_{lon,C} \\ a_{lat,C} \end{bmatrix}
+        = \begin{bmatrix} \dot v \\ v^2 κ \end{bmatrix}
+        $$
 
     - 这里下标 $C$ 表示重心
     - 现在设要约束的不是重心，而是车身坐标系中一个固定偏置点 $P$
 
-$$
-\mathbf{r}_{CP} = \begin{bmatrix} x_p \\ y_p \end{bmatrix}
-$$
+        $$
+        \mathbf{r}_{CP} = \begin{bmatrix} x_p \\ y_p \end{bmatrix}
+        $$
 
     - 对平面刚体，点 $P$ 的加速度满足
 
-$$
-\mathbf{a}_{P} = \mathbf{a}_{C} + α \times \mathbf{r}_{CP} + ω \times (ω \times \mathbf{r}_{CP})
-$$
+        $$
+        \mathbf{a}_{P} = \mathbf{a}_{C} + α \times \mathbf{r}_{CP} + ω \times (ω \times \mathbf{r}_{CP})
+        $$
 
     - 在车体系 $(x$ 前向，$y$ 左向$)$ 中展开后，有
 
-$$
- a_{lon,P} = \dot v - α y_p - ω^2 x_p
-$$
+        $$
+         a_{lon,P} = \dot v - α y_p - ω^2 x_p
+        $$
 
-$$
- a_{lat,P} = v^2 κ + α x_p - ω^2 y_p
-$$
+        $$
+         a_{lat,P} = v^2 κ + α x_p - ω^2 y_p
+        $$
 
     - 再代入 $ω = vκ$ 与 $α = \dot v \, κ + v \, \dot κ$，可写成
 
-$$
- a_{lon,P} = \dot v - (\dot v \, κ + v \, \dot κ) y_p - (vκ)^2 x_p
-$$
+        $$
+         a_{lon,P} = \dot v - (\dot v \, κ + v \, \dot κ) y_p - (vκ)^2 x_p
+        $$
 
-$$
- a_{lat,P} = v^2 κ + (\dot v \, κ + v \, \dot κ) x_p - (vκ)^2 y_p
-$$
+        $$
+         a_{lat,P} = v^2 κ + (\dot v \, κ + v \, \dot κ) x_p - (vκ)^2 y_p
+        $$
 
     - 如果更喜欢空间域写法，利用 $\dot κ = v \, dκ/ds$，也可写成
 
-$$
- α = \dot v \, κ + v^2 \frac{dκ}{ds}
-$$
+        $$
+         α = \dot v \, κ + v^2 \frac{dκ}{ds}
+        $$
 
     - 于是“偏置点摩擦椭圆”应直接对点 $P$ 的加速度施加二次约束
 
-$$
-\left(a_{lon,P} / a_{lon,max}\right)^2 + \left(a_{lat,P} / a_{lat,max}\right)^2 \le 1
-$$
+        $$
+        \left(a_{lon,P} / a_{lon,max}\right)^2 + \left(a_{lat,P} / a_{lat,max}\right)^2 \le 1
+        $$
 
     - 当 $a_{lon,max} \ne a_{lat,max}$ 时，这是标准摩擦椭圆
     - 当 $a_{lon,max} = a_{lat,max} = a_{total}$ 时，它退化为摩擦圆
 
-$$
-a_{lon,P}^2 + a_{lat,P}^2 \le a_{total}^2
-$$
+        $$
+        a_{lon,P}^2 + a_{lat,P}^2 \le a_{total}^2
+        $$
 
     - 代入上面的展开式，可得
 
-$$
-\left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
-\left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 \le 1
-$$
+        $$
+        \left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
+        \left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 \le 1
+        $$
 
     - 如果写成软惩罚，可写成
 
-$$
-r_{fric} = w_f \cdot \max\left(
-0,
-\left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
-\left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 - 1
-\right)
-$$
+        $$
+        r_{fric} = w_f \cdot \max\left(
+        0,
+        \left(\frac{\dot v - α y_p - ω^2 x_p}{a_{lon,max}}\right)^2 +
+        \left(\frac{v^2 κ + α x_p - ω^2 y_p}{a_{lat,max}}\right)^2 - 1
+        \right)
+        $$
 
     - 这里的“偏置”不是常量平移偏置
     - 它本质上是刚体上偏置点相对重心多出来的切向项 $α \times r$ 和向心项 $ω \times (ω \times r)$
@@ -784,16 +764,16 @@ $$
     - 几何版没有时间变量，也没有速度变量
     - 因此无法写出
 
-$$
-v_{i+1} = v_i + a_i Δt_i
-$$
+        $$
+        v_{i+1} = v_i + a_i Δt_i
+        $$
 
     - 也无法写出 jerk 约束
 - 应该怎么实现：
     - 不建议在几何版里做完整速度约束
     - 更好的分层是：
-    - 先用几何版求空间路径
-    - 再单独做速度规划或时间参数化
+        - 先用几何版求空间路径
+        - 再单独做速度规划或时间参数化
 - 问题和限制：
     - 如果硬把速度问题塞进几何版，会把一个简单空间平滑器改成四不像
 
@@ -810,33 +790,33 @@ $$
 - 应该怎么实现：
     - 如果要升级成接近 MPC 的形式，推荐引入
 
-$$
-s_i = (x_i, y_i, θ_i, κ_i, v_i, a_i, Δt_i)
-$$
+        $$
+        s_i = (x_i, y_i, θ_i, κ_i, v_i, a_i, Δt_i)
+        $$
 
     - 再加
 
-$$
-v_{i+1} = v_i + a_i Δt_i
-$$
+        $$
+        v_{i+1} = v_i + a_i Δt_i
+        $$
 
-$$
-a_{i+1} = a_i + j_i Δt_i
-$$
+        $$
+        a_{i+1} = a_i + j_i Δt_i
+        $$
 
     - 约束项可以写成
 
-$$
-r_v = w_v \cdot \max(0, |v_i| - v_{max})
-$$
+        $$
+        r_v = w_v \cdot \max(0, |v_i| - v_{max})
+        $$
 
-$$
-r_a = w_a \cdot \max(0, |a_i| - a_{max})
-$$
+        $$
+        r_a = w_a \cdot \max(0, |a_i| - a_{max})
+        $$
 
-$$
-r_j = w_j · (a_{i+1} - a_i)
-$$
+        $$
+        r_j = w_j · (a_{i+1} - a_i)
+        $$
 
     - 倒车速度也可单独设上下界
 - 问题和限制：
