@@ -129,7 +129,7 @@
 5. `include/constrained_smoother/smoother_validator.hpp`
    - 最后确认哪些条件只是优化目标，哪些条件会在求解后被硬性拒绝。
 
-如果你接下来要改失败处理或对外错误语义，再补读 [ERROR_CODES.md](../ERROR_CODES.md) 和 [README.md](../README.md) 里的“失败传播路径”小节。
+如果你接下来要改失败处理或对外错误语义，再补读 [Error Codes](error-codes.md) 和 [Package Guide](package-guide.md) 里的“失败传播路径”小节。
 
 ## 为什么求解器只优化二维位置
 

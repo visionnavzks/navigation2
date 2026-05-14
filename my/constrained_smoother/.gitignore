@@ -2,6 +2,7 @@
 build/
 build-py*/
 .venv/
+site/
 *.so
 *.pyd
 __pycache__/

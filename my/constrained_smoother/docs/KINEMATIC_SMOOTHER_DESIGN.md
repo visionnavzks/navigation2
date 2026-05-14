@@ -224,7 +224,7 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
 5. `include/constrained_smoother/smoother_validator.hpp`
    - 最后确认哪些运动学约束只是优化偏好，哪些会在求解后被硬性拒绝。
 
-如果你接下来要改失败处理或对外错误语义，再补读 [ERROR_CODES.md](../ERROR_CODES.md) 和 [README.md](../README.md) 里的“失败传播路径”小节。
+如果你接下来要改失败处理或对外错误语义，再补读 [Error Codes](error-codes.md) 和 [Package Guide](package-guide.md) 里的“失败传播路径”小节。
 
 ## 常见误读
 

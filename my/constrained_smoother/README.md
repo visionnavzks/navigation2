@@ -210,6 +210,28 @@ This produces `py_constrained_smoother.*.so` in `build/`.
 The script creates a local uv-managed virtual environment, installs the Python dependencies needed by the Web Lab, rebuilds and installs the pybind11 module, and then starts the Flask app on port 5002.
 It disables Flask's code reloader by default so the freshly rebuilt Python extension is not hot-reloaded while the shared object is still being replaced.
 
+## Docs
+
+The design notes under `docs/` can now be served as a local Material for MkDocs site from this package directory.
+
+### Preview locally
+
+```bash
+./run_docs.sh
+```
+
+The script launches the local MkDocs Material preview on `127.0.0.1:8000` by default.
+If that port is already busy, it automatically picks the next free port.
+Override `CS_DOCS_HOST` or `CS_DOCS_PORT` if you want a different bind address.
+
+### Build static docs
+
+```bash
+uvx --with mkdocs-material mkdocs build -f mkdocs.yml
+```
+
+The generated site is written to `site/`.
+
 ## Run Tests
 
 ```bash
