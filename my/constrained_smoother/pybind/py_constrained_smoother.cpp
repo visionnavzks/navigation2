@@ -196,7 +196,11 @@ py::dict make_error_result(
     failure.failed_index >= 0 ||
     std::isfinite(failure.actual_curvature) ||
     std::isfinite(failure.max_curvature) ||
-    std::isfinite(failure.turning_radius))
+    std::isfinite(failure.turning_radius) ||
+    std::isfinite(failure.goal_longitudinal_error) ||
+    std::isfinite(failure.goal_lateral_error) ||
+    std::isfinite(failure.goal_longitudinal_tolerance) ||
+    std::isfinite(failure.goal_lateral_tolerance))
   {
     py::dict details;
     if (failure.failed_index >= 0) {
@@ -213,6 +217,18 @@ py::dict make_error_result(
     }
     if (std::isfinite(failure.actual_curvature) && std::isfinite(failure.max_curvature)) {
       details["curvature_excess"] = py::float_(failure.actual_curvature - failure.max_curvature);
+    }
+    if (std::isfinite(failure.goal_longitudinal_error)) {
+      details["goal_longitudinal_error"] = py::float_(failure.goal_longitudinal_error);
+    }
+    if (std::isfinite(failure.goal_lateral_error)) {
+      details["goal_lateral_error"] = py::float_(failure.goal_lateral_error);
+    }
+    if (std::isfinite(failure.goal_longitudinal_tolerance)) {
+      details["goal_longitudinal_tolerance"] = py::float_(failure.goal_longitudinal_tolerance);
+    }
+    if (std::isfinite(failure.goal_lateral_tolerance)) {
+      details["goal_lateral_tolerance"] = py::float_(failure.goal_lateral_tolerance);
     }
     result["error_details"] = details;
   } else {

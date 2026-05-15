@@ -209,6 +209,22 @@ private:
     return stream.str();
   }
 
+  static std::string describeGoalPositionViolation(
+    const std::string & prefix,
+    double goal_lon,
+    double goal_lat,
+    double goal_lon_tol,
+    double goal_lat_tol)
+  {
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(4)
+           << prefix
+           << ": lon error " << goal_lon << " m"
+           << " (tol " << goal_lon_tol << " m), lat error " << goal_lat << " m"
+           << " (tol " << goal_lat_tol << " m)";
+    return stream.str();
+  }
+
   static double displacementTolerance(const Costmap2D * costmap)
   {
     return costmap != nullptr ? std::max(costmap->getResolution() * 0.25, 1e-4) : 1e-4;
@@ -327,10 +343,31 @@ private:
     const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
     const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
     if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
+      const bool uses_goal_box =
+        request.params.goal_longitudinal_tolerance > 1e-9 ||
+        request.params.goal_lateral_tolerance > 1e-9;
+      const std::string message = describeGoalPositionViolation(
+        uses_goal_box ?
+        "Constrained smoother violated the goal position tolerance box" :
+        "Constrained smoother violated the fixed goal position constraint",
+        goal_lon,
+        goal_lat,
+        goal_lon_tol,
+        goal_lat_tol);
+      if (failure != nullptr) {
+        failure->reason = SmoothingFailureReason::GoalPositionConstraint;
+        failure->message = message;
+        failure->failed_index = static_cast<int>(request.path.size() - 1);
+        failure->goal_longitudinal_error = goal_lon;
+        failure->goal_lateral_error = goal_lat;
+        failure->goal_longitudinal_tolerance = goal_lon_tol;
+        failure->goal_lateral_tolerance = goal_lat_tol;
+        return false;
+      }
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::GoalPositionConstraint,
-        "Constrained smoother violated the fixed goal position constraint",
+        message,
         static_cast<int>(request.path.size() - 1));
     }
     if (request.params.keep_goal_orientation) {
@@ -543,10 +580,31 @@ private:
     const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
     const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
     if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
+      const bool uses_goal_box =
+        request.params.goal_longitudinal_tolerance > 1e-9 ||
+        request.params.goal_lateral_tolerance > 1e-9;
+      const std::string message = describeGoalPositionViolation(
+        uses_goal_box ?
+        "Kinematic smoother violated the goal position tolerance box" :
+        "Kinematic smoother violated the fixed goal position constraint",
+        goal_lon,
+        goal_lat,
+        goal_lon_tol,
+        goal_lat_tol);
+      if (failure != nullptr) {
+        failure->reason = SmoothingFailureReason::GoalPositionConstraint;
+        failure->message = message;
+        failure->failed_index = static_cast<int>(request.state_count - 1);
+        failure->goal_longitudinal_error = goal_lon;
+        failure->goal_lateral_error = goal_lat;
+        failure->goal_longitudinal_tolerance = goal_lon_tol;
+        failure->goal_lateral_tolerance = goal_lat_tol;
+        return false;
+      }
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::GoalPositionConstraint,
-        "Kinematic smoother violated the fixed goal position constraint",
+        message,
         static_cast<int>(request.state_count - 1));
     }
     if (request.params.keep_goal_orientation &&

@@ -131,6 +131,10 @@ struct SmoothingFailureInfo
   double actual_curvature{std::numeric_limits<double>::quiet_NaN()};
   double max_curvature{std::numeric_limits<double>::quiet_NaN()};
   double turning_radius{std::numeric_limits<double>::quiet_NaN()};
+  double goal_longitudinal_error{std::numeric_limits<double>::quiet_NaN()};
+  double goal_lateral_error{std::numeric_limits<double>::quiet_NaN()};
+  double goal_longitudinal_tolerance{std::numeric_limits<double>::quiet_NaN()};
+  double goal_lateral_tolerance{std::numeric_limits<double>::quiet_NaN()};
 
   std::string formattedMessage() const
   {

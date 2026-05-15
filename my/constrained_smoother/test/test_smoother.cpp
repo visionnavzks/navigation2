@@ -1460,6 +1460,11 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceRejectsOutsideGoalBand
       },
       &failure));
   EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalPositionConstraint);
+  EXPECT_NE(failure.message.find("goal position tolerance box"), std::string::npos);
+  EXPECT_NEAR(failure.goal_longitudinal_error, 0.25, 1e-9);
+  EXPECT_NEAR(failure.goal_lateral_error, -0.05, 1e-9);
+  EXPECT_NEAR(failure.goal_longitudinal_tolerance, 0.2, 1e-9);
+  EXPECT_NEAR(failure.goal_lateral_tolerance, 0.1, 1e-9);
 }
 
 TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)
