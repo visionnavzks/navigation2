@@ -246,7 +246,7 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
     - 软残差、显式边界和后验拒绝各自承担不同职责，不建议混写。
 - 把 cusp 段当成普通运动段处理。
     - cusp 段的 `gear == 0`，语义是停驻过渡，不是普通短段。
-- 修改 Python 原型或 pybind 返回格式时，不同步 README / `ERROR_CODES.md` 的结构化错误约定。
+- 修改 Python 原型或 pybind 返回格式时，不同步 README / [Error Codes](error-codes.md) 的结构化错误约定。
     - 这类漂移最容易让 web 和 notebook 调用层出现“能跑但语义对不上”的问题。
 
 ## 建议结合阅读的文件

@@ -30,6 +30,12 @@
 
   理解运动学版 smoother 的状态展开、问题构建和边界约束。
 
+- [原理详解](PRINCIPLES_zh.md)
+
+  ---
+
+  从残差项、cusp 语义、ESDF 避障到 Bezier 恢复，串起来理解几何版 smoother 的整体工作方式。
+
 - [MPC Cost Notes](mpc_cost.md)
 
   ---
@@ -48,8 +54,9 @@
 
 1. 如果你是第一次接触这个独立版包，先看 [Package Guide](package-guide.md) 和 [Geometric Smoother I/O](SMOOTHER_INPUT_OUTPUT.md)。
 2. 如果你准备修改几何版实现，再看 [Geometric Smoother Design](SMOOTHER_DESIGN.md)。
-3. 如果你准备修改运动学版实现，再看 [Kinematic Smoother Design](KINEMATIC_SMOOTHER_DESIGN.md)。
-4. 如果你在对齐约束表达或规划后续 MPC 能力，再看 [MPC Cost Notes](mpc_cost.md)。
+3. 如果你想先把几何版 smoother 的建模思路整体串起来，再看 [原理详解](PRINCIPLES_zh.md)。
+4. 如果你准备修改运动学版实现，再看 [Kinematic Smoother Design](KINEMATIC_SMOOTHER_DESIGN.md)。
+5. 如果你在对齐约束表达或规划后续 MPC 能力，再看 [MPC Cost Notes](mpc_cost.md)。
 
 ## 本地预览
 

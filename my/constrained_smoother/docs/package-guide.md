@@ -19,6 +19,7 @@
 
 - [Geometric Smoother I/O](SMOOTHER_INPUT_OUTPUT.md)
 - [Geometric Smoother Design](SMOOTHER_DESIGN.md)
+- [原理详解](PRINCIPLES_zh.md)
 - [Kinematic Smoother Design](KINEMATIC_SMOOTHER_DESIGN.md)
 - [MPC Cost Notes](mpc_cost.md)
 - [Error Codes](error-codes.md)

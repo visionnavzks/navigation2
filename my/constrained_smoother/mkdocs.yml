@@ -49,6 +49,7 @@ nav:
       - Geometric Smoother I/O: SMOOTHER_INPUT_OUTPUT.md
   - Design:
       - Geometric Smoother: SMOOTHER_DESIGN.md
+      - 原理详解: PRINCIPLES_zh.md
       - Kinematic Smoother: KINEMATIC_SMOOTHER_DESIGN.md
       - MPC Cost Notes: mpc_cost.md
   - Reference:

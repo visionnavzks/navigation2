@@ -4,6 +4,9 @@ This page is the site-local reference catalog for the standalone constrained smo
 
 For the high-level C++ failure flow, also see the “失败传播路径” section in [Package Guide](package-guide.md).
 
+- Package Guide explains when failures are thrown immediately vs stored in `SmoothingFailureInfo`.
+- This page explains what the stable `code` and `reason` values mean once a failure is surfaced.
+
 ## Design Rules
 
 - Codes are stable identifiers; callers should branch on `code`, not on free-form `message` text.
@@ -21,12 +24,16 @@ For the high-level C++ failure flow, also see the “失败传播路径” secti
 
 ## Error Surface Mapping
 
+This table is the quickest way to understand how one backend failure shows up at different public layers.
+
 | Situation | C++ surface | pybind `try_*` surface | web surface |
 | --- | --- | --- | --- |
 | Invalid path / costmap / ESDF dimensions | Throws `InvalidPath`, `InvalidCostmap`, or `PrecomputedEsdfSizeMismatch` immediately | Returns `ok=false` with the corresponding stable `error_code` | Reported as request or smoother setup failure depending on endpoint |
 | Solver unusable / no cost improvement | `throwOrStoreSmoothingFailure(...)` -> `FailedToSmoothPath` or `failure` payload | Returns `ok=false`, `error_code=CS_SMOOTHING_FAILED`, plus `error_reason` / `error_details` | Usually appears under `smooth_error` with reason/details |
 | Post-validation boundary / collision / curvature rejection | Same `throwOrStoreSmoothingFailure(...)` path as solver failure | Same `CS_SMOOTHING_FAILED` surface, differentiated by `error_reason` | `smooth_error` and rectangle-validation fields may both expose the rejection |
 | Web-only request validation failure | Not applicable | Not applicable | Endpoint returns `CS_INVALID_REQUEST` or another web-specific code |
+
+Use the Package Guide failure-flow section to understand when errors are thrown vs stored, and use the tables below to interpret the stable `code` / `reason` values once the failure reaches you.
 
 ## Web API Codes
 
@@ -40,6 +47,8 @@ For the high-level C++ failure flow, also see the “失败传播路径” secti
 | `CS_INTERNAL_ERROR` | Any web endpoint | Unexpected server-side error. | Unhandled Python exception or runtime fault. | Inspect logs and server state before retrying. |
 
 ## `CS_SMOOTHING_FAILED` Reasons
+
+The code stays stable as `CS_SMOOTHING_FAILED`, but the backend also reports a stable reason string.
 
 | Reason | Typical Trigger |
 | --- | --- |
@@ -61,6 +70,8 @@ For the high-level C++ failure flow, also see the “失败传播路径” secti
 When available, `error_details.failed_index` identifies the state or segment index that failed.
 
 ## Pure Python SciPy Helper Codes
+
+These codes come from `include/constrained_smoother/kinematic_smoother.py`.
 
 | Code | API | Meaning | Typical Trigger | Recommended Handling |
 | --- | --- | --- | --- | --- |

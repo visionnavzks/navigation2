@@ -141,6 +141,15 @@ private:
         this->request().costmap,
         this->request().params,
         "Constrained smoother");
+      if (
+        this->request().path.size() == 3 &&
+        this->request().params.keep_start_orientation &&
+        this->request().params.keep_goal_orientation)
+      {
+        throw InvalidPath(
+                "Constrained smoother: 3-point paths cannot keep both start and goal "
+                "orientation anchors simultaneously");
+      }
       reference_path_ = this->request().path;
       path_ops_ = std::make_unique<SmootherPathOps>(
         this->request().start_dir, this->request().end_dir, this->request().params);
