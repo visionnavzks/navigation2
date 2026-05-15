@@ -272,16 +272,16 @@ $$
 
 #### 4. 障碍物净空项
 
-令 ESDF 在世界坐标点 $q$ 处的有符号距离为 $d_{esdf}(q)$，安全净空阈值为
+令 ESDF 在世界坐标点 $q$ 处的有符号距离为 $d_{esdf}(q)$，并将配置项 `obstacle_safe_distance` 记为 $d_{cfg}$，则安全净空阈值为
 
 $$
-d_{safe} = \max(\texttt{obstacle\_safe\_distance}, 10^{-6}),
+d_{safe} = \max(d_{cfg}, 10^{-6}),
 $$
 
-若使用圆形简化足迹，则实现先扣除足迹半径
+若使用圆形简化足迹，并将配置项 `cost_check_radius` 记为 $r_{check}$，则实现先扣除足迹半径
 
 $$
-d_{surf}(q) = d_{esdf}(q) - \max(\texttt{cost\_check\_radius}, 0).
+d_{surf}(q) = d_{esdf}(q) - \max(r_{check}, 0).
 $$
 
 然后定义内部惩罚函数
@@ -370,15 +370,9 @@ $$
 \delta_{lat} = t_{g,\perp}^\top \delta_g.
 $$
 
-若配置容差
+若将配置项 `goal_longitudinal_tolerance` 和 `goal_lateral_tolerance` 分别记为 $b_{lon}$ 与 $b_{lat}$，则
 
-$$
-b_{lon} = \texttt{goal\_longitudinal\_tolerance},
-\qquad
-b_{lat} = \texttt{goal\_lateral\_tolerance},
-$$
-
-则当前实现添加的二维残差是
+当前实现添加的二维残差是
 
 $$
 r^{goal} = \begin{bmatrix}
