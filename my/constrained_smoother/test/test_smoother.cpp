@@ -1009,6 +1009,49 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
 }
 
+TEST(KinematicSmootherTest, SmoothCuspPath)
+{
+  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
+
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {2.5, 2.0, 1.0},
+    {4.5, 2.0, 1.0},
+    {6.0, 2.0, -1.0},
+    {3.5, 2.0, -1.0},
+    {1.5, 2.0, -1.0},
+  };
+  const auto input_size = path.size();
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(20.0);
+  params.model_weight_sqrt = std::sqrt(20.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = std::sqrt(0.0);
+  params.curvature_weight_sqrt = std::sqrt(30.0);
+  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
+  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.max_curvature = 1.0 / 0.4;
+  params.max_time = 1.0;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 40;
+
+  constrained_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  const Eigen::Vector2d start_dir(1.0, 0.0);
+  const Eigen::Vector2d end_dir(1.0, 0.0);
+
+  EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, &costmap, params));
+  EXPECT_GE(path.size(), 2u);
+  EXPECT_GT(smoother.getLastOptimizedKnotCount(), input_size);
+}
+
 TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
 {
   std::vector<Eigen::Vector3d> path = {

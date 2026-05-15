@@ -26,20 +26,8 @@
         </div>
       </div>
       <div class="topbar-summary">
-        <div class="summary-card">
-          <span class="summary-label" data-i18n="hero.summary.mapLabel">Map</span>
-          <strong id="hero-map-size">--</strong>
-          <span class="summary-copy" data-i18n="hero.summary.mapCopy">synthetic obstacle field</span>
-        </div>
-        <div class="summary-card">
-          <span class="summary-label" data-i18n="hero.summary.resolutionLabel">Resolution</span>
-          <strong id="hero-resolution">--</strong>
-          <span class="summary-copy" data-i18n="hero.summary.resolutionCopy">meters per cell</span>
-        </div>
-        <div class="summary-card summary-card--wide">
-          <span class="summary-label" data-i18n="hero.summary.interactionLabel">Interaction</span>
-          <strong id="phase-indicator">Markers ready</strong>
-          <span id="hero-status" class="summary-copy">Left-drag endpoints or obstacle blocks to edit the scene, left-drag empty space to pan, and double-click to restore the full view.</span>
+        <div class="summary-card summary-card--wide summary-card--status">
+          <span id="hero-status" class="summary-status">Left-drag endpoints or obstacle blocks to edit the scene, left-drag empty space to pan, and double-click to restore the full view.</span>
         </div>
       </div>
     </header>
@@ -131,6 +119,15 @@
                   <input type="checkbox" id="keep_goal_orientation" checked>
                   <span data-i18n="session.enableGoalConstraint">Enable goal orientation constraint</span>
                 </label>
+              </div>
+
+              <div class="param-group param-group--stacked">
+                <label for="scene-preset" data-i18n="session.scenePresetLabel">Scene Preset</label>
+                <select id="scene-preset">
+                  <option value="default" selected data-i18n="session.scenePresetDefault">Default Planner Scene</option>
+                  <option value="cusp_reverse" data-i18n="session.scenePresetCusp">Cusp Reverse Demo</option>
+                </select>
+                <p class="param-hint" data-i18n="session.scenePresetHint">Load a predefined scene setup. The cusp demo bypasses A* with a signed reference chain so the smoother can exercise a true direction switch.</p>
               </div>
 
               <div class="param-group">

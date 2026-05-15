@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const optimizerTypeSelect = document.getElementById('optimizer_type');
   const linearSolverTypeSelect = document.getElementById('linear_solver_type');
   const languageSwitch = document.getElementById('language-switch');
+  const scenePresetSelect = document.getElementById('scene-preset');
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
@@ -55,6 +56,10 @@ document.addEventListener('DOMContentLoaded', () => {
     'session.goalConstraint': '终点约束',
     'session.enableStartConstraint': '启用起点朝向约束',
     'session.enableGoalConstraint': '启用终点朝向约束',
+    'session.scenePresetLabel': '场景预置',
+    'session.scenePresetDefault': '默认规划场景',
+    'session.scenePresetCusp': 'Cusp 倒车演示',
+    'session.scenePresetHint': '加载预定义场景。cusp 演示会绕过 A*，直接发送一条带方向符号的参考链给 smoother，从而真正触发方向切换。',
     'session.startHeadingLabel': '起点朝向: <span id="val_start_yaw_deg">45 deg</span>',
     'session.startHeadingHint': '设置平滑时起点位姿使用的世界坐标系朝向约束。',
     'session.goalHeadingLabel': '终点朝向: <span id="val_goal_yaw_deg">45 deg</span>',
@@ -262,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.obstacleRebuilding': 'Obstacle moved. Rebuilding costmap…',
       'status.obstacleUpdateFailed': 'Failed to update obstacles.',
       'status.obstacleUpdateError': 'Failed to update obstacles: {message}',
+        'status.scenePresetLoaded': 'Loaded preset: {preset}.',
       'status.markerMoved': '{marker} moved. Replanning…',
       'status.viewReset': 'View reset to the full map extent.',
       'status.sceneReset': 'Scene reset to the default layout. Rebuilding costmap…',
@@ -646,6 +652,39 @@ document.addEventListener('DOMContentLoaded', () => {
     start: 45,
     goal: 45,
   };
+  const DEFAULT_SCENE_PRESET = 'default';
+  const SCENE_PRESETS = {
+    default: {
+      start: {x: DEFAULT_ENDPOINTS.start.x, y: DEFAULT_ENDPOINTS.start.y},
+      goal: {x: DEFAULT_ENDPOINTS.goal.x, y: DEFAULT_ENDPOINTS.goal.y},
+      headings: {start: DEFAULT_HEADINGS_DEG.start, goal: DEFAULT_HEADINGS_DEG.goal},
+      optimizerType: 'constrained_smoother',
+      keepStartOrientation: true,
+      keepGoalOrientation: true,
+      manualReferencePath: null,
+    },
+    cusp_reverse: {
+      start: {x: 2.0, y: 2.0},
+      goal: {x: 17.0, y: 17.0},
+      headings: {start: 0, goal: 180},
+      optimizerType: 'kinematic_smoother',
+      keepStartOrientation: true,
+      keepGoalOrientation: true,
+      manualReferencePath: [
+        {x: 2.0, y: 2.0, direction_sign: 1.0},
+        {x: 4.0, y: 2.0, direction_sign: 1.0},
+        {x: 6.5, y: 2.0, direction_sign: 1.0},
+        {x: 9.5, y: 2.0, direction_sign: 1.0},
+        {x: 11.0, y: 2.0, direction_sign: 1.0},
+        {x: 11.0, y: 2.0, direction_sign: -1.0},
+        {x: 11.2, y: 5.0, direction_sign: -1.0},
+        {x: 11.2, y: 10.0, direction_sign: -1.0},
+        {x: 11.2, y: 16.6, direction_sign: -1.0},
+        {x: 14.5, y: 16.8, direction_sign: -1.0},
+        {x: 17.0, y: 17.0, direction_sign: -1.0},
+      ],
+    },
+  };
 
   const state = {
     costmap: null,
@@ -676,6 +715,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dragOffsetY: 0,
     pendingAutoPlanTimer: null,
     currentOptimizerType: optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother',
+    activeScenePreset: DEFAULT_SCENE_PRESET,
+    manualReferencePath: null,
     optimizerProfiles: {
       constrained_smoother: null,
       kinematic_smoother: null,
@@ -1735,27 +1776,73 @@ document.addEventListener('DOMContentLoaded', () => {
     return rects.map(cloneObstacleRect);
   }
 
-  function resetEndpoints() {
-    state.start = clonePoint(DEFAULT_ENDPOINTS.start);
-    state.goal = clonePoint(DEFAULT_ENDPOINTS.goal);
+  function cloneReferencePose(pose) {
+    return {x: pose.x, y: pose.y, direction_sign: pose.direction_sign};
+  }
+
+  function cloneReferencePath(path) {
+    return path ? path.map(cloneReferencePose) : null;
+  }
+
+  function applyScenePreset(presetKey) {
+    const resolvedKey = Object.prototype.hasOwnProperty.call(SCENE_PRESETS, presetKey)
+      ? presetKey
+      : DEFAULT_SCENE_PRESET;
+    const preset = SCENE_PRESETS[resolvedKey];
+
+    state.activeScenePreset = resolvedKey;
+    state.manualReferencePath = cloneReferencePath(preset.manualReferencePath);
+    state.start = clonePoint(preset.start);
+    state.goal = clonePoint(preset.goal);
+
+    if (optimizerTypeSelect && preset.optimizerType && optimizerTypeSelect.value !== preset.optimizerType) {
+      const previousOptimizerType = state.currentOptimizerType;
+      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
+        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
+      }
+      optimizerTypeSelect.value = preset.optimizerType;
+      state.currentOptimizerType = preset.optimizerType;
+      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
+      updateOptimizerUi();
+    }
+
     const startYawInput = document.getElementById('start_yaw_deg');
     const goalYawInput = document.getElementById('goal_yaw_deg');
     if (startYawInput) {
-      startYawInput.value = String(DEFAULT_HEADINGS_DEG.start);
-      document.getElementById('val_start_yaw_deg').textContent = sliderConfig.start_yaw_deg(DEFAULT_HEADINGS_DEG.start);
+      startYawInput.value = String(preset.headings.start);
+      document.getElementById('val_start_yaw_deg').textContent = sliderConfig.start_yaw_deg(preset.headings.start);
     }
     if (goalYawInput) {
-      goalYawInput.value = String(DEFAULT_HEADINGS_DEG.goal);
-      document.getElementById('val_goal_yaw_deg').textContent = sliderConfig.goal_yaw_deg(DEFAULT_HEADINGS_DEG.goal);
+      goalYawInput.value = String(preset.headings.goal);
+      document.getElementById('val_goal_yaw_deg').textContent = sliderConfig.goal_yaw_deg(preset.headings.goal);
     }
+
     const keepStartInput = document.getElementById('keep_start_orientation');
     const keepGoalInput = document.getElementById('keep_goal_orientation');
     if (keepStartInput) {
-      keepStartInput.checked = true;
+      keepStartInput.checked = preset.keepStartOrientation;
     }
     if (keepGoalInput) {
-      keepGoalInput.checked = true;
+      keepGoalInput.checked = preset.keepGoalOrientation;
     }
+    if (scenePresetSelect) {
+      scenePresetSelect.value = resolvedKey;
+    }
+  }
+
+  function clearManualReferencePreset() {
+    if (state.activeScenePreset === DEFAULT_SCENE_PRESET && !state.manualReferencePath) {
+      return;
+    }
+    state.activeScenePreset = DEFAULT_SCENE_PRESET;
+    state.manualReferencePath = null;
+    if (scenePresetSelect) {
+      scenePresetSelect.value = DEFAULT_SCENE_PRESET;
+    }
+  }
+
+  function resetEndpoints() {
+    applyScenePreset(DEFAULT_SCENE_PRESET);
   }
 
   function syncObstaclesFromCostmap(costmap) {
@@ -3501,6 +3588,7 @@ document.addEventListener('DOMContentLoaded', () => {
       drag: t('status.dragPlanning'),
       obstacle: t('status.obstaclePlanning'),
       initial: t('status.initialPlanning'),
+      preset: t('status.manualPlanning'),
     };
     setStatus(statusByReason[reason] || statusByReason.manual, '');
     runBtn.disabled = true;
@@ -3510,6 +3598,7 @@ document.addEventListener('DOMContentLoaded', () => {
       start_y: state.start.y,
       goal_x: state.goal.x,
       goal_y: state.goal.y,
+      manual_reference_path: state.manualReferencePath ? cloneReferencePath(state.manualReferencePath) : null,
       ...getParams(),
     };
 
@@ -3762,6 +3851,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCanvasCursor();
 
     if (didMoveMarker) {
+      clearManualReferencePreset();
       setStatus(
         t('status.markerMoved', {marker: t(draggedMarker === 'start' ? 'marker.start' : 'marker.goal')}),
         ''
@@ -3803,6 +3893,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }, {passive: false});
 
   runBtn.addEventListener('click', () => runPlanning({reason: 'manual'}));
+
+  if (scenePresetSelect) {
+    scenePresetSelect.addEventListener('change', () => {
+      applyScenePreset(scenePresetSelect.value);
+      updateSelectionInfo();
+      draw();
+      setStatus(t('status.scenePresetLoaded', {preset: scenePresetSelect.options[scenePresetSelect.selectedIndex]?.text || ''}), '');
+      runPlanning({reason: 'preset'});
+    });
+  }
 
   clearBtn.addEventListener('click', () => {
     cancelPendingPlanning();

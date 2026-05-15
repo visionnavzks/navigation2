@@ -360,6 +360,90 @@ def _run_astar_stage(
     }
 
 
+def _parse_manual_reference_path(raw_path):
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, list):
+        raise ApiError(
+            ERROR_INVALID_REQUEST,
+            "manual_reference_path must be a list of poses.",
+            status_code=400,
+            source="request",
+        )
+
+    parsed_path = []
+    for index, pose in enumerate(raw_path):
+        if isinstance(pose, dict):
+            x_value = pose.get("x")
+            y_value = pose.get("y")
+            direction_value = pose.get("direction_sign", 1.0)
+        elif isinstance(pose, (list, tuple)) and len(pose) >= 2:
+            x_value = pose[0]
+            y_value = pose[1]
+            direction_value = pose[2] if len(pose) >= 3 else 1.0
+        else:
+            raise ApiError(
+                ERROR_INVALID_REQUEST,
+                f"manual_reference_path[{index}] must contain x/y and optional direction_sign.",
+                status_code=400,
+                source="request",
+            )
+
+        x = float(x_value)
+        y = float(y_value)
+        direction_sign = -1.0 if float(direction_value) < 0.0 else 1.0
+        parsed_path.append((x, y, direction_sign))
+
+    if len(parsed_path) < 2:
+        raise ApiError(
+            ERROR_INVALID_REQUEST,
+            "manual_reference_path must contain at least 2 poses.",
+            status_code=400,
+            source="request",
+        )
+
+    return parsed_path
+
+
+def _run_manual_reference_stage(
+    manual_reference_path,
+    start_yaw_rad,
+    goal_yaw_rad,
+    keep_start_orientation,
+    keep_goal_orientation,
+):
+    raw_path = [(float(point[0]), float(point[1])) for point in manual_reference_path]
+    eigen_path = [
+        [float(point[0]), float(point[1]), -1.0 if float(point[2]) < 0.0 else 1.0]
+        for point in manual_reference_path
+    ]
+    reference_with_yaw = _reconstruct_path_with_yaw(
+        eigen_path,
+        start_yaw=start_yaw_rad,
+        goal_yaw=goal_yaw_rad,
+        keep_start_orientation=keep_start_orientation,
+        keep_goal_orientation=keep_goal_orientation,
+    )
+    stage = _make_pipeline_stage(
+        "planner",
+        "Manual Reference",
+        "ok",
+        f"Manual reference provided {len(eigen_path)} pose(s), including signed direction metadata.",
+        elapsed_ms=0.0,
+        path_key="reference_path",
+        details={"source": "manual_reference_path"},
+    )
+    return {
+        "planner": None,
+        "raw_path": raw_path,
+        "sparse_path": raw_path,
+        "eigen_path": eigen_path,
+        "reference_with_yaw": reference_with_yaw,
+        "astar_time_ms": 0.0,
+        "stage": stage,
+    }
+
+
 def _run_smoother_stage(
     optimizer_type,
     opt_params,
@@ -399,14 +483,23 @@ def _run_smoother_stage(
     returned_path = reference_with_yaw
 
     try:
-        smooth_result = smoother.try_smooth_with_planner_esdf(
-            eigen_path,
-            start_dir,
-            end_dir,
-            planner_costmap,
-            smoother_params,
-            planner,
-        )
+        if planner is None:
+            smooth_result = smoother.try_smooth(
+                eigen_path,
+                start_dir,
+                end_dir,
+                planner_costmap,
+                smoother_params,
+            )
+        else:
+            smooth_result = smoother.try_smooth_with_planner_esdf(
+                eigen_path,
+                start_dir,
+                end_dir,
+                planner_costmap,
+                smoother_params,
+                planner,
+            )
         smooth_time_ms = (time.time() - t0) * 1000.0
         if smooth_result.get("path") is not None:
             candidate_smoothed = smooth_result["path"]
@@ -1349,6 +1442,7 @@ def plan_and_smooth():
     try:
         # ---- Request parsing and frontend knob normalization ----
         req = request.get_json(silent=True) or {}
+        manual_reference_path = _parse_manual_reference_path(req.get("manual_reference_path"))
         start_x = float(req.get("start_x", 1.0))
         start_y = float(req.get("start_y", 1.0))
         goal_x = float(req.get("goal_x", 18.0))
@@ -1424,22 +1518,31 @@ def plan_and_smooth():
         e_dir = [math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)]
 
         # ---- Stage 1: planner builds the reference path and sparse control chain ----
-        planner_stage_result = _run_astar_stage(
-            costmap_grid,
-            esdf_grid,
-            planner_costmap,
-            footprint_model,
-            planner_penalty_weight,
-            start_x,
-            start_y,
-            goal_x,
-            goal_y,
-            reference_spacing_target_m,
-            start_yaw_rad,
-            goal_yaw_rad,
-            keep_start_orientation,
-            keep_goal_orientation,
-        )
+        if manual_reference_path is not None:
+            planner_stage_result = _run_manual_reference_stage(
+                manual_reference_path,
+                start_yaw_rad,
+                goal_yaw_rad,
+                keep_start_orientation,
+                keep_goal_orientation,
+            )
+        else:
+            planner_stage_result = _run_astar_stage(
+                costmap_grid,
+                esdf_grid,
+                planner_costmap,
+                footprint_model,
+                planner_penalty_weight,
+                start_x,
+                start_y,
+                goal_x,
+                goal_y,
+                reference_spacing_target_m,
+                start_yaw_rad,
+                goal_yaw_rad,
+                keep_start_orientation,
+                keep_goal_orientation,
+            )
         planner = planner_stage_result["planner"]
         raw_path = planner_stage_result["raw_path"]
         sparse_path = planner_stage_result["sparse_path"]
