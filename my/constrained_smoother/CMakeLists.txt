@@ -6,6 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)  # significant Ceres optimization speedup
 
 # ---- dependencies ----
+set(_local_eigen3_compat_dir "${CMAKE_CURRENT_SOURCE_DIR}/cmake/eigen3_compat")
+if(
+  (NOT DEFINED Eigen3_DIR OR Eigen3_DIR STREQUAL "" OR Eigen3_DIR MATCHES "-NOTFOUND$") AND
+  EXISTS "${_local_eigen3_compat_dir}/Eigen3Config.cmake")
+  set(Eigen3_DIR "${_local_eigen3_compat_dir}" CACHE PATH "Eigen3 compatibility config" FORCE)
+endif()
+
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
 

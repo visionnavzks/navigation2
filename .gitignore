@@ -74,3 +74,4 @@ Session.vim
 my/constrained_smoother/build-py313
 target
 my/constrained_smoother/Testing/
+my/constrained_smoother/build-tests

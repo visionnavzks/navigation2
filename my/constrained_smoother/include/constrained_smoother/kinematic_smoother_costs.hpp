@@ -427,13 +427,15 @@ public:
    * @param is_cusp_pose    该路径点是否为尖点（前进/倒退切换处）
    * @param costmap         代价地图指针，提供地图元数据（原点、分辨率、尺寸）
    * @param params          平滑器参数（障碍物权重、安全距离、检测点等）
-   * @param esdf_values     预计算的 ESDF 距离值数组（按行优先展平，单位：格）
+   * @param esdf_grid       共享的 ESDF Grid2D 存储，保证插值器引用的底层网格生命周期
+    * @param esdf_interpolator 共享的 ESDF 双三次插值器
    */
   ObstacleCostFunctor(
     bool is_cusp_pose,
     const Costmap2D * costmap,
     const SmootherParams & params,
-    const std::vector<double> & esdf_values)
+    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
+    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator)
   : costmap_origin_(costmap->getOriginX(), costmap->getOriginY()),
     costmap_resolution_(costmap->getResolution()),
     size_x_(costmap->getSizeInCellsX()),
@@ -444,11 +446,8 @@ public:
     cusp_obstacle_weight_(std::max(params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt)),
     is_cusp_pose_(is_cusp_pose),
     cost_check_points_(params.cost_check_points),
-    // 将 ESDF 数据封装为 Ceres Grid2D，支持双线性/双三次插值
-    esdf_grid_(std::make_shared<ceres::Grid2D<double>>(esdf_values.data(), 0, size_y_, 0, size_x_)),
-    // 创建双三次插值器，用于在连续坐标处平滑查询 ESDF 值（支持自动微分）
-    esdf_interpolator_(
-      std::make_shared<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(*esdf_grid_))
+    esdf_grid_(esdf_grid),
+    esdf_interpolator_(esdf_interpolator)
   {
   }
 
@@ -583,7 +582,7 @@ private:
   double cusp_obstacle_weight_;      ///< 尖点处的障碍物惩罚权重（不小于普通权重）
   bool is_cusp_pose_;                ///< 该路径点是否为尖点
   std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
-  std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< ESDF 数据的 Ceres Grid2D 封装
+  std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< 保持插值器底层网格存活
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器
 };
 
