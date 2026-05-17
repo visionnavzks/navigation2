@@ -13,31 +13,27 @@ for path_entry in (REPO_ROOT, CURRENT_DIR):
     if path_entry not in sys.path:
         sys.path.append(path_entry)
 
-from my.teb_local_controller.demo_support import describe_demo_configuration, run_random_demo, solve_demo
-from my.teb_local_controller.teb_mpc import VehicleState
+from my.teb_local_controller_ds.demo_support import describe_demo_configuration, run_random_demo, solve_demo
+from my.teb_local_controller_ds.teb_mpc import SpatialState
 
 
 app = Flask(__name__)
 
 
-def _state_to_dict(state):
+def _state_to_dict(state: SpatialState) -> dict[str, float]:
     return {
         "x": float(state.x),
         "y": float(state.y),
         "theta": float(state.theta),
-        "v": float(state.v),
-        "a": float(state.a),
         "kappa": float(state.kappa),
     }
 
 
-def _dict_to_state(payload):
-    return VehicleState(
+def _dict_to_state(payload: dict[str, float]) -> SpatialState:
+    return SpatialState(
         x=float(payload["x"]),
         y=float(payload["y"]),
         theta=float(payload["theta"]),
-        v=float(payload.get("v", 0.0)),
-        a=float(payload.get("a", 0.0)),
         kappa=float(payload.get("kappa", 0.0)),
     )
 
@@ -70,6 +66,7 @@ def random_demo():
                 reference_config=reference_config,
                 sampling_config=sampling_config,
             )
+
         return jsonify(
             {
                 "success": True,
@@ -83,23 +80,17 @@ def random_demo():
                     "x": reference.x.tolist(),
                     "y": reference.y.tolist(),
                     "theta": reference.theta.tolist(),
-                    "v": reference.v.tolist(),
-                    "a": reference.a.tolist(),
                     "kappa": reference.kappa.tolist(),
                     "s": reference.s.tolist(),
-                    "dt_ref": float(reference.dt_ref),
                 },
                 "solution": {
                     "x": solution["x"].tolist(),
                     "y": solution["y"].tolist(),
                     "theta": solution["theta"].tolist(),
-                    "v": solution["v"].tolist(),
-                    "a": solution["a"].tolist(),
                     "kappa": solution["kappa"].tolist(),
-                    "dt": solution["dt"].tolist(),
-                    "jerk": solution["jerk"].tolist(),
+                    "ds": solution["ds"].tolist(),
                     "dkappa": solution["dkappa"].tolist(),
-                    "time": solution["time"].tolist(),
+                    "s": solution["s"].tolist(),
                     "solve_time_ms": float(solution["solve_time_ms"]),
                     "costs": solution["costs"],
                 },
@@ -111,4 +102,4 @@ def random_demo():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(debug=True, port=5003)

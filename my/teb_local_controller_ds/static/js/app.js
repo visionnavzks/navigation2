@@ -8,14 +8,13 @@ const pathCanvas = document.getElementById('path-canvas');
 const plotlyChart = document.getElementById('plotly-chart');
 const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
-const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
 const pathCtx = pathCanvas.getContext('2d');
 
 const statsEls = {
     solveTime: document.getElementById('solve-time'),
-    totalTime: document.getElementById('total-time'),
-    avgDt: document.getElementById('avg-dt'),
-    dtRange: document.getElementById('dt-range'),
+    totalDistance: document.getElementById('total-distance'),
+    avgDs: document.getElementById('avg-ds'),
+    dsRange: document.getElementById('ds-range'),
     pointCount: document.getElementById('point-count'),
     pathLength: document.getElementById('path-length'),
     terminalError: document.getElementById('terminal-error'),
@@ -28,51 +27,38 @@ const statsEls = {
 };
 
 const PARAM_HELP_TEXTS = {
-    ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，跟踪更细，但优化变量更多、求解更慢。',
-    cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
-    dt_ref: '名义时间步长，单位 s。优化中的 dt 会围绕它变化，w_dt 越大，实际 dt 越不愿意偏离这个值。',
-    line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
-    arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
-    arc_1_angle: '第一段圆弧的转角，输入单位 rad。正值表示逆时针，负值表示顺时针。0.785 rad 大约等于 45 deg。',
-    line_2_length: '第二段直线的长度，单位 m。通常用来调中段过渡的直线长度。',
-    arc_2_radius: '第二段圆弧的半径，单位 m。会影响后半段转弯曲率大小。',
-    arc_2_angle: '第二段圆弧的转角，输入单位 rad。负值表示顺时针回转，-0.524 rad 约等于 -30 deg。',
-    line_3_length: '最后一段直线的长度，单位 m。决定终点前的收尾距离。',
-    x_offset_range: '随机初始状态在 x 方向相对参考起点的采样范围，单位 m。实际采样区间是 [-range, +range]。',
-    y_offset_range: '随机初始状态在 y 方向相对参考起点的采样范围，单位 m。值越大，初始横向偏差越大。',
-    theta_offset_range: '随机初始航向相对参考起点的采样范围，输入单位 rad。实际采样区间是 [-range, +range]，0.7 rad 约等于 40 deg。',
-    speed_min: '随机初始速度的最小值，单位 m/s。用于生成新的起始状态。',
-    speed_max: '随机初始速度的最大值，单位 m/s。它不等于控制器速度上限，只影响随机起点采样。',
-    accel_min: '随机初始加速度的最小值，单位 m/s²。',
-    accel_max: '随机初始加速度的最大值，单位 m/s²。',
-    kappa_offset_range: '随机初始曲率相对参考起点的扰动范围，单位 1/m。值越大，起步转向偏差越明显。',
-    kappa_min: '随机初始曲率的下界，单位 1/m。与 kappa_offset_range 一起决定随机起点的曲率范围。',
-    kappa_max: '随机初始曲率的上界，单位 1/m。',
-    dt_min: '优化允许的最小时间步长，单位 s。减小它会允许更细的时间伸缩，但可能让问题更难。',
-    dt_max: '优化允许的最大时间步长，单位 s。增大它会允许轨迹在某些段上明显放慢。',
-    max_speed: '优化状态中的速度上界，单位 m/s。它是硬约束，不是参考速度。',
-    max_accel: '优化状态中的加速度绝对值上界，单位 m/s²。',
-    max_jerk: '控制量 jerk 的绝对值上界，单位 m/s³。越小表示速度变化更平滑，但机动性更弱。',
-    max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
-    max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
-    w_pos: '位置跟踪权重。越大，优化越优先贴近参考路径的 x/y 位置，但控制代价和光滑性可能被压制。',
-    w_theta: '终端航向误差权重。当前实现中 theta 只在终点代价里使用，所以它主要决定末端朝向是否对齐。',
-    w_speed: '速度跟踪权重。越大，优化速度曲线越接近参考速度。',
-    w_accel: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用加速度参考，所以它目前不会改变结果。',
-    w_kappa: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用曲率参考，所以它目前不会改变结果。',
-    w_dt: '时间弹性权重。越大，dt 越接近 dt_ref；越小，优化越愿意拉伸或压缩时间分配。',
-    w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
-    w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
-    w_terminal: '终端状态权重。越大，优化越强调最后一个点在位置、速度和航向上贴近参考终点。',
-    ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
-    ipopt_tol: 'IPOPT 收敛容差。数值越小，解要求越严格，通常也会更慢。',
-    ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印，更高值会输出更多求解细节。',
+    ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，优化变量越多。',
+    line_1_length: '第一段直线长度，单位 m。',
+    arc_1_radius: '第一段圆弧半径，单位 m。半径越小，转弯越急。',
+    arc_1_angle: '第一段圆弧转角，单位 rad。正值逆时针，负值顺时针。',
+    line_2_length: '第二段直线长度，单位 m。',
+    arc_2_radius: '第二段圆弧半径，单位 m。',
+    arc_2_angle: '第二段圆弧转角，单位 rad。',
+    line_3_length: '最后一段直线长度，单位 m。',
+    x_offset_range: '随机初始状态在 x 方向相对参考起点的采样范围，单位 m。',
+    y_offset_range: '随机初始状态在 y 方向相对参考起点的采样范围，单位 m。',
+    theta_offset_range: '随机初始航向相对参考起点的采样范围，单位 rad。',
+    kappa_offset_range: '随机初始曲率相对参考起点的扰动范围，单位 1/m。',
+    kappa_min: '随机初始曲率下界，单位 1/m。',
+    kappa_max: '随机初始曲率上界，单位 1/m。',
+    ds_min: '优化允许的最小弧长步长，单位 m。',
+    ds_max: '优化允许的最大弧长步长，单位 m。',
+    max_kappa: '优化状态中的曲率绝对值上界，单位 1/m。',
+    max_dkappa: '曲率变化率绝对值上界，单位 1/m²。',
+    w_pos: '位置跟踪权重。越大越贴近参考几何。',
+    w_theta: '航向跟踪权重。越大越强调姿态对齐。',
+    w_kappa: '曲率跟踪权重。越大越贴近参考曲率。',
+    w_ds: '步长正则权重。越大越不愿偏离参考 ds。',
+    w_dkappa: '曲率变化率平滑权重。越大转向变化越柔和。',
+    w_terminal: '终端状态权重。越大越强调末端对齐。',
+    ipopt_max_iter: 'IPOPT 最大迭代次数。',
+    ipopt_tol: 'IPOPT 收敛容差。',
+    ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印。',
 };
 
 let currentScene = null;
 let currentData = null;
 let activeHoverKey = null;
-let chartAxisMode = 'time';
 let defaultParameterSnapshot = null;
 let autoReplanTimer = null;
 let solveInFlight = false;
@@ -350,12 +336,6 @@ function updateLegendToggleStyles() {
     });
 }
 
-function updateAxisButtonStyles() {
-    axisButtons.forEach((button) => {
-        button.classList.toggle('active', button.dataset.axisMode === chartAxisMode);
-    });
-}
-
 function drawArrow(ctx, viewport, x, y, theta, color, arrowLength = 20, alpha = 1, lineWidth = 2) {
     const [px, py] = viewport.project(x, y);
     const tipX = px + arrowLength * Math.cos(theta);
@@ -385,14 +365,6 @@ function buildHoverItems(data, viewport) {
     const items = [];
     const referenceCount = data.reference.x.length;
     const solutionCount = data.solution.x.length;
-    const solutionS = [0];
-    for (let index = 1; index < solutionCount; index += 1) {
-        const ds = Math.hypot(
-            data.solution.x[index] - data.solution.x[index - 1],
-            data.solution.y[index] - data.solution.y[index - 1],
-        );
-        solutionS.push(solutionS[index - 1] + ds);
-    }
 
     if (layerVisibility.reference) {
         for (let index = 0; index < referenceCount; index += 1) {
@@ -407,8 +379,6 @@ function buildHoverItems(data, viewport) {
                 y: data.reference.y[index],
                 s: data.reference.s[index],
                 theta: data.reference.theta[index],
-                v: data.reference.v[index],
-                a: data.reference.a[index],
                 kappa: data.reference.kappa[index],
             });
         }
@@ -426,14 +396,10 @@ function buildHoverItems(data, viewport) {
                 sy,
                 x: data.solution.x[index],
                 y: data.solution.y[index],
-                s: solutionS[index],
+                s: data.solution.s[index],
                 theta: data.solution.theta[index],
-                v: data.solution.v[index],
-                a: data.solution.a[index],
                 kappa: data.solution.kappa[index],
-                time: data.solution.time[index],
-                dt: index < data.solution.dt.length ? data.solution.dt[index] : NaN,
-                jerk: index < data.solution.jerk.length ? data.solution.jerk[index] : NaN,
+                ds: index < data.solution.ds.length ? data.solution.ds[index] : NaN,
                 dkappa: index < data.solution.dkappa.length ? data.solution.dkappa[index] : NaN,
                 trackError: Math.hypot(data.solution.x[index] - data.reference.x[matchIndex], data.solution.y[index] - data.reference.y[matchIndex]),
                 headingError: data.solution.theta[index] - data.reference.theta[matchIndex],
@@ -452,8 +418,6 @@ function buildHoverItems(data, viewport) {
             x: data.initial_state.x,
             y: data.initial_state.y,
             theta: data.initial_state.theta,
-            v: data.initial_state.v,
-            a: data.initial_state.a,
             kappa: data.initial_state.kappa,
             trackError: Math.hypot(data.initial_state.x - data.reference.x[0], data.initial_state.y - data.reference.y[0]),
             headingError: data.initial_state.theta - data.reference.theta[0],
@@ -474,14 +438,10 @@ function renderHoverDetails(item) {
         ['y', `${formatNumber(item.y, 3)} m`],
         ['s', `${formatNumber(item.s ?? 0, 3)} m`],
         ['theta', `${formatNumber(item.theta, 3)} rad`],
-        ['v', `${formatNumber(item.v, 3)} m/s`],
-        ['a', `${formatNumber(item.a, 3)} m/s²`],
         ['kappa', `${formatNumber(item.kappa, 3)} 1/m`],
     ];
-    if (Number.isFinite(item.time)) rows.push(['t', `${formatNumber(item.time, 3)} s`]);
-    if (Number.isFinite(item.dt)) rows.push(['dt', `${formatNumber(item.dt, 3)} s`]);
-    if (Number.isFinite(item.jerk)) rows.push(['jerk', `${formatNumber(item.jerk, 3)} m/s³`]);
-    if (Number.isFinite(item.dkappa)) rows.push(['dkappa', `${formatNumber(item.dkappa, 3)} 1/(m*s)`]);
+    if (Number.isFinite(item.ds)) rows.push(['ds', `${formatNumber(item.ds, 3)} m`]);
+    if (Number.isFinite(item.dkappa)) rows.push(['dkappa', `${formatNumber(item.dkappa, 3)} 1/m²`]);
     if (Number.isFinite(item.trackError)) rows.push(['track err', `${formatNumber(item.trackError, 3)} m`]);
     if (Number.isFinite(item.headingError)) rows.push(['heading err', `${formatSigned(item.headingError, 3)} rad`]);
 
@@ -547,16 +507,6 @@ function renderPathView(data, activeKey = null) {
     currentScene = { viewport, hoverItems };
 }
 
-function buildSolutionDistance(data) {
-    const result = [0];
-    for (let index = 1; index < data.solution.x.length; index += 1) {
-        const dx = data.solution.x[index] - data.solution.x[index - 1];
-        const dy = data.solution.y[index] - data.solution.y[index - 1];
-        result.push(result[index - 1] + Math.hypot(dx, dy));
-    }
-    return result;
-}
-
 function buildMidpoints(values) {
     const result = [];
     for (let index = 0; index < values.length - 1; index += 1) {
@@ -566,21 +516,17 @@ function buildMidpoints(values) {
 }
 
 function renderPlotlyCharts(data) {
-    const solutionDistance = buildSolutionDistance(data);
-    const stateAxis = chartAxisMode === 'time' ? data.solution.time : solutionDistance;
-    const controlAxis = chartAxisMode === 'time' ? buildMidpoints(data.solution.time) : buildMidpoints(solutionDistance);
-    const referenceAxis = chartAxisMode === 'time'
-        ? data.reference.s.map((value) => value / Math.max(data.config.reference.cruise_speed, 1e-6))
-        : data.reference.s;
-    const xTitle = chartAxisMode === 'time' ? 'time [s]' : 'distance [m]';
-    const dtRef = data.reference.dt_ref;
+    const stateAxis = data.solution.s;
+    const controlAxis = buildMidpoints(data.solution.s);
+    const referenceAxis = data.reference.s;
+    const xTitle = 'arc length s [m]';
 
     const traces = [
         {
             x: stateAxis,
-            y: data.solution.v,
+            y: data.solution.theta,
             mode: 'lines+markers',
-            name: 'optimized v',
+            name: 'optimized theta',
             line: { color: '#ca5a34', width: 2.4 },
             marker: { size: 6 },
             xaxis: 'x',
@@ -588,18 +534,18 @@ function renderPlotlyCharts(data) {
         },
         {
             x: referenceAxis,
-            y: data.reference.v,
+            y: data.reference.theta,
             mode: 'lines',
-            name: 'ref v',
+            name: 'ref theta',
             line: { color: '#0f766e', width: 2, dash: 'dash' },
             xaxis: 'x',
             yaxis: 'y',
         },
         {
             x: stateAxis,
-            y: data.solution.a,
+            y: data.solution.kappa,
             mode: 'lines+markers',
-            name: 'optimized a',
+            name: 'optimized kappa',
             line: { color: '#d97706', width: 2.2 },
             marker: { size: 6 },
             xaxis: 'x2',
@@ -607,63 +553,22 @@ function renderPlotlyCharts(data) {
         },
         {
             x: referenceAxis,
-            y: data.reference.a,
+            y: data.reference.kappa,
             mode: 'lines',
-            name: 'ref a',
+            name: 'ref kappa',
             line: { color: '#0f766e', width: 2, dash: 'dash' },
             xaxis: 'x2',
             yaxis: 'y2',
         },
         {
-            x: stateAxis,
-            y: data.solution.kappa,
+            x: controlAxis,
+            y: data.solution.ds,
             mode: 'lines+markers',
-            name: 'optimized kappa',
+            name: 'ds',
             line: { color: '#8b5cf6', width: 2.2 },
             marker: { size: 6 },
             xaxis: 'x3',
             yaxis: 'y3',
-        },
-        {
-            x: referenceAxis,
-            y: data.reference.kappa,
-            mode: 'lines',
-            name: 'ref kappa',
-            line: { color: '#0f766e', width: 2, dash: 'dash' },
-            xaxis: 'x3',
-            yaxis: 'y3',
-        },
-        {
-            x: controlAxis,
-            y: data.solution.dt,
-            mode: 'lines+markers',
-            name: 'dt',
-            line: { color: '#7b655a', width: 2.2 },
-            marker: {
-                size: 6,
-                color: data.solution.dt.map((value) => (value >= dtRef ? '#ca5a34' : '#0f766e')),
-            },
-            xaxis: 'x4',
-            yaxis: 'y4',
-        },
-        {
-            x: [controlAxis[0] ?? 0, controlAxis[controlAxis.length - 1] ?? 1],
-            y: [dtRef, dtRef],
-            mode: 'lines',
-            name: 'dt_ref',
-            line: { color: '#0b4f6c', width: 2, dash: 'dot' },
-            xaxis: 'x4',
-            yaxis: 'y4',
-        },
-        {
-            x: controlAxis,
-            y: data.solution.jerk,
-            mode: 'lines+markers',
-            name: 'jerk',
-            line: { color: '#0b4f6c', width: 2.2 },
-            marker: { size: 6 },
-            xaxis: 'x5',
-            yaxis: 'y5',
         },
         {
             x: controlAxis,
@@ -672,8 +577,8 @@ function renderPlotlyCharts(data) {
             name: 'dkappa',
             line: { color: '#0f766e', width: 2.2 },
             marker: { size: 6 },
-            xaxis: 'x6',
-            yaxis: 'y6',
+            xaxis: 'x4',
+            yaxis: 'y4',
         },
     ];
 
@@ -692,7 +597,7 @@ function renderPlotlyCharts(data) {
         plot_bgcolor: 'rgba(0,0,0,0)',
         margin: { l: 56, r: 24, t: 44, b: 42 },
         font: { family: 'Space Grotesk, Noto Sans SC, sans-serif', color: '#1a2230' },
-        grid: { rows: 2, columns: 3, pattern: 'independent' },
+        grid: { rows: 2, columns: 2, pattern: 'independent' },
         legend: {
             orientation: 'h',
             x: 0,
@@ -702,17 +607,13 @@ function renderPlotlyCharts(data) {
             bgcolor: 'rgba(255,255,255,0.58)',
         },
         xaxis: { ...axisStyle, title: xTitle },
-        yaxis: { ...axisStyle, title: 'v [m/s]' },
+        yaxis: { ...axisStyle, title: 'theta [rad]' },
         xaxis2: { ...axisStyle, title: xTitle },
-        yaxis2: { ...axisStyle, title: 'a [m/s²]' },
+        yaxis2: { ...axisStyle, title: 'kappa [1/m]' },
         xaxis3: { ...axisStyle, title: xTitle },
-        yaxis3: { ...axisStyle, title: 'kappa [1/m]' },
+        yaxis3: { ...axisStyle, title: 'ds [m]' },
         xaxis4: { ...axisStyle, title: xTitle },
-        yaxis4: { ...axisStyle, title: 'dt [s]' },
-        xaxis5: { ...axisStyle, title: xTitle },
-        yaxis5: { ...axisStyle, title: 'jerk [m/s³]' },
-        xaxis6: { ...axisStyle, title: xTitle },
-        yaxis6: { ...axisStyle, title: 'dkappa [1/(m*s)]' },
+        yaxis4: { ...axisStyle, title: 'dkappa [1/m²]' },
     };
 
     Plotly.react(plotlyChart, traces, layout, {
@@ -723,10 +624,10 @@ function renderPlotlyCharts(data) {
 }
 
 function renderStats(data) {
-    const dtValues = data.solution.dt;
-    const totalTime = data.solution.time[data.solution.time.length - 1];
-    const minDt = Math.min(...dtValues);
-    const maxDt = Math.max(...dtValues);
+    const dsValues = data.solution.ds;
+    const totalDistance = data.solution.s[data.solution.s.length - 1];
+    const minDs = Math.min(...dsValues);
+    const maxDs = Math.max(...dsValues);
     const pathLength = data.solution.x.slice(1).reduce((sum, _value, index) => {
         const dx = data.solution.x[index + 1] - data.solution.x[index];
         const dy = data.solution.y[index + 1] - data.solution.y[index];
@@ -738,9 +639,9 @@ function renderStats(data) {
     );
 
     statsEls.solveTime.textContent = `${formatNumber(data.solution.solve_time_ms, 1)} ms`;
-    statsEls.totalTime.textContent = `${formatNumber(totalTime, 2)} s`;
-    statsEls.avgDt.textContent = `${formatNumber(dtValues.reduce((sum, value) => sum + value, 0) / dtValues.length, 3)} s`;
-    statsEls.dtRange.textContent = `${formatNumber(minDt, 3)} - ${formatNumber(maxDt, 3)} s`;
+    statsEls.totalDistance.textContent = `${formatNumber(totalDistance, 2)} m`;
+    statsEls.avgDs.textContent = `${formatNumber(dsValues.reduce((sum, value) => sum + value, 0) / dsValues.length, 3)} m`;
+    statsEls.dsRange.textContent = `${formatNumber(minDs, 3)} - ${formatNumber(maxDs, 3)} m`;
     statsEls.pointCount.textContent = `${data.reference.x.length}`;
     statsEls.pathLength.textContent = `${formatNumber(pathLength, 2)} m`;
     statsEls.terminalError.textContent = `${formatNumber(terminalError, 3)} m`;
@@ -751,8 +652,6 @@ function renderStats(data) {
         ['x', `${formatNumber(initialState.x, 3)} m`],
         ['y', `${formatNumber(initialState.y, 3)} m`],
         ['theta', `${formatNumber(initialState.theta, 3)} rad`],
-        ['v', `${formatNumber(initialState.v, 3)} m/s`],
-        ['a', `${formatNumber(initialState.a, 3)} m/s²`],
         ['kappa', `${formatNumber(initialState.kappa, 3)} 1/m`],
     ].map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 }
@@ -765,18 +664,15 @@ function renderConfig(data) {
     const solver = config.solver;
 
     statsEls.referenceConfig.innerHTML = `
-        <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
+        <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m</div>
         <div class="config-stack">segments (${reference.segment_count})</div>
         ${reference.segment_descriptions.map((segment) => `<div class="config-stack">${segment}</div>`).join('')}
     `;
 
     statsEls.limitsConfig.innerHTML = [
-        ['dt', `[${formatNumber(limits.dt_min, 2)}, ${formatNumber(limits.dt_max, 2)}] s`],
-        ['max_speed', `${formatNumber(limits.max_speed, 2)} m/s`],
-        ['max_accel', `${formatNumber(limits.max_accel, 2)} m/s²`],
-        ['max_jerk', `${formatNumber(limits.max_jerk, 2)} m/s³`],
+        ['ds', `[${formatNumber(limits.ds_min, 2)}, ${formatNumber(limits.ds_max, 2)}] m`],
         ['max_kappa', `${formatNumber(limits.max_kappa, 2)} 1/m`],
-        ['max_dkappa', `${formatNumber(limits.max_dkappa, 2)} 1/(m*s)`],
+        ['max_dkappa', `${formatNumber(limits.max_dkappa, 2)} 1/m²`],
     ].map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
     statsEls.weightsConfig.innerHTML = Object.entries(weights)
@@ -852,14 +748,6 @@ function toggleLayer(layer) {
     }
 }
 
-function setChartAxisMode(mode) {
-    chartAxisMode = mode;
-    updateAxisButtonStyles();
-    if (currentData) {
-        renderPlotlyCharts(currentData);
-    }
-}
-
 async function runRandomDemo(options = {}) {
     const { preserveInitialState = false, autoTriggered = false } = options;
     if (solveInFlight) {
@@ -873,7 +761,7 @@ async function runRandomDemo(options = {}) {
             ? preserveInitialState
                 ? '参数变化后，正在基于当前状态自动重规划...'
                 : '参数变化后，正在自动重新采样并求解...'
-            : '正在随机生成起点并求解 TEB-MPC...',
+            : '正在随机生成起点并求解 ds-MPC...',
         'loading',
     );
     try {
@@ -936,13 +824,9 @@ pathCanvas.addEventListener('mouseleave', clearCanvasHover);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
 });
-axisButtons.forEach((button) => {
-    button.addEventListener('click', () => setChartAxisMode(button.dataset.axisMode));
-});
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => scheduleAutoReplan(input));
 });
 updateLegendToggleStyles();
-updateAxisButtonStyles();
 initParameterTooltips();
 runRandomDemo();
