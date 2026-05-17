@@ -77,6 +77,9 @@ let defaultParameterSnapshot = null;
 let autoReplanTimer = null;
 let solveInFlight = false;
 let pendingAutoReplanOptions = null;
+let globalParamTooltip = null;
+let activeParamTooltipAnchor = null;
+let isDraggingInitialState = false;
 const layerVisibility = {
     reference: true,
     optimized: true,
@@ -172,6 +175,61 @@ function resetParameterForm() {
     setStatus('已恢复默认参数，可以点击按钮重新求解。', 'idle');
 }
 
+function ensureGlobalParamTooltip() {
+    if (globalParamTooltip) {
+        return globalParamTooltip;
+    }
+
+    globalParamTooltip = document.createElement('div');
+    globalParamTooltip.className = 'param-tooltip';
+    globalParamTooltip.setAttribute('role', 'tooltip');
+    document.body.appendChild(globalParamTooltip);
+    return globalParamTooltip;
+}
+
+function hideGlobalParamTooltip() {
+    if (!globalParamTooltip) {
+        return;
+    }
+    globalParamTooltip.classList.remove('visible');
+    activeParamTooltipAnchor = null;
+}
+
+function positionGlobalParamTooltip(anchor) {
+    if (!globalParamTooltip || !anchor) {
+        return;
+    }
+
+    const margin = 12;
+    const offset = 10;
+    const anchorRect = anchor.getBoundingClientRect();
+
+    globalParamTooltip.style.maxWidth = `${Math.min(320, window.innerWidth - margin * 2)}px`;
+    globalParamTooltip.style.left = `${margin}px`;
+    globalParamTooltip.style.top = `${margin}px`;
+
+    const tooltipRect = globalParamTooltip.getBoundingClientRect();
+    const maxLeft = Math.max(margin, window.innerWidth - tooltipRect.width - margin);
+    const left = Math.min(Math.max(anchorRect.left, margin), maxLeft);
+
+    let top = anchorRect.bottom + offset;
+    if (top + tooltipRect.height > window.innerHeight - margin) {
+        top = anchorRect.top - tooltipRect.height - offset;
+    }
+    top = Math.max(margin, top);
+
+    globalParamTooltip.style.left = `${left}px`;
+    globalParamTooltip.style.top = `${top}px`;
+}
+
+function showGlobalParamTooltip(anchor, text) {
+    const tooltip = ensureGlobalParamTooltip();
+    activeParamTooltipAnchor = anchor;
+    tooltip.textContent = text;
+    tooltip.classList.add('visible');
+    positionGlobalParamTooltip(anchor);
+}
+
 function initParameterTooltips() {
     paramForm.querySelectorAll('.param-field').forEach((field) => {
         const input = field.querySelector('input[data-param-key]');
@@ -196,15 +254,19 @@ function initParameterTooltips() {
         helpButton.textContent = '?';
         helpButton.setAttribute('aria-label', `${labelSpan.textContent} 参数说明`);
 
-        const tooltip = document.createElement('span');
-        tooltip.className = 'param-tooltip';
-        tooltip.textContent = helpText;
+        labelWrap.addEventListener('mouseenter', () => showGlobalParamTooltip(helpButton, helpText));
+        labelWrap.addEventListener('mouseleave', hideGlobalParamTooltip);
+        helpButton.addEventListener('focus', () => showGlobalParamTooltip(helpButton, helpText));
+        helpButton.addEventListener('blur', hideGlobalParamTooltip);
 
         labelWrap.appendChild(labelText);
         labelWrap.appendChild(helpButton);
-        labelWrap.appendChild(tooltip);
         labelSpan.replaceWith(labelWrap);
     });
+
+    paramForm.addEventListener('scroll', hideGlobalParamTooltip, { passive: true });
+    window.addEventListener('resize', () => positionGlobalParamTooltip(activeParamTooltipAnchor), { passive: true });
+    window.addEventListener('scroll', () => positionGlobalParamTooltip(activeParamTooltipAnchor), { passive: true });
 }
 
 function scheduleAutoReplan(input) {
@@ -261,6 +323,11 @@ function buildViewport(points, width, height) {
             const px = padding + (x - minX) * scale;
             const py = height - padding - (y - minY) * scale;
             return [px, py];
+        },
+        unproject(px, py) {
+            const x = minX + (px - padding) / scale;
+            const y = minY + (height - padding - py) / scale;
+            return [x, y];
         },
     };
 }
@@ -383,7 +450,10 @@ function drawArrow(ctx, viewport, x, y, theta, color, arrowLength = 20, alpha = 
 
 function buildHoverItems(data, viewport) {
     const items = [];
-    const referenceCount = data.reference.x.length;
+    const solverReference = data.reference;
+    const displayReference = data.display_reference || data.reference;
+    const referenceCount = solverReference.x.length;
+    const displayReferenceCount = displayReference.x.length;
     const solutionCount = data.solution.x.length;
     const solutionS = [0];
     for (let index = 1; index < solutionCount; index += 1) {
@@ -395,21 +465,21 @@ function buildHoverItems(data, viewport) {
     }
 
     if (layerVisibility.reference) {
-        for (let index = 0; index < referenceCount; index += 1) {
-            const [sx, sy] = viewport.project(data.reference.x[index], data.reference.y[index]);
+        for (let index = 0; index < displayReferenceCount; index += 1) {
+            const [sx, sy] = viewport.project(displayReference.x[index], displayReference.y[index]);
             items.push({
                 key: `reference-${index}`,
                 label: 'Reference',
                 index,
                 sx,
                 sy,
-                x: data.reference.x[index],
-                y: data.reference.y[index],
-                s: data.reference.s[index],
-                theta: data.reference.theta[index],
-                v: data.reference.v[index],
-                a: data.reference.a[index],
-                kappa: data.reference.kappa[index],
+                x: displayReference.x[index],
+                y: displayReference.y[index],
+                s: displayReference.s[index],
+                theta: displayReference.theta[index],
+                v: displayReference.v[index],
+                a: displayReference.a[index],
+                kappa: displayReference.kappa[index],
             });
         }
     }
@@ -435,8 +505,8 @@ function buildHoverItems(data, viewport) {
                 dt: index < data.solution.dt.length ? data.solution.dt[index] : NaN,
                 jerk: index < data.solution.jerk.length ? data.solution.jerk[index] : NaN,
                 dkappa: index < data.solution.dkappa.length ? data.solution.dkappa[index] : NaN,
-                trackError: Math.hypot(data.solution.x[index] - data.reference.x[matchIndex], data.solution.y[index] - data.reference.y[matchIndex]),
-                headingError: data.solution.theta[index] - data.reference.theta[matchIndex],
+                trackError: Math.hypot(data.solution.x[index] - solverReference.x[matchIndex], data.solution.y[index] - solverReference.y[matchIndex]),
+                headingError: data.solution.theta[index] - solverReference.theta[matchIndex],
             });
         }
     }
@@ -451,12 +521,17 @@ function buildHoverItems(data, viewport) {
             sy: initialSy,
             x: data.initial_state.x,
             y: data.initial_state.y,
+            s: 0,
             theta: data.initial_state.theta,
             v: data.initial_state.v,
             a: data.initial_state.a,
             kappa: data.initial_state.kappa,
-            trackError: Math.hypot(data.initial_state.x - data.reference.x[0], data.initial_state.y - data.reference.y[0]),
-            headingError: data.initial_state.theta - data.reference.theta[0],
+            time: 0,
+            dt: data.solution.dt.length > 0 ? data.solution.dt[0] : NaN,
+            jerk: data.solution.jerk.length > 0 ? data.solution.jerk[0] : NaN,
+            dkappa: data.solution.dkappa.length > 0 ? data.solution.dkappa[0] : NaN,
+            trackError: Math.hypot(data.initial_state.x - solverReference.x[0], data.initial_state.y - solverReference.y[0]),
+            headingError: data.initial_state.theta - solverReference.theta[0],
         });
     }
     return items;
@@ -506,7 +581,9 @@ function positionHoverOverlay(event) {
 
 function renderPathView(data, activeKey = null) {
     const { reference, solution, initial_state: initialState } = data;
-    const referencePoints = reference.x.map((x, index) => [x, reference.y[index]]);
+    const displayReference = data.display_reference || data.reference;
+    const referencePoints = displayReference.x.map((x, index) => [x, displayReference.y[index]]);
+    const solverReferencePoints = reference.x.map((x, index) => [x, reference.y[index]]);
     const solutionPoints = solution.x.map((x, index) => [x, solution.y[index]]);
     const allPoints = [...referencePoints, ...solutionPoints, [initialState.x, initialState.y]];
     const viewport = buildViewport(allPoints, pathCanvas.width, pathCanvas.height);
@@ -514,12 +591,12 @@ function renderPathView(data, activeKey = null) {
     pathCtx.clearRect(0, 0, pathCanvas.width, pathCanvas.height);
     drawGrid(pathCtx, pathCanvas.width, pathCanvas.height);
     if (layerVisibility.correspondence && layerVisibility.reference && layerVisibility.optimized) {
-        drawCorrespondence(pathCtx, referencePoints, solutionPoints, viewport);
+        drawCorrespondence(pathCtx, solverReferencePoints, solutionPoints, viewport);
     }
     if (layerVisibility.reference) {
         drawPolyline(pathCtx, referencePoints, viewport, 'rgba(15, 118, 110, 0.62)', 3.6, true);
         drawReferenceMarkers(pathCtx, referencePoints, viewport);
-        drawHeadingArrows(pathCtx, referencePoints, reference.theta, viewport, '#0f766e', 5, 0.45);
+        drawHeadingArrows(pathCtx, referencePoints, displayReference.theta, viewport, '#0f766e', 5, 0.45);
     }
     if (layerVisibility.optimized) {
         drawPolyline(pathCtx, solutionPoints, viewport, 'rgba(202, 90, 52, 0.78)', 3.8, false);
@@ -794,11 +871,7 @@ function findNearestHover(event) {
     if (!currentScene) {
         return null;
     }
-    const rect = pathCanvas.getBoundingClientRect();
-    const scaleX = pathCanvas.width / rect.width;
-    const scaleY = pathCanvas.height / rect.height;
-    const cursorX = (event.clientX - rect.left) * scaleX;
-    const cursorY = (event.clientY - rect.top) * scaleY;
+    const { cursorX, cursorY } = getCanvasCursorPosition(event);
     let best = null;
     let bestDistance = 16;
     currentScene.hoverItems.forEach((item) => {
@@ -811,11 +884,103 @@ function findNearestHover(event) {
     return best;
 }
 
+function findInitialDragTarget(event) {
+    if (!currentScene || !layerVisibility.initial) {
+        return null;
+    }
+    const { cursorX, cursorY } = getCanvasCursorPosition(event);
+    const initialItem = currentScene.hoverItems.find((item) => item.key === 'initial-0');
+    if (!initialItem) {
+        return null;
+    }
+    const distance = Math.hypot(initialItem.sx - cursorX, initialItem.sy - cursorY);
+    return distance <= 18 ? initialItem : null;
+}
+
+function getCanvasCursorPosition(event) {
+    const rect = pathCanvas.getBoundingClientRect();
+    const scaleX = pathCanvas.width / rect.width;
+    const scaleY = pathCanvas.height / rect.height;
+    return {
+        cursorX: (event.clientX - rect.left) * scaleX,
+        cursorY: (event.clientY - rect.top) * scaleY,
+    };
+}
+
+function updateCanvasCursor(nearest = null) {
+    if (isDraggingInitialState) {
+        pathCanvas.style.cursor = 'grabbing';
+        return;
+    }
+    if (nearest?.key === 'initial-0') {
+        pathCanvas.style.cursor = 'grab';
+        return;
+    }
+    pathCanvas.style.cursor = 'default';
+}
+
+function updateDraggedInitialState(event) {
+    if (!isDraggingInitialState || !currentScene?.viewport || !currentData?.initial_state) {
+        return null;
+    }
+
+    const { cursorX, cursorY } = getCanvasCursorPosition(event);
+    const [x, y] = currentScene.viewport.unproject(cursorX, cursorY);
+    currentData.initial_state = {
+        ...currentData.initial_state,
+        x,
+        y,
+    };
+    activeHoverKey = 'initial-0';
+    renderPathView(currentData, activeHoverKey);
+
+    const draggedItem = currentScene?.hoverItems.find((item) => item.key === 'initial-0') || null;
+    if (draggedItem) {
+        renderHoverDetails(draggedItem);
+        positionHoverOverlay(event);
+    }
+    return draggedItem;
+}
+
+function beginInitialStateDrag(event) {
+    if (!currentData || !layerVisibility.initial) {
+        return;
+    }
+    const nearest = findInitialDragTarget(event);
+    if (nearest?.key !== 'initial-0') {
+        return;
+    }
+
+    isDraggingInitialState = true;
+    activeHoverKey = 'initial-0';
+    pathCanvas.style.cursor = 'grabbing';
+    renderPathView(currentData, activeHoverKey);
+    renderHoverDetails(nearest);
+    positionHoverOverlay(event);
+    setStatus('拖动起点中，松开鼠标后会基于新的位置重规划。', 'idle');
+    event.preventDefault();
+}
+
+function finishInitialStateDrag() {
+    if (!isDraggingInitialState) {
+        return;
+    }
+    isDraggingInitialState = false;
+    pathCanvas.style.cursor = 'default';
+    runRandomDemo({ preserveInitialState: true, dragTriggered: true });
+}
+
 function handleCanvasMove(event) {
     if (!currentData) {
         return;
     }
-    const nearest = findNearestHover(event);
+    if (isDraggingInitialState) {
+        updateDraggedInitialState(event);
+        updateCanvasCursor();
+        return;
+    }
+    const nearest = findInitialDragTarget(event) || findNearestHover(event);
+    updateCanvasCursor(nearest);
     if (!nearest) {
         if (activeHoverKey !== null) {
             activeHoverKey = null;
@@ -834,9 +999,13 @@ function handleCanvasMove(event) {
 }
 
 function clearCanvasHover() {
+    if (isDraggingInitialState) {
+        return;
+    }
     activeHoverKey = null;
     hoverOverlay.classList.add('hidden');
     renderHoverDetails(null);
+    updateCanvasCursor();
     if (currentData) {
         renderPathView(currentData);
     }
@@ -861,18 +1030,22 @@ function setChartAxisMode(mode) {
 }
 
 async function runRandomDemo(options = {}) {
-    const { preserveInitialState = false, autoTriggered = false } = options;
+    const { preserveInitialState = false, autoTriggered = false, dragTriggered = false } = options;
     if (solveInFlight) {
-        pendingAutoReplanOptions = { preserveInitialState, autoTriggered };
+        pendingAutoReplanOptions = { preserveInitialState, autoTriggered, dragTriggered };
         return;
     }
     solveInFlight = true;
     setButtonLoading(true);
     setStatus(
-        autoTriggered
+        dragTriggered
+            ? '正在基于拖拽后的起点位置重规划...'
+            : autoTriggered
             ? preserveInitialState
                 ? '参数变化后，正在基于当前状态自动重规划...'
                 : '参数变化后，正在自动重新采样并求解...'
+            : preserveInitialState
+            ? '正在基于当前起点重规划 TEB-MPC...'
             : '正在随机生成起点并求解 TEB-MPC...',
         'loading',
     );
@@ -903,11 +1076,16 @@ async function runRandomDemo(options = {}) {
             defaultParameterSnapshot = clonePlainObject(data.config);
         }
         renderHoverDetails(null);
+        updateCanvasCursor();
         setStatus(
-            autoTriggered
+            dragTriggered
+                ? '已按拖拽后的起点位置完成重规划。'
+                : autoTriggered
                 ? preserveInitialState
                     ? '已根据新的参数自动重规划，当前初始状态保持不变。'
                     : '已根据新的采样参数自动重新采样并完成求解。'
+                : preserveInitialState
+                ? '已基于当前起点完成重规划。'
                 : '随机初始化完成。可以在画布上悬停查看点信息，再次点击按钮可重新采样。',
             'success',
         );
@@ -925,14 +1103,16 @@ async function runRandomDemo(options = {}) {
 }
 
 randomizeBtn.addEventListener('click', runRandomDemo);
-applyParamsBtn.addEventListener('click', runRandomDemo);
+applyParamsBtn.addEventListener('click', () => runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) }));
 resetParamsBtn.addEventListener('click', resetParameterForm);
 paramForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    runRandomDemo();
+    runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) });
 });
 pathCanvas.addEventListener('mousemove', handleCanvasMove);
+pathCanvas.addEventListener('mousedown', beginInitialStateDrag);
 pathCanvas.addEventListener('mouseleave', clearCanvasHover);
+window.addEventListener('mouseup', finishInitialStateDrag);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
 });

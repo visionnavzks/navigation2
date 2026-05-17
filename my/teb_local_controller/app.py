@@ -13,7 +13,7 @@ for path_entry in (REPO_ROOT, CURRENT_DIR):
     if path_entry not in sys.path:
         sys.path.append(path_entry)
 
-from my.teb_local_controller.demo_support import describe_demo_configuration, run_random_demo, solve_demo
+from my.teb_local_controller.demo_support import default_demo_reference, describe_demo_configuration, run_random_demo, solve_demo
 from my.teb_local_controller.teb_mpc import VehicleState
 
 
@@ -42,6 +42,19 @@ def _dict_to_state(payload):
     )
 
 
+def _reference_to_dict(reference):
+    return {
+        "x": reference.x.tolist(),
+        "y": reference.y.tolist(),
+        "theta": reference.theta.tolist(),
+        "v": reference.v.tolist(),
+        "a": reference.a.tolist(),
+        "kappa": reference.kappa.tolist(),
+        "s": reference.s.tolist(),
+        "dt_ref": float(reference.dt_ref),
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -56,6 +69,7 @@ def random_demo():
         sampling_config = payload.get("sampling_config") or {}
         seed = payload.get("seed")
         initial_state_override = payload.get("initial_state_override")
+        display_reference = default_demo_reference(reference_config=reference_config)
 
         if initial_state_override is not None:
             initial_state, reference, solution = solve_demo(
@@ -79,16 +93,8 @@ def random_demo():
                     sampling_config=sampling_config,
                 ),
                 "initial_state": _state_to_dict(initial_state),
-                "reference": {
-                    "x": reference.x.tolist(),
-                    "y": reference.y.tolist(),
-                    "theta": reference.theta.tolist(),
-                    "v": reference.v.tolist(),
-                    "a": reference.a.tolist(),
-                    "kappa": reference.kappa.tolist(),
-                    "s": reference.s.tolist(),
-                    "dt_ref": float(reference.dt_ref),
-                },
+                "reference": _reference_to_dict(reference),
+                "display_reference": _reference_to_dict(display_reference),
                 "solution": {
                     "x": solution["x"].tolist(),
                     "y": solution["y"].tolist(),

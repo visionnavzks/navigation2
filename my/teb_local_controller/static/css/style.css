@@ -277,11 +277,11 @@ h1 {
 }
 
 .param-tooltip {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 0;
-    z-index: 12;
-    width: min(320px, 56vw);
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 9999;
+    width: min(320px, calc(100vw - 24px));
     padding: 12px 14px;
     border-radius: 14px;
     border: 1px solid rgba(26, 34, 48, 0.12);
@@ -292,15 +292,15 @@ h1 {
     font-size: 0.8rem;
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-4px);
+    visibility: hidden;
+    transform: translateY(4px);
     transition: opacity 120ms ease, transform 120ms ease;
     white-space: normal;
 }
 
-.param-label-wrap:hover .param-tooltip,
-.param-label-wrap:focus-within .param-tooltip {
+.param-tooltip.visible {
     opacity: 1;
-    pointer-events: auto;
+    visibility: visible;
     transform: translateY(0);
 }
 
