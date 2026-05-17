@@ -250,9 +250,9 @@ $$
 ### 状态/控制边界
 
 - `max_speed = 2.5`
-- `max_accel = 2.0`
+- `max_accel = 1.0`
 - `max_jerk = 3.0`
-- `max_kappa = 0.4`
+- `max_kappa = 2.0`
 - `max_dkappa = 1.5`
 
 ### 权重
