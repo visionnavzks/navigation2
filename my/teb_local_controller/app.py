@@ -4,7 +4,7 @@ import os
 import sys
 import traceback
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -38,11 +38,26 @@ def index():
 @app.route("/api/random_demo", methods=["POST"])
 def random_demo():
     try:
-        initial_state, reference, solution = run_random_demo()
+        payload = request.get_json(silent=True) or {}
+        controller_params = payload.get("controller_params") or {}
+        reference_config = payload.get("reference_config") or {}
+        sampling_config = payload.get("sampling_config") or {}
+        seed = payload.get("seed")
+
+        initial_state, reference, solution = run_random_demo(
+            seed=seed,
+            params=controller_params,
+            reference_config=reference_config,
+            sampling_config=sampling_config,
+        )
         return jsonify(
             {
                 "success": True,
-                "config": describe_demo_configuration(),
+                "config": describe_demo_configuration(
+                    params=controller_params,
+                    reference_config=reference_config,
+                    sampling_config=sampling_config,
+                ),
                 "initial_state": _state_to_dict(initial_state),
                 "reference": {
                     "x": reference.x.tolist(),

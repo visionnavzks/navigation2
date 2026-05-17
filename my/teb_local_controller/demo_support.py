@@ -20,33 +20,77 @@ DEMO_CRUISE_SPEED = 1.0
 DEMO_DT_REF = 0.1
 
 
+DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
+    "ds": DEMO_REFERENCE_DS,
+    "cruise_speed": DEMO_CRUISE_SPEED,
+    "dt_ref": DEMO_DT_REF,
+    "line_1_length": 1.8,
+    "arc_1_radius": 1.8,
+    "arc_1_angle": math.pi / 4.0,
+    "line_2_length": 1.1,
+    "arc_2_radius": 1.5,
+    "arc_2_angle": -math.pi / 6.0,
+    "line_3_length": 0.9,
+}
+
+
+DEMO_SAMPLING_DEFAULTS: Dict[str, float] = {
+    "x_offset_range": 1.5,
+    "y_offset_range": 2.0,
+    "theta_offset_range": 0.7,
+    "speed_min": 0.1,
+    "speed_max": 1.2,
+    "accel_min": -0.5,
+    "accel_max": 0.5,
+    "kappa_offset_range": 0.08,
+    "kappa_min": -0.2,
+    "kappa_max": 0.2,
+}
+
+
 def _normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
-def default_demo_segments() -> List[LineSegment | ArcSegment]:
+def _merged_reference_config(reference_config: Dict[str, float] | None = None) -> Dict[str, float]:
+    return {**DEMO_REFERENCE_DEFAULTS, **(reference_config or {})}
+
+
+def _merged_sampling_config(sampling_config: Dict[str, float] | None = None) -> Dict[str, float]:
+    return {**DEMO_SAMPLING_DEFAULTS, **(sampling_config or {})}
+
+
+def default_demo_segments(reference_config: Dict[str, float] | None = None) -> List[LineSegment | ArcSegment]:
+    config = _merged_reference_config(reference_config)
     return [
-        LineSegment(length=1.8),
-        ArcSegment(radius=1.8, angle=math.pi / 4.0),
-        LineSegment(length=1.1),
-        ArcSegment(radius=1.5, angle=-math.pi / 6.0),
-        LineSegment(length=0.9),
+        LineSegment(length=float(config["line_1_length"])),
+        ArcSegment(radius=float(config["arc_1_radius"]), angle=float(config["arc_1_angle"])),
+        LineSegment(length=float(config["line_2_length"])),
+        ArcSegment(radius=float(config["arc_2_radius"]), angle=float(config["arc_2_angle"])),
+        LineSegment(length=float(config["line_3_length"])),
     ]
 
 
-def default_demo_reference() -> ReferenceTrajectory:
+def default_demo_reference(reference_config: Dict[str, float] | None = None) -> ReferenceTrajectory:
+    config = _merged_reference_config(reference_config)
     return build_reference_trajectory(
         start=VehicleState(x=0.0, y=0.0, theta=0.0, v=0.6, a=0.0, kappa=0.0),
-        segments=default_demo_segments(),
-        ds=DEMO_REFERENCE_DS,
-        cruise_speed=DEMO_CRUISE_SPEED,
-        dt_ref=DEMO_DT_REF,
+        segments=default_demo_segments(reference_config=config),
+        ds=float(config["ds"]),
+        cruise_speed=float(config["cruise_speed"]),
+        dt_ref=float(config["dt_ref"]),
     )
 
 
-def describe_demo_configuration(params: Dict[str, float] | None = None) -> Dict[str, object]:
+def describe_demo_configuration(
+    params: Dict[str, float] | None = None,
+    reference_config: Dict[str, float] | None = None,
+    sampling_config: Dict[str, float] | None = None,
+) -> Dict[str, object]:
     controller = TEBMPCController(params=params)
-    segments = default_demo_segments()
+    merged_reference = _merged_reference_config(reference_config)
+    merged_sampling = _merged_sampling_config(sampling_config)
+    segments = default_demo_segments(reference_config=merged_reference)
     segment_descriptions = []
     for segment in segments:
         if isinstance(segment, LineSegment):
@@ -58,12 +102,16 @@ def describe_demo_configuration(params: Dict[str, float] | None = None) -> Dict[
 
     return {
         "reference": {
-            "ds": DEMO_REFERENCE_DS,
-            "cruise_speed": DEMO_CRUISE_SPEED,
-            "dt_ref": DEMO_DT_REF,
+            "ds": float(merged_reference["ds"]),
+            "cruise_speed": float(merged_reference["cruise_speed"]),
+            "dt_ref": float(merged_reference["dt_ref"]),
             "segment_descriptions": segment_descriptions,
             "segment_count": len(segments),
             "target_length": float(sum(segment.length for segment in segments)),
+            "params": merged_reference,
+        },
+        "sampling": {
+            **merged_sampling,
         },
         "limits": {
             "dt_min": controller.dt_min,
@@ -96,8 +144,10 @@ def describe_demo_configuration(params: Dict[str, float] | None = None) -> Dict[
 def sample_random_initial_state(
     rng: np.random.Generator | None = None,
     reference: ReferenceTrajectory | None = None,
+    sampling_config: Dict[str, float] | None = None,
 ) -> VehicleState:
     rng = rng or np.random.default_rng()
+    config = _merged_sampling_config(sampling_config)
     reference = reference or default_demo_reference()
     base_x = float(reference.x[0])
     base_y = float(reference.y[0])
@@ -105,12 +155,18 @@ def sample_random_initial_state(
     base_kappa = float(reference.kappa[0])
 
     return VehicleState(
-        x=base_x + float(rng.uniform(-1.5, 1.5)),
-        y=base_y + float(rng.uniform(-2.0, 2.0)),
-        theta=_normalize_angle(base_theta + float(rng.uniform(-0.7, 0.7))),
-        v=float(rng.uniform(0.1, 1.2)),
-        a=float(rng.uniform(-0.5, 0.5)),
-        kappa=float(np.clip(base_kappa + rng.uniform(-0.08, 0.08), -0.2, 0.2)),
+        x=base_x + float(rng.uniform(-config["x_offset_range"], config["x_offset_range"])),
+        y=base_y + float(rng.uniform(-config["y_offset_range"], config["y_offset_range"])),
+        theta=_normalize_angle(base_theta + float(rng.uniform(-config["theta_offset_range"], config["theta_offset_range"]))),
+        v=float(rng.uniform(config["speed_min"], config["speed_max"])),
+        a=float(rng.uniform(config["accel_min"], config["accel_max"])),
+        kappa=float(
+            np.clip(
+                base_kappa + rng.uniform(-config["kappa_offset_range"], config["kappa_offset_range"]),
+                config["kappa_min"],
+                config["kappa_max"],
+            )
+        ),
     )
 
 
@@ -187,20 +243,25 @@ def align_reference_to_projection(reference: ReferenceTrajectory, state: Vehicle
 def run_random_demo(
     seed: int | None = None,
     params: Dict[str, float] | None = None,
+    reference_config: Dict[str, float] | None = None,
+    sampling_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     rng = np.random.default_rng(seed)
-    base_reference = default_demo_reference()
-    initial_state = sample_random_initial_state(rng=rng, reference=base_reference)
+    base_reference = default_demo_reference(reference_config=reference_config)
+    initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
     reference = align_reference_to_projection(base_reference, initial_state)
     controller = TEBMPCController(params=params)
     solution = controller.solve(initial_state=initial_state, reference=reference)
     return initial_state, reference, solution
 
 
-def demo_problem() -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
+def demo_problem(
+    params: Dict[str, float] | None = None,
+    reference_config: Dict[str, float] | None = None,
+) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     initial_state = VehicleState(x=0.0, y=-0.3, theta=0.05, v=0.5, a=0.0, kappa=0.0)
-    reference = align_reference_to_projection(default_demo_reference(), initial_state)
-    controller = TEBMPCController()
+    reference = align_reference_to_projection(default_demo_reference(reference_config=reference_config), initial_state)
+    controller = TEBMPCController(params=params)
     solution = controller.solve(initial_state=initial_state, reference=reference)
     return initial_state, reference, solution
 

@@ -181,7 +181,7 @@ class MatplotlibTEBDemo:
             xy=(0.0, 0.0),
             xytext=(12, 12),
             textcoords="offset points",
-            bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fffdf8", "edgecolor": "#cabfaa", "alpha": 0.96},
+            bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fffdf8", "edgecolor": "#cabfaa", "alpha": 0.3},
             arrowprops={"arrowstyle": "->", "color": "#756b58", "lw": 1.0},
             fontsize=9,
             zorder=20,

@@ -29,9 +29,11 @@ body {
 }
 
 .shell {
-    width: min(1360px, calc(100vw - 28px));
+    width: calc(100vw - 20px);
+    max-width: none;
     margin: 0 auto;
-    padding: 28px 0 40px;
+    padding: 10px 0 14px;
+    min-height: 100vh;
 }
 
 .panel {
@@ -151,7 +153,7 @@ h1 {
 
 .workspace {
     display: grid;
-    grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.88fr);
+    grid-template-columns: 360px minmax(0, 1.9fr) 360px;
     gap: 20px;
     margin-top: 20px;
     align-items: start;
@@ -173,8 +175,89 @@ h1 {
 
 .canvas-panel,
 .chart-panel,
+.control-panel,
 .side-panel {
     padding: 20px;
+}
+
+.control-panel,
+.side-panel {
+    display: grid;
+    gap: 16px;
+    max-height: calc(100vh - 178px);
+    overflow: auto;
+}
+
+.control-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.secondary-btn,
+.ghost-btn {
+    border-radius: 16px;
+    padding: 12px 14px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.secondary-btn {
+    border: 0;
+    color: #f9fafb;
+    background: linear-gradient(135deg, #0b4f6c, #0f766e);
+}
+
+.ghost-btn {
+    border: 1px solid rgba(26, 34, 48, 0.12);
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.72);
+}
+
+.secondary-btn:hover,
+.ghost-btn:hover {
+    transform: translateY(-1px);
+}
+
+.param-form {
+    display: grid;
+    gap: 12px;
+}
+
+.param-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 0 16px 16px;
+}
+
+.param-field {
+    display: grid;
+    gap: 6px;
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+
+.param-field span {
+    font-weight: 700;
+    color: var(--ink);
+}
+
+.param-field input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid rgba(26, 34, 48, 0.12);
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--ink);
+    font: inherit;
+}
+
+.param-field input:focus {
+    outline: 2px solid rgba(15, 118, 110, 0.18);
+    border-color: rgba(15, 118, 110, 0.3);
 }
 
 .panel-note {
@@ -189,6 +272,37 @@ h1 {
     gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
+}
+
+.axis-toggle {
+    display: inline-flex;
+    gap: 8px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.74);
+    border: 1px solid rgba(26, 34, 48, 0.08);
+}
+
+.axis-btn {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.axis-btn:hover {
+    transform: translateY(-1px);
+}
+
+.axis-btn.active {
+    background: linear-gradient(135deg, rgba(11, 79, 108, 0.12), rgba(15, 118, 110, 0.16));
+    color: var(--accent-strong);
 }
 
 .legend-chip {
@@ -253,7 +367,7 @@ button.legend-chip:hover {
     padding: 12px 14px;
     border-radius: 16px;
     border: 1px solid rgba(26, 34, 48, 0.12);
-    background: rgba(255, 253, 248, 0.96);
+    background: rgba(255, 253, 248, 0.3);
     box-shadow: 0 16px 32px rgba(26, 34, 48, 0.16);
     color: var(--ink);
     pointer-events: none;
@@ -290,6 +404,15 @@ canvas {
     border: 1px solid rgba(26, 34, 48, 0.08);
 }
 
+.plotly-chart {
+    width: 100%;
+    min-height: 580px;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(247, 244, 236, 0.94));
+    border: 1px solid rgba(26, 34, 48, 0.08);
+    overflow: hidden;
+}
+
 .summary-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -316,13 +439,6 @@ canvas {
 .stat-card strong {
     font-size: 1.25rem;
     letter-spacing: -0.03em;
-}
-
-.side-panel {
-    display: grid;
-    gap: 16px;
-    max-height: calc(100vh - 84px);
-    overflow: auto;
 }
 
 .info-section {
@@ -421,5 +537,23 @@ canvas {
 
     .config-list.dense {
         grid-template-columns: 1fr;
+    }
+
+    .param-grid,
+    .control-actions {
+        grid-template-columns: 1fr;
+    }
+
+    .axis-toggle {
+        width: 100%;
+    }
+
+    .axis-btn {
+        flex: 1;
+    }
+
+    .control-panel,
+    .side-panel {
+        max-height: none;
     }
 }

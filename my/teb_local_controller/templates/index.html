@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 </head>
 <body>
     <main class="shell">
@@ -27,6 +28,91 @@
         </section>
 
         <section class="workspace">
+            <aside class="panel control-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>参数调节</h2>
+                        <p class="panel-note">左侧参数会直接发送到后端，重新生成参考轨迹、随机初始状态并求解。</p>
+                    </div>
+                </div>
+
+                <div class="control-actions">
+                    <button id="apply-params-btn" class="secondary-btn">应用当前参数并求解</button>
+                    <button id="reset-params-btn" class="ghost-btn" type="button">恢复默认参数</button>
+                </div>
+
+                <form id="param-form" class="param-form">
+                    <details class="config-block" open>
+                        <summary>参考轨迹</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>ds</span><input data-param-group="reference" data-param-key="ds" type="number" step="0.01" value="0.25"></label>
+                            <label class="param-field"><span>cruise_speed</span><input data-param-group="reference" data-param-key="cruise_speed" type="number" step="0.05" value="1.0"></label>
+                            <label class="param-field"><span>dt_ref</span><input data-param-group="reference" data-param-key="dt_ref" type="number" step="0.01" value="0.1"></label>
+                            <label class="param-field"><span>line_1_length</span><input data-param-group="reference" data-param-key="line_1_length" type="number" step="0.05" value="1.8"></label>
+                            <label class="param-field"><span>arc_1_radius</span><input data-param-group="reference" data-param-key="arc_1_radius" type="number" step="0.05" value="1.8"></label>
+                            <label class="param-field"><span>arc_1_angle</span><input data-param-group="reference" data-param-key="arc_1_angle" type="number" step="0.05" value="0.7853981634"></label>
+                            <label class="param-field"><span>line_2_length</span><input data-param-group="reference" data-param-key="line_2_length" type="number" step="0.05" value="1.1"></label>
+                            <label class="param-field"><span>arc_2_radius</span><input data-param-group="reference" data-param-key="arc_2_radius" type="number" step="0.05" value="1.5"></label>
+                            <label class="param-field"><span>arc_2_angle</span><input data-param-group="reference" data-param-key="arc_2_angle" type="number" step="0.05" value="-0.5235987756"></label>
+                            <label class="param-field"><span>line_3_length</span><input data-param-group="reference" data-param-key="line_3_length" type="number" step="0.05" value="0.9"></label>
+                        </div>
+                    </details>
+
+                    <details class="config-block" open>
+                        <summary>随机采样</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>x_offset_range</span><input data-param-group="sampling" data-param-key="x_offset_range" type="number" step="0.05" value="1.5"></label>
+                            <label class="param-field"><span>y_offset_range</span><input data-param-group="sampling" data-param-key="y_offset_range" type="number" step="0.05" value="2.0"></label>
+                            <label class="param-field"><span>theta_offset_range</span><input data-param-group="sampling" data-param-key="theta_offset_range" type="number" step="0.05" value="0.7"></label>
+                            <label class="param-field"><span>speed_min</span><input data-param-group="sampling" data-param-key="speed_min" type="number" step="0.05" value="0.1"></label>
+                            <label class="param-field"><span>speed_max</span><input data-param-group="sampling" data-param-key="speed_max" type="number" step="0.05" value="1.2"></label>
+                            <label class="param-field"><span>accel_min</span><input data-param-group="sampling" data-param-key="accel_min" type="number" step="0.05" value="-0.5"></label>
+                            <label class="param-field"><span>accel_max</span><input data-param-group="sampling" data-param-key="accel_max" type="number" step="0.05" value="0.5"></label>
+                            <label class="param-field"><span>kappa_offset_range</span><input data-param-group="sampling" data-param-key="kappa_offset_range" type="number" step="0.01" value="0.08"></label>
+                            <label class="param-field"><span>kappa_min</span><input data-param-group="sampling" data-param-key="kappa_min" type="number" step="0.01" value="-0.2"></label>
+                            <label class="param-field"><span>kappa_max</span><input data-param-group="sampling" data-param-key="kappa_max" type="number" step="0.01" value="0.2"></label>
+                        </div>
+                    </details>
+
+                    <details class="config-block" open>
+                        <summary>控制器约束</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>dt_min</span><input data-param-group="controller" data-param-key="dt_min" type="number" step="0.01" value="0.03"></label>
+                            <label class="param-field"><span>dt_max</span><input data-param-group="controller" data-param-key="dt_max" type="number" step="0.01" value="0.35"></label>
+                            <label class="param-field"><span>max_speed</span><input data-param-group="controller" data-param-key="max_speed" type="number" step="0.05" value="2.5"></label>
+                            <label class="param-field"><span>max_accel</span><input data-param-group="controller" data-param-key="max_accel" type="number" step="0.05" value="2.0"></label>
+                            <label class="param-field"><span>max_jerk</span><input data-param-group="controller" data-param-key="max_jerk" type="number" step="0.05" value="3.0"></label>
+                            <label class="param-field"><span>max_kappa</span><input data-param-group="controller" data-param-key="max_kappa" type="number" step="0.01" value="0.4"></label>
+                            <label class="param-field"><span>max_dkappa</span><input data-param-group="controller" data-param-key="max_dkappa" type="number" step="0.05" value="1.5"></label>
+                        </div>
+                    </details>
+
+                    <details class="config-block">
+                        <summary>权重</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>w_pos</span><input data-param-group="controller" data-param-key="w_pos" type="number" step="0.1" value="30.0"></label>
+                            <label class="param-field"><span>w_theta</span><input data-param-group="controller" data-param-key="w_theta" type="number" step="0.1" value="15.0"></label>
+                            <label class="param-field"><span>w_speed</span><input data-param-group="controller" data-param-key="w_speed" type="number" step="0.1" value="4.0"></label>
+                            <label class="param-field"><span>w_accel</span><input data-param-group="controller" data-param-key="w_accel" type="number" step="0.1" value="1.5"></label>
+                            <label class="param-field"><span>w_kappa</span><input data-param-group="controller" data-param-key="w_kappa" type="number" step="0.1" value="2.0"></label>
+                            <label class="param-field"><span>w_dt</span><input data-param-group="controller" data-param-key="w_dt" type="number" step="0.1" value="10.0"></label>
+                            <label class="param-field"><span>w_jerk</span><input data-param-group="controller" data-param-key="w_jerk" type="number" step="0.1" value="0.5"></label>
+                            <label class="param-field"><span>w_dkappa</span><input data-param-group="controller" data-param-key="w_dkappa" type="number" step="0.1" value="0.5"></label>
+                            <label class="param-field"><span>w_terminal</span><input data-param-group="controller" data-param-key="w_terminal" type="number" step="0.1" value="60.0"></label>
+                        </div>
+                    </details>
+
+                    <details class="config-block">
+                        <summary>求解器</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>ipopt_max_iter</span><input data-param-group="controller" data-param-key="ipopt_max_iter" data-param-type="int" type="number" step="1" value="500"></label>
+                            <label class="param-field"><span>ipopt_tol</span><input data-param-group="controller" data-param-key="ipopt_tol" type="number" step="0.000001" value="0.000001"></label>
+                            <label class="param-field"><span>ipopt_print_level</span><input data-param-group="controller" data-param-key="ipopt_print_level" data-param-type="int" type="number" step="1" value="0"></label>
+                        </div>
+                    </details>
+                </form>
+            </aside>
+
             <div class="viz-stack">
                 <article class="panel canvas-panel">
                     <div class="panel-header">
@@ -50,11 +136,15 @@
                 <article class="panel chart-panel">
                     <div class="panel-header">
                         <div>
-                            <h2>dt 分布</h2>
-                            <p class="panel-note">参考时间步长为 0.1 s，柱图显示优化后各节点的 dt 拉伸情况。</p>
+                            <h2>时域 / 距离曲线</h2>
+                            <p class="panel-note">使用 Plotly 展示速度、加速度、曲率和控制量曲线，可切换按时间或按距离查看。</p>
+                        </div>
+                        <div class="axis-toggle" role="tablist" aria-label="chart axis selector">
+                            <button type="button" class="axis-btn active" data-axis-mode="time">按时间</button>
+                            <button type="button" class="axis-btn" data-axis-mode="distance">按距离</button>
                         </div>
                     </div>
-                    <canvas id="dt-canvas" width="1080" height="260"></canvas>
+                    <div id="plotly-chart" class="plotly-chart"></div>
                 </article>
             </div>
 
@@ -99,14 +189,6 @@
                         <strong id="total-cost">--</strong>
                     </div>
                 </div>
-
-                <section class="info-section">
-                    <div class="section-header">
-                        <h3>悬停点信息</h3>
-                        <span class="section-pill">Hover</span>
-                    </div>
-                    <div id="hover-details" class="detail-card placeholder">移动鼠标到路径点上查看状态、时间和误差信息。</div>
-                </section>
 
                 <section class="info-section">
                     <div class="section-header">

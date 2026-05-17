@@ -1,12 +1,15 @@
 const randomizeBtn = document.getElementById('randomize-btn');
+const applyParamsBtn = document.getElementById('apply-params-btn');
+const resetParamsBtn = document.getElementById('reset-params-btn');
+const paramForm = document.getElementById('param-form');
 const statusText = document.getElementById('status-text');
 const statusBadge = document.getElementById('status-badge');
 const pathCanvas = document.getElementById('path-canvas');
-const dtCanvas = document.getElementById('dt-canvas');
+const plotlyChart = document.getElementById('plotly-chart');
 const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
+const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
 const pathCtx = pathCanvas.getContext('2d');
-const dtCtx = dtCanvas.getContext('2d');
 
 const statsEls = {
     solveTime: document.getElementById('solve-time'),
@@ -17,7 +20,6 @@ const statsEls = {
     pathLength: document.getElementById('path-length'),
     terminalError: document.getElementById('terminal-error'),
     totalCost: document.getElementById('total-cost'),
-    hoverDetails: document.getElementById('hover-details'),
     initialState: document.getElementById('initial-state'),
     referenceConfig: document.getElementById('reference-config'),
     limitsConfig: document.getElementById('limits-config'),
@@ -28,6 +30,8 @@ const statsEls = {
 let currentScene = null;
 let currentData = null;
 let activeHoverKey = null;
+let chartAxisMode = 'time';
+let defaultParameterSnapshot = null;
 const layerVisibility = {
     reference: true,
     optimized: true,
@@ -47,11 +51,76 @@ function setStatus(message, tone = 'idle') {
 
 function setButtonLoading(isLoading) {
     randomizeBtn.disabled = isLoading;
+    applyParamsBtn.disabled = isLoading;
+    resetParamsBtn.disabled = isLoading;
     randomizeBtn.textContent = isLoading ? '求解中...' : '随机初始化并求解';
+    applyParamsBtn.textContent = isLoading ? '应用中...' : '应用当前参数并求解';
 }
 
 function formatSigned(value, digits = 3) {
     return `${value >= 0 ? '+' : ''}${formatNumber(value, digits)}`;
+}
+
+function clonePlainObject(value) {
+    return JSON.parse(JSON.stringify(value));
+}
+
+function getControllerConfigFromResponse(config) {
+    return {
+        ...(config?.limits || {}),
+        ...(config?.weights || {}),
+        ...(config?.solver || {}),
+    };
+}
+
+function applyConfigToForm(config) {
+    const groupedValues = {
+        reference: config?.reference?.params || {},
+        sampling: config?.sampling || {},
+        controller: getControllerConfigFromResponse(config),
+    };
+
+    paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
+        const group = input.dataset.paramGroup;
+        const key = input.dataset.paramKey;
+        if (Object.prototype.hasOwnProperty.call(groupedValues[group] || {}, key)) {
+            input.value = groupedValues[group][key];
+        }
+    });
+}
+
+function collectParameterPayload() {
+    const payload = {
+        controller_params: {},
+        reference_config: {},
+        sampling_config: {},
+    };
+    const targetMap = {
+        controller: 'controller_params',
+        reference: 'reference_config',
+        sampling: 'sampling_config',
+    };
+
+    paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
+        const rawValue = input.value.trim();
+        if (rawValue === '') {
+            return;
+        }
+        const value = input.dataset.paramType === 'int' ? Number.parseInt(rawValue, 10) : Number.parseFloat(rawValue);
+        if (Number.isNaN(value)) {
+            return;
+        }
+        payload[targetMap[input.dataset.paramGroup]][input.dataset.paramKey] = value;
+    });
+    return payload;
+}
+
+function resetParameterForm() {
+    if (!defaultParameterSnapshot) {
+        return;
+    }
+    applyConfigToForm(defaultParameterSnapshot);
+    setStatus('已恢复默认参数，可以点击按钮重新求解。', 'idle');
 }
 
 function drawGrid(ctx, width, height) {
@@ -179,6 +248,12 @@ function updateLegendToggleStyles() {
     });
 }
 
+function updateAxisButtonStyles() {
+    axisButtons.forEach((button) => {
+        button.classList.toggle('active', button.dataset.axisMode === chartAxisMode);
+    });
+}
+
 function drawArrow(ctx, viewport, x, y, theta, color, arrowLength = 20, alpha = 1, lineWidth = 2) {
     const [px, py] = viewport.project(x, y);
     const tipX = px + arrowLength * Math.cos(theta);
@@ -287,8 +362,6 @@ function buildHoverItems(data, viewport) {
 
 function renderHoverDetails(item) {
     if (!item) {
-        statsEls.hoverDetails.className = 'detail-card placeholder';
-        statsEls.hoverDetails.textContent = '移动鼠标到路径点上查看状态、时间和误差信息。';
         hoverOverlay.classList.add('hidden');
         return;
     }
@@ -310,18 +383,10 @@ function renderHoverDetails(item) {
     if (Number.isFinite(item.trackError)) rows.push(['track err', `${formatNumber(item.trackError, 3)} m`]);
     if (Number.isFinite(item.headingError)) rows.push(['heading err', `${formatSigned(item.headingError, 3)} rad`]);
 
-    const detailHtml = rows
-        .map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`)
-        .join('');
-    statsEls.hoverDetails.className = 'detail-card';
-    statsEls.hoverDetails.innerHTML = detailHtml;
     hoverOverlay.innerHTML = `
         <div class="hover-title">${item.label} #${item.index}</div>
         <div class="hover-grid">
-            <span>x</span><strong>${formatNumber(item.x, 3)} m</strong>
-            <span>y</span><strong>${formatNumber(item.y, 3)} m</strong>
-            <span>theta</span><strong>${formatNumber(item.theta, 3)} rad</strong>
-            <span>track err</span><strong>${Number.isFinite(item.trackError) ? `${formatNumber(item.trackError, 3)} m` : '--'}</strong>
+            ${rows.map(([label, value]) => `<span>${label}</span><strong>${value}</strong>`).join('')}
         </div>
     `;
     hoverOverlay.classList.remove('hidden');
@@ -380,35 +445,178 @@ function renderPathView(data, activeKey = null) {
     currentScene = { viewport, hoverItems };
 }
 
-function renderDtChart(data) {
-    const dtValues = data.solution.dt;
-    const width = dtCanvas.width;
-    const height = dtCanvas.height;
-    const padding = 26;
-    const innerWidth = width - padding * 2;
-    const innerHeight = height - padding * 2;
-    const maxDt = Math.max(...dtValues, data.reference.dt_ref);
-    const barWidth = innerWidth / dtValues.length;
+function buildSolutionDistance(data) {
+    const result = [0];
+    for (let index = 1; index < data.solution.x.length; index += 1) {
+        const dx = data.solution.x[index] - data.solution.x[index - 1];
+        const dy = data.solution.y[index] - data.solution.y[index - 1];
+        result.push(result[index - 1] + Math.hypot(dx, dy));
+    }
+    return result;
+}
 
-    dtCtx.clearRect(0, 0, width, height);
-    drawGrid(dtCtx, width, height);
+function buildMidpoints(values) {
+    const result = [];
+    for (let index = 0; index < values.length - 1; index += 1) {
+        result.push((values[index] + values[index + 1]) * 0.5);
+    }
+    return result;
+}
 
-    dtCtx.save();
-    dtCtx.strokeStyle = '#0b4f6c';
-    dtCtx.setLineDash([8, 8]);
-    const refY = padding + innerHeight * (1 - data.reference.dt_ref / maxDt);
-    dtCtx.beginPath();
-    dtCtx.moveTo(padding, refY);
-    dtCtx.lineTo(width - padding, refY);
-    dtCtx.stroke();
-    dtCtx.restore();
+function renderPlotlyCharts(data) {
+    const solutionDistance = buildSolutionDistance(data);
+    const stateAxis = chartAxisMode === 'time' ? data.solution.time : solutionDistance;
+    const controlAxis = chartAxisMode === 'time' ? buildMidpoints(data.solution.time) : buildMidpoints(solutionDistance);
+    const referenceAxis = chartAxisMode === 'time'
+        ? data.reference.s.map((value) => value / Math.max(data.config.reference.cruise_speed, 1e-6))
+        : data.reference.s;
+    const xTitle = chartAxisMode === 'time' ? 'time [s]' : 'distance [m]';
+    const dtRef = data.reference.dt_ref;
 
-    dtValues.forEach((value, index) => {
-        const barHeight = innerHeight * (value / maxDt);
-        const x = padding + index * barWidth + 2;
-        const y = height - padding - barHeight;
-        dtCtx.fillStyle = value >= data.reference.dt_ref ? '#ca5a34' : '#0f766e';
-        dtCtx.fillRect(x, y, Math.max(barWidth - 4, 2), barHeight);
+    const traces = [
+        {
+            x: stateAxis,
+            y: data.solution.v,
+            mode: 'lines+markers',
+            name: 'optimized v',
+            line: { color: '#ca5a34', width: 2.4 },
+            marker: { size: 6 },
+            xaxis: 'x',
+            yaxis: 'y',
+        },
+        {
+            x: referenceAxis,
+            y: data.reference.v,
+            mode: 'lines',
+            name: 'ref v',
+            line: { color: '#0f766e', width: 2, dash: 'dash' },
+            xaxis: 'x',
+            yaxis: 'y',
+        },
+        {
+            x: stateAxis,
+            y: data.solution.a,
+            mode: 'lines+markers',
+            name: 'optimized a',
+            line: { color: '#d97706', width: 2.2 },
+            marker: { size: 6 },
+            xaxis: 'x2',
+            yaxis: 'y2',
+        },
+        {
+            x: referenceAxis,
+            y: data.reference.a,
+            mode: 'lines',
+            name: 'ref a',
+            line: { color: '#0f766e', width: 2, dash: 'dash' },
+            xaxis: 'x2',
+            yaxis: 'y2',
+        },
+        {
+            x: stateAxis,
+            y: data.solution.kappa,
+            mode: 'lines+markers',
+            name: 'optimized kappa',
+            line: { color: '#8b5cf6', width: 2.2 },
+            marker: { size: 6 },
+            xaxis: 'x3',
+            yaxis: 'y3',
+        },
+        {
+            x: referenceAxis,
+            y: data.reference.kappa,
+            mode: 'lines',
+            name: 'ref kappa',
+            line: { color: '#0f766e', width: 2, dash: 'dash' },
+            xaxis: 'x3',
+            yaxis: 'y3',
+        },
+        {
+            x: controlAxis,
+            y: data.solution.dt,
+            mode: 'lines+markers',
+            name: 'dt',
+            line: { color: '#7b655a', width: 2.2 },
+            marker: {
+                size: 6,
+                color: data.solution.dt.map((value) => (value >= dtRef ? '#ca5a34' : '#0f766e')),
+            },
+            xaxis: 'x4',
+            yaxis: 'y4',
+        },
+        {
+            x: [controlAxis[0] ?? 0, controlAxis[controlAxis.length - 1] ?? 1],
+            y: [dtRef, dtRef],
+            mode: 'lines',
+            name: 'dt_ref',
+            line: { color: '#0b4f6c', width: 2, dash: 'dot' },
+            xaxis: 'x4',
+            yaxis: 'y4',
+        },
+        {
+            x: controlAxis,
+            y: data.solution.jerk,
+            mode: 'lines+markers',
+            name: 'jerk',
+            line: { color: '#0b4f6c', width: 2.2 },
+            marker: { size: 6 },
+            xaxis: 'x5',
+            yaxis: 'y5',
+        },
+        {
+            x: controlAxis,
+            y: data.solution.dkappa,
+            mode: 'lines+markers',
+            name: 'dkappa',
+            line: { color: '#0f766e', width: 2.2 },
+            marker: { size: 6 },
+            xaxis: 'x6',
+            yaxis: 'y6',
+        },
+    ];
+
+    const axisStyle = {
+        showgrid: true,
+        gridcolor: 'rgba(26, 34, 48, 0.08)',
+        zeroline: false,
+        linecolor: 'rgba(26, 34, 48, 0.14)',
+        ticks: 'outside',
+        tickfont: { family: 'Space Grotesk, Noto Sans SC, sans-serif', size: 11 },
+        titlefont: { family: 'Space Grotesk, Noto Sans SC, sans-serif', size: 12 },
+    };
+
+    const layout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { l: 56, r: 24, t: 44, b: 42 },
+        font: { family: 'Space Grotesk, Noto Sans SC, sans-serif', color: '#1a2230' },
+        grid: { rows: 2, columns: 3, pattern: 'independent' },
+        legend: {
+            orientation: 'h',
+            x: 0,
+            xanchor: 'left',
+            y: 1.08,
+            yanchor: 'bottom',
+            bgcolor: 'rgba(255,255,255,0.58)',
+        },
+        xaxis: { ...axisStyle, title: xTitle },
+        yaxis: { ...axisStyle, title: 'v [m/s]' },
+        xaxis2: { ...axisStyle, title: xTitle },
+        yaxis2: { ...axisStyle, title: 'a [m/s²]' },
+        xaxis3: { ...axisStyle, title: xTitle },
+        yaxis3: { ...axisStyle, title: 'kappa [1/m]' },
+        xaxis4: { ...axisStyle, title: xTitle },
+        yaxis4: { ...axisStyle, title: 'dt [s]' },
+        xaxis5: { ...axisStyle, title: xTitle },
+        yaxis5: { ...axisStyle, title: 'jerk [m/s³]' },
+        xaxis6: { ...axisStyle, title: xTitle },
+        yaxis6: { ...axisStyle, title: 'dkappa [1/(m*s)]' },
+    };
+
+    Plotly.react(plotlyChart, traces, layout, {
+        responsive: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
     });
 }
 
@@ -542,16 +750,25 @@ function toggleLayer(layer) {
     }
 }
 
+function setChartAxisMode(mode) {
+    chartAxisMode = mode;
+    updateAxisButtonStyles();
+    if (currentData) {
+        renderPlotlyCharts(currentData);
+    }
+}
+
 async function runRandomDemo() {
     setButtonLoading(true);
     setStatus('正在随机生成起点并求解 TEB-MPC...', 'loading');
     try {
+        const payload = collectParameterPayload();
         const response = await fetch('/api/random_demo', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({}),
+            body: JSON.stringify(payload),
         });
         const data = await response.json();
         if (!response.ok || !data.success) {
@@ -560,9 +777,13 @@ async function runRandomDemo() {
         currentData = data;
         activeHoverKey = null;
         renderPathView(data);
-        renderDtChart(data);
+        renderPlotlyCharts(data);
         renderStats(data);
         renderConfig(data);
+        applyConfigToForm(data.config);
+        if (!defaultParameterSnapshot) {
+            defaultParameterSnapshot = clonePlainObject(data.config);
+        }
         renderHoverDetails(null);
         setStatus('随机初始化完成。可以在画布上悬停查看点信息，再次点击按钮可重新采样。', 'success');
     } catch (error) {
@@ -573,10 +794,20 @@ async function runRandomDemo() {
 }
 
 randomizeBtn.addEventListener('click', runRandomDemo);
+applyParamsBtn.addEventListener('click', runRandomDemo);
+resetParamsBtn.addEventListener('click', resetParameterForm);
+paramForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    runRandomDemo();
+});
 pathCanvas.addEventListener('mousemove', handleCanvasMove);
 pathCanvas.addEventListener('mouseleave', clearCanvasHover);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
 });
+axisButtons.forEach((button) => {
+    button.addEventListener('click', () => setChartAxisMode(button.dataset.axisMode));
+});
 updateLegendToggleStyles();
+updateAxisButtonStyles();
 runRandomDemo();
