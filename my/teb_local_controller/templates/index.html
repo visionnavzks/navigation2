@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEB MPC Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <main class="shell">
+        <section class="hero panel">
+            <div class="hero-copy">
+                <p class="eyebrow">Time Elastic Band</p>
+                <h1>随机起点 TEB-MPC 跟踪 Demo</h1>
+                <p class="subtitle">参考轨迹由直线和圆弧拼接而成。点击按钮后会重新随机生成起点，并求解一条时间可伸缩、控制量为 dt / jerk / dkappa 的 MPC 跟踪轨迹。</p>
+            </div>
+            <div class="hero-actions">
+                <button id="randomize-btn" class="primary-btn">随机初始化并求解</button>
+                <div class="status-box">
+                    <span id="status-badge" class="status-badge idle">Idle</span>
+                    <p id="status-text" class="status-text">等待首次运行</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="workspace">
+            <div class="viz-stack">
+                <article class="panel canvas-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>路径视图</h2>
+                            <p class="panel-note">显示参考路径、优化路径、点级对应关系和姿态箭头。</p>
+                        </div>
+                        <div class="legend-row">
+                            <button type="button" class="legend-chip legend-toggle reference active" data-layer="reference">参考路径</button>
+                            <button type="button" class="legend-chip legend-toggle optimized active" data-layer="optimized">优化路径</button>
+                            <button type="button" class="legend-chip legend-toggle correspondence active" data-layer="correspondence">对应关系</button>
+                            <button type="button" class="legend-chip legend-toggle initial active" data-layer="initial">随机起点</button>
+                        </div>
+                    </div>
+                    <div class="canvas-wrap">
+                        <canvas id="path-canvas" width="1080" height="620"></canvas>
+                        <div id="hover-overlay" class="hover-overlay hidden"></div>
+                    </div>
+                </article>
+
+                <article class="panel chart-panel">
+                    <div class="panel-header">
+                        <div>
+                            <h2>dt 分布</h2>
+                            <p class="panel-note">参考时间步长为 0.1 s，柱图显示优化后各节点的 dt 拉伸情况。</p>
+                        </div>
+                    </div>
+                    <canvas id="dt-canvas" width="1080" height="260"></canvas>
+                </article>
+            </div>
+
+            <aside class="panel side-panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>求解信息</h2>
+                        <p class="panel-note">右侧信息保留详细统计和参数摘要，悬停任意点会更新点信息。</p>
+                    </div>
+                </div>
+                <div class="summary-grid">
+                    <div class="stat-card">
+                        <span class="label">求解时间</span>
+                        <strong id="solve-time">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">总时域</span>
+                        <strong id="total-time">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">平均 dt</span>
+                        <strong id="avg-dt">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">dt 范围</span>
+                        <strong id="dt-range">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">轨迹点数</span>
+                        <strong id="point-count">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">优化长度</span>
+                        <strong id="path-length">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">终点误差</span>
+                        <strong id="terminal-error">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">总成本</span>
+                        <strong id="total-cost">--</strong>
+                    </div>
+                </div>
+
+                <section class="info-section">
+                    <div class="section-header">
+                        <h3>悬停点信息</h3>
+                        <span class="section-pill">Hover</span>
+                    </div>
+                    <div id="hover-details" class="detail-card placeholder">移动鼠标到路径点上查看状态、时间和误差信息。</div>
+                </section>
+
+                <section class="info-section">
+                    <div class="section-header">
+                        <h3>随机初始状态</h3>
+                        <span class="section-pill">Init</span>
+                    </div>
+                    <h3>随机初始状态</h3>
+                    <div id="initial-state" class="state-list"></div>
+                </section>
+
+                <section class="info-section">
+                    <div class="section-header">
+                        <h3>配置摘要</h3>
+                        <span class="section-pill">Config</span>
+                    </div>
+                    <details class="config-block" open>
+                        <summary>参考轨迹</summary>
+                        <div id="reference-config" class="config-list"></div>
+                    </details>
+                    <details class="config-block" open>
+                        <summary>控制器约束</summary>
+                        <div id="limits-config" class="config-list"></div>
+                    </details>
+                    <details class="config-block">
+                        <summary>权重</summary>
+                        <div id="weights-config" class="config-list dense"></div>
+                    </details>
+                    <details class="config-block">
+                        <summary>求解器</summary>
+                        <div id="solver-config" class="config-list"></div>
+                    </details>
+                </section>
+            </aside>
+        </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
