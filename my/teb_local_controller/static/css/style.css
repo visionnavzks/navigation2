@@ -419,6 +419,15 @@ button.legend-chip:hover {
     position: relative;
 }
 
+.path-plot {
+    min-height: 620px;
+    cursor: default;
+}
+
+.path-plot .hoverlayer {
+    display: none;
+}
+
 .hover-overlay {
     position: absolute;
     min-width: 190px;
@@ -453,14 +462,6 @@ button.legend-chip:hover {
 
 .hover-grid span:nth-child(odd) {
     color: var(--muted);
-}
-
-canvas {
-    width: 100%;
-    height: auto;
-    border-radius: 18px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(247, 244, 236, 0.94));
-    border: 1px solid rgba(26, 34, 48, 0.08);
 }
 
 .plotly-chart {

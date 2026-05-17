@@ -4,12 +4,16 @@ const resetParamsBtn = document.getElementById('reset-params-btn');
 const paramForm = document.getElementById('param-form');
 const statusText = document.getElementById('status-text');
 const statusBadge = document.getElementById('status-badge');
-const pathCanvas = document.getElementById('path-canvas');
+const pathPlot = document.getElementById('path-plot');
 const plotlyChart = document.getElementById('plotly-chart');
 const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
 const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
-const pathCtx = pathCanvas.getContext('2d');
+const PATH_PLOT_CONFIG = {
+    responsive: true,
+    displaylogo: false,
+    modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+};
 
 const statsEls = {
     solveTime: document.getElementById('solve-time'),
@@ -448,7 +452,7 @@ function drawArrow(ctx, viewport, x, y, theta, color, arrowLength = 20, alpha = 
     ctx.restore();
 }
 
-function buildHoverItems(data, viewport) {
+function buildHoverItems(data) {
     const items = [];
     const solverReference = data.reference;
     const displayReference = data.display_reference || data.reference;
@@ -466,13 +470,10 @@ function buildHoverItems(data, viewport) {
 
     if (layerVisibility.reference) {
         for (let index = 0; index < displayReferenceCount; index += 1) {
-            const [sx, sy] = viewport.project(displayReference.x[index], displayReference.y[index]);
             items.push({
                 key: `reference-${index}`,
                 label: 'Reference',
                 index,
-                sx,
-                sy,
                 x: displayReference.x[index],
                 y: displayReference.y[index],
                 s: displayReference.s[index],
@@ -487,13 +488,10 @@ function buildHoverItems(data, viewport) {
     if (layerVisibility.optimized) {
         for (let index = 0; index < solutionCount; index += 1) {
             const matchIndex = Math.min(index, referenceCount - 1);
-            const [sx, sy] = viewport.project(data.solution.x[index], data.solution.y[index]);
             items.push({
                 key: `solution-${index}`,
                 label: 'Optimized',
                 index,
-                sx,
-                sy,
                 x: data.solution.x[index],
                 y: data.solution.y[index],
                 s: solutionS[index],
@@ -512,13 +510,10 @@ function buildHoverItems(data, viewport) {
     }
 
     if (layerVisibility.initial) {
-        const [initialSx, initialSy] = viewport.project(data.initial_state.x, data.initial_state.y);
         items.push({
             key: 'initial-0',
             label: 'Initial',
             index: 0,
-            sx: initialSx,
-            sy: initialSy,
             x: data.initial_state.x,
             y: data.initial_state.y,
             s: 0,
@@ -570,13 +565,85 @@ function renderHoverDetails(item) {
 }
 
 function positionHoverOverlay(event) {
-    const rect = pathCanvas.getBoundingClientRect();
+    const rect = pathPlot.getBoundingClientRect();
     const localX = event.clientX - rect.left;
     const localY = event.clientY - rect.top;
     const maxX = rect.width - hoverOverlay.offsetWidth - 10;
     const maxY = rect.height - hoverOverlay.offsetHeight - 10;
     hoverOverlay.style.left = `${Math.max(10, Math.min(localX + 12, maxX))}px`;
     hoverOverlay.style.top = `${Math.max(10, Math.min(localY + 12, maxY))}px`;
+}
+
+function buildSegmentedLineCoords(referencePoints, solutionPoints) {
+    const pairCount = Math.min(referencePoints.length, solutionPoints.length);
+    const xs = [];
+    const ys = [];
+    for (let index = 0; index < pairCount; index += 1) {
+        xs.push(referencePoints[index][0], solutionPoints[index][0], null);
+        ys.push(referencePoints[index][1], solutionPoints[index][1], null);
+    }
+    return { xs, ys };
+}
+
+function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, lineWidth = 1.4) {
+    return {
+        x: x + arrowLength * Math.cos(theta),
+        y: y + arrowLength * Math.sin(theta),
+        ax: x,
+        ay: y,
+        axref: 'x',
+        ayref: 'y',
+        text: '',
+        showarrow: true,
+        arrowhead: 2,
+        arrowsize: 1,
+        arrowwidth: lineWidth,
+        arrowcolor: color,
+        opacity,
+    };
+}
+
+function buildHeadingAnnotations(points, headings, color, step, opacity, arrowLength, lineWidth = 1.4) {
+    const annotations = [];
+    for (let index = 0; index < points.length; index += step) {
+        annotations.push(buildPathArrowAnnotation(points[index][0], points[index][1], headings[index], color, opacity, arrowLength, lineWidth));
+    }
+    if (points.length > 1) {
+        const last = points.length - 1;
+        annotations.push(buildPathArrowAnnotation(points[last][0], points[last][1], headings[last], color, opacity, arrowLength, lineWidth));
+    }
+    return annotations;
+}
+
+function bindPathPlotInteractions() {
+    const nextTarget = pathPlot;
+    if (pathPlot.__interactionTarget !== nextTarget) {
+        if (pathPlot.__interactionTarget) {
+            pathPlot.__interactionTarget.removeEventListener('mousemove', handleCanvasMove, true);
+            pathPlot.__interactionTarget.removeEventListener('mousedown', beginInitialStateDrag, true);
+            pathPlot.__interactionTarget.removeEventListener('mouseleave', clearCanvasHover, true);
+        }
+        nextTarget.addEventListener('mousemove', handleCanvasMove, true);
+        nextTarget.addEventListener('mousedown', beginInitialStateDrag, true);
+        nextTarget.addEventListener('mouseleave', clearCanvasHover, true);
+        pathPlot.__interactionTarget = nextTarget;
+    }
+}
+
+function updatePathHighlight(key) {
+    if (!currentScene || currentScene.highlightTraceIndex == null) {
+        return;
+    }
+    const item = key ? currentScene.itemMap.get(key) : null;
+    Plotly.restyle(
+        pathPlot,
+        {
+            x: [item ? [item.x] : []],
+            y: [item ? [item.y] : []],
+            visible: item ? true : false,
+        },
+        [currentScene.highlightTraceIndex],
+    );
 }
 
 function renderPathView(data, activeKey = null) {
@@ -586,42 +653,134 @@ function renderPathView(data, activeKey = null) {
     const solverReferencePoints = reference.x.map((x, index) => [x, reference.y[index]]);
     const solutionPoints = solution.x.map((x, index) => [x, solution.y[index]]);
     const allPoints = [...referencePoints, ...solutionPoints, [initialState.x, initialState.y]];
-    const viewport = buildViewport(allPoints, pathCanvas.width, pathCanvas.height);
+    const xs = allPoints.map((point) => point[0]);
+    const ys = allPoints.map((point) => point[1]);
+    const spanX = Math.max(Math.max(...xs) - Math.min(...xs), 1.0);
+    const spanY = Math.max(Math.max(...ys) - Math.min(...ys), 1.0);
+    const paddingX = spanX * 0.08;
+    const paddingY = spanY * 0.08;
+    const arrowLength = Math.max(spanX, spanY) * 0.035;
+    const hoverItems = buildHoverItems(data);
+    const itemMap = new Map(hoverItems.map((item) => [item.key, item]));
+    const annotations = [];
+    const traces = [];
 
-    pathCtx.clearRect(0, 0, pathCanvas.width, pathCanvas.height);
-    drawGrid(pathCtx, pathCanvas.width, pathCanvas.height);
     if (layerVisibility.correspondence && layerVisibility.reference && layerVisibility.optimized) {
-        drawCorrespondence(pathCtx, solverReferencePoints, solutionPoints, viewport);
+        const { xs: correspondenceX, ys: correspondenceY } = buildSegmentedLineCoords(solverReferencePoints, solutionPoints);
+        traces.push({
+            x: correspondenceX,
+            y: correspondenceY,
+            mode: 'lines',
+            name: '对应关系',
+            line: { color: 'rgba(141, 133, 120, 0.42)', width: 1, dash: 'dot' },
+            hoverinfo: 'skip',
+            showlegend: false,
+        });
     }
+
     if (layerVisibility.reference) {
-        drawPolyline(pathCtx, referencePoints, viewport, 'rgba(15, 118, 110, 0.62)', 3.6, true);
-        drawReferenceMarkers(pathCtx, referencePoints, viewport);
-        drawHeadingArrows(pathCtx, referencePoints, displayReference.theta, viewport, '#0f766e', 5, 0.45);
+        const referenceKeys = referencePoints.map((_point, index) => `reference-${index}`);
+        traces.push({
+            x: referencePoints.map((point) => point[0]),
+            y: referencePoints.map((point) => point[1]),
+            mode: 'lines+markers',
+            name: '参考路径',
+            customdata: referenceKeys,
+            hovertemplate: '<extra></extra>',
+            line: { color: 'rgba(15, 118, 110, 0.62)', width: 3.6, dash: 'dash' },
+            marker: { color: '#0f766e', size: 8, symbol: 'x' },
+            showlegend: false,
+        });
+        annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, '#0f766e', 5, 0.45, arrowLength));
     }
+
     if (layerVisibility.optimized) {
-        drawPolyline(pathCtx, solutionPoints, viewport, 'rgba(202, 90, 52, 0.78)', 3.8, false);
-        drawOptimizedMarkers(pathCtx, solutionPoints, viewport);
-        drawHeadingArrows(pathCtx, solutionPoints, solution.theta, viewport, '#ca5a34', 5, 0.52);
+        const optimizedKeys = solutionPoints.map((_point, index) => `solution-${index}`);
+        traces.push({
+            x: solutionPoints.map((point) => point[0]),
+            y: solutionPoints.map((point) => point[1]),
+            mode: 'lines+markers',
+            name: '优化路径',
+            customdata: optimizedKeys,
+            hovertemplate: '<extra></extra>',
+            line: { color: 'rgba(202, 90, 52, 0.78)', width: 3.8 },
+            marker: {
+                color: 'rgba(202, 90, 52, 0.65)',
+                size: 7,
+                line: { color: 'rgba(255, 247, 242, 0.9)', width: 1 },
+            },
+            showlegend: false,
+        });
+        annotations.push(...buildHeadingAnnotations(solutionPoints, solution.theta, '#ca5a34', 5, 0.52, arrowLength));
     }
+
     if (layerVisibility.initial) {
-        drawArrow(pathCtx, viewport, initialState.x, initialState.y, initialState.theta, '#d97706', 18, 0.9, 1.7);
+        traces.push({
+            x: [initialState.x],
+            y: [initialState.y],
+            mode: 'markers',
+            name: '随机起点',
+            customdata: ['initial-0'],
+            hovertemplate: '<extra></extra>',
+            marker: {
+                color: '#d97706',
+                size: 14,
+                line: { color: 'rgba(255, 247, 242, 0.95)', width: 1.5 },
+            },
+            showlegend: false,
+        });
+        annotations.push(buildPathArrowAnnotation(initialState.x, initialState.y, initialState.theta, '#d97706', 0.9, arrowLength * 1.15, 1.7));
     }
 
-    const hoverItems = buildHoverItems(data, viewport);
-    const hoveredItem = activeKey ? hoverItems.find((item) => item.key === activeKey) : null;
-    if (hoveredItem) {
-        pathCtx.save();
-        pathCtx.fillStyle = 'rgba(217, 119, 6, 0.22)';
-        pathCtx.strokeStyle = '#d97706';
-        pathCtx.lineWidth = 2;
-        pathCtx.beginPath();
-        pathCtx.arc(hoveredItem.sx, hoveredItem.sy, 11, 0, Math.PI * 2);
-        pathCtx.fill();
-        pathCtx.stroke();
-        pathCtx.restore();
-    }
+    const highlightTraceIndex = traces.length;
+    traces.push({
+        x: [],
+        y: [],
+        mode: 'markers',
+        hoverinfo: 'skip',
+        visible: false,
+        marker: {
+            size: 22,
+            color: 'rgba(217, 119, 6, 0.18)',
+            line: { color: '#d97706', width: 2 },
+        },
+        showlegend: false,
+    });
 
-    currentScene = { viewport, hoverItems };
+    const axisStyle = {
+        showgrid: true,
+        gridcolor: 'rgba(26, 34, 48, 0.08)',
+        zeroline: false,
+        linecolor: 'rgba(26, 34, 48, 0.14)',
+        tickfont: { family: 'Space Grotesk, Noto Sans SC, sans-serif', size: 11 },
+        fixedrange: true,
+    };
+
+    const layout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { l: 32, r: 24, t: 18, b: 30 },
+        font: { family: 'Space Grotesk, Noto Sans SC, sans-serif', color: '#1a2230' },
+        hovermode: 'closest',
+        showlegend: false,
+        dragmode: false,
+        annotations,
+        xaxis: {
+            ...axisStyle,
+            range: [Math.min(...xs) - paddingX, Math.max(...xs) + paddingX],
+        },
+        yaxis: {
+            ...axisStyle,
+            range: [Math.min(...ys) - paddingY, Math.max(...ys) + paddingY],
+            scaleanchor: 'x',
+            scaleratio: 1,
+        },
+    };
+
+    Plotly.react(pathPlot, traces, layout, PATH_PLOT_CONFIG);
+    currentScene = { itemMap, hoverItems, highlightTraceIndex };
+    bindPathPlotInteractions();
+    updatePathHighlight(activeKey);
 }
 
 function buildSolutionDistance(data) {
@@ -871,11 +1030,18 @@ function findNearestHover(event) {
     if (!currentScene) {
         return null;
     }
-    const { cursorX, cursorY } = getCanvasCursorPosition(event);
+    const cursor = getCanvasCursorPosition(event);
+    if (!cursor) {
+        return null;
+    }
     let best = null;
-    let bestDistance = 16;
+    let bestDistance = 18;
     currentScene.hoverItems.forEach((item) => {
-        const distance = Math.hypot(item.sx - cursorX, item.sy - cursorY);
+        const pixelPosition = projectPlotItemToPixels(item);
+        if (!pixelPosition) {
+            return;
+        }
+        const distance = Math.hypot(pixelPosition.px - cursor.clientX, pixelPosition.py - cursor.clientY);
         if (distance < bestDistance) {
             best = item;
             bestDistance = distance;
@@ -888,48 +1054,85 @@ function findInitialDragTarget(event) {
     if (!currentScene || !layerVisibility.initial) {
         return null;
     }
-    const { cursorX, cursorY } = getCanvasCursorPosition(event);
+    const cursor = getCanvasCursorPosition(event);
+    if (!cursor) {
+        return null;
+    }
     const initialItem = currentScene.hoverItems.find((item) => item.key === 'initial-0');
     if (!initialItem) {
         return null;
     }
-    const distance = Math.hypot(initialItem.sx - cursorX, initialItem.sy - cursorY);
+    const pixelPosition = projectPlotItemToPixels(initialItem);
+    if (!pixelPosition) {
+        return null;
+    }
+    const distance = Math.hypot(pixelPosition.px - cursor.clientX, pixelPosition.py - cursor.clientY);
     return distance <= 18 ? initialItem : null;
 }
 
 function getCanvasCursorPosition(event) {
-    const rect = pathCanvas.getBoundingClientRect();
-    const scaleX = pathCanvas.width / rect.width;
-    const scaleY = pathCanvas.height / rect.height;
+    const axes = getPathPlotAxes();
+    if (!axes) {
+        return null;
+    }
+    const plotX = event.clientX - axes.rect.left - axes.xaxis._offset;
+    const plotY = event.clientY - axes.rect.top - axes.yaxis._offset;
     return {
-        cursorX: (event.clientX - rect.left) * scaleX,
-        cursorY: (event.clientY - rect.top) * scaleY,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        cursorX: axes.xaxis.p2l(plotX),
+        cursorY: axes.yaxis.p2l(plotY),
+    };
+}
+
+function getPathPlotAxes() {
+    const fullLayout = pathPlot?._fullLayout;
+    if (!fullLayout?.xaxis || !fullLayout?.yaxis) {
+        return null;
+    }
+    return {
+        rect: pathPlot.getBoundingClientRect(),
+        xaxis: fullLayout.xaxis,
+        yaxis: fullLayout.yaxis,
+    };
+}
+
+function projectPlotItemToPixels(item) {
+    const axes = getPathPlotAxes();
+    if (!axes) {
+        return null;
+    }
+    return {
+        px: axes.rect.left + axes.xaxis._offset + axes.xaxis.l2p(item.x),
+        py: axes.rect.top + axes.yaxis._offset + axes.yaxis.l2p(item.y),
     };
 }
 
 function updateCanvasCursor(nearest = null) {
     if (isDraggingInitialState) {
-        pathCanvas.style.cursor = 'grabbing';
+        pathPlot.style.cursor = 'grabbing';
         return;
     }
     if (nearest?.key === 'initial-0') {
-        pathCanvas.style.cursor = 'grab';
+        pathPlot.style.cursor = 'grab';
         return;
     }
-    pathCanvas.style.cursor = 'default';
+    pathPlot.style.cursor = 'default';
 }
 
 function updateDraggedInitialState(event) {
-    if (!isDraggingInitialState || !currentScene?.viewport || !currentData?.initial_state) {
+    if (!isDraggingInitialState || !currentData?.initial_state) {
         return null;
     }
 
-    const { cursorX, cursorY } = getCanvasCursorPosition(event);
-    const [x, y] = currentScene.viewport.unproject(cursorX, cursorY);
+    const cursor = getCanvasCursorPosition(event);
+    if (!cursor) {
+        return null;
+    }
     currentData.initial_state = {
         ...currentData.initial_state,
-        x,
-        y,
+        x: cursor.cursorX,
+        y: cursor.cursorY,
     };
     activeHoverKey = 'initial-0';
     renderPathView(currentData, activeHoverKey);
@@ -953,7 +1156,7 @@ function beginInitialStateDrag(event) {
 
     isDraggingInitialState = true;
     activeHoverKey = 'initial-0';
-    pathCanvas.style.cursor = 'grabbing';
+    pathPlot.style.cursor = 'grabbing';
     renderPathView(currentData, activeHoverKey);
     renderHoverDetails(nearest);
     positionHoverOverlay(event);
@@ -966,14 +1169,17 @@ function finishInitialStateDrag() {
         return;
     }
     isDraggingInitialState = false;
-    pathCanvas.style.cursor = 'default';
+    pathPlot.style.cursor = 'default';
     runRandomDemo({ preserveInitialState: true, dragTriggered: true });
 }
 
-function handleCanvasMove(event) {
-    if (!currentData) {
-        return;
+function handleWindowMouseMove(event) {
+    if (isDraggingInitialState) {
+        handleCanvasMove(event);
     }
+}
+
+function handleCanvasMove(event) {
     if (isDraggingInitialState) {
         updateDraggedInitialState(event);
         updateCanvasCursor();
@@ -984,7 +1190,7 @@ function handleCanvasMove(event) {
     if (!nearest) {
         if (activeHoverKey !== null) {
             activeHoverKey = null;
-            renderPathView(currentData);
+            updatePathHighlight(null);
         }
         renderHoverDetails(null);
         return;
@@ -993,7 +1199,7 @@ function handleCanvasMove(event) {
     positionHoverOverlay(event);
     if (nearest.key !== activeHoverKey) {
         activeHoverKey = nearest.key;
-        renderPathView(currentData, activeHoverKey);
+        updatePathHighlight(nearest.key);
     }
     renderHoverDetails(nearest);
 }
@@ -1005,10 +1211,8 @@ function clearCanvasHover() {
     activeHoverKey = null;
     hoverOverlay.classList.add('hidden');
     renderHoverDetails(null);
+    updatePathHighlight(null);
     updateCanvasCursor();
-    if (currentData) {
-        renderPathView(currentData);
-    }
 }
 
 function toggleLayer(layer) {
@@ -1109,9 +1313,7 @@ paramForm.addEventListener('submit', (event) => {
     event.preventDefault();
     runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) });
 });
-pathCanvas.addEventListener('mousemove', handleCanvasMove);
-pathCanvas.addEventListener('mousedown', beginInitialStateDrag);
-pathCanvas.addEventListener('mouseleave', clearCanvasHover);
+window.addEventListener('mousemove', handleWindowMouseMove);
 window.addEventListener('mouseup', finishInitialStateDrag);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
