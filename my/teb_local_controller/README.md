@@ -14,8 +14,6 @@
   核心状态、参考轨迹构造器和 `TEBMPCController` 求解器实现。
 - `demo_support.py`
   demo 专用参考轨迹、随机初始状态、投影对齐和参数摘要。
-- `matplotlib_demo.py`
-  Matplotlib 可视化 demo。
 - `app.py`
   Flask Web demo。
 
@@ -294,23 +292,6 @@ $$
 - `costs`：`track / control / terminal / total`
 
 ## demo 说明
-
-### Matplotlib demo
-
-运行：
-
-```bash
-source .venv/bin/activate
-python my/teb_local_controller/matplotlib_demo.py
-```
-
-功能：
-
-- 随机初始状态
-- 路径、对应关系、姿态箭头
-- `dt / v / a / kappa / jerk / dkappa` 曲线
-- 图例显隐切换
-- hover 显示点信息
 
 ### Web demo
 

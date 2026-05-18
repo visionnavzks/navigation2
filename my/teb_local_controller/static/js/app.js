@@ -16,6 +16,8 @@ const PATH_PLOT_CONFIG = {
 };
 
 const statsEls = {
+    optimizationStatus: document.getElementById('optimization-status'),
+    optimizationDetail: document.getElementById('optimization-detail'),
     solveTime: document.getElementById('solve-time'),
     totalTime: document.getElementById('total-time'),
     avgDt: document.getElementById('avg-dt'),
@@ -99,6 +101,12 @@ function setStatus(message, tone = 'idle') {
     statusText.textContent = message;
     statusBadge.className = `status-badge ${tone}`;
     statusBadge.textContent = tone === 'loading' ? 'Solving' : tone === 'success' ? 'Ready' : tone === 'error' ? 'Error' : 'Idle';
+}
+
+function setOptimizationIndicator(succeeded, message) {
+    statsEls.optimizationStatus.textContent = succeeded ? '成功' : '失败';
+    statsEls.optimizationDetail.textContent = message;
+    statsEls.optimizationStatus.dataset.tone = succeeded ? 'success' : 'error';
 }
 
 function setButtonLoading(isLoading) {
@@ -973,6 +981,13 @@ function renderStats(data) {
         data.solution.y[data.solution.y.length - 1] - data.reference.y[data.reference.y.length - 1],
     );
 
+    const optimization = data.optimization || {
+        succeeded: true,
+        message: data.solution.solver_status || 'Optimization succeeded',
+    };
+
+    setOptimizationIndicator(Boolean(optimization.succeeded), optimization.message || 'Optimization succeeded');
+
     statsEls.solveTime.textContent = `${formatNumber(data.solution.solve_time_ms, 1)} ms`;
     statsEls.totalTime.textContent = `${formatNumber(totalTime, 2)} s`;
     statsEls.avgDt.textContent = `${formatNumber(dtValues.reduce((sum, value) => sum + value, 0) / dtValues.length, 3)} s`;
@@ -1294,6 +1309,7 @@ async function runRandomDemo(options = {}) {
             'success',
         );
     } catch (error) {
+        setOptimizationIndicator(false, error.message);
         setStatus(`失败: ${error.message}`, 'error');
     } finally {
         solveInFlight = false;

@@ -278,6 +278,7 @@ class TEBMPCController:
             raise RuntimeError(f"TEB MPC solve failed after {elapsed_ms:.2f} ms: {exc}") from exc
 
         elapsed_ms = (time.time() - start_time) * 1000.0
+        solver_stats = opti.stats()
         result = {
             "x": np.array(sol.value(x), dtype=float),
             "y": np.array(sol.value(y), dtype=float),
@@ -289,6 +290,7 @@ class TEBMPCController:
             "jerk": np.array(sol.value(jerk), dtype=float),
             "dkappa": np.array(sol.value(dkappa), dtype=float),
             "solve_time_ms": float(elapsed_ms),
+            "solver_status": str(solver_stats.get("return_status", "Solve_Succeeded")),
             "costs": {
                 "track": float(sol.value(cost_track)),
                 "control": float(sol.value(cost_control)),

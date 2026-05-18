@@ -87,6 +87,10 @@ def random_demo():
         return jsonify(
             {
                 "success": True,
+                "optimization": {
+                    "succeeded": True,
+                    "message": str(solution.get("solver_status", "Optimization succeeded")),
+                },
                 "config": describe_demo_configuration(
                     params=controller_params,
                     reference_config=reference_config,
@@ -107,14 +111,28 @@ def random_demo():
                     "dkappa": solution["dkappa"].tolist(),
                     "time": solution["time"].tolist(),
                     "solve_time_ms": float(solution["solve_time_ms"]),
+                    "solver_status": str(solution.get("solver_status", "Optimization succeeded")),
                     "costs": solution["costs"],
                 },
             }
         )
     except Exception as exc:
         traceback.print_exc()
-        return jsonify({"success": False, "message": str(exc)}), 500
+        return jsonify(
+            {
+                "success": False,
+                "message": str(exc),
+                "optimization": {
+                    "succeeded": False,
+                    "message": str(exc),
+                },
+            }
+        ), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5002)
+    app.run(
+        debug=os.environ.get("FLASK_DEBUG", "1") not in {"0", "false", "False"},
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "5002")),
+    )

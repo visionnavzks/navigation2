@@ -151,6 +151,20 @@ h1 {
     line-height: 1.5;
 }
 
+#optimization-status[data-tone="success"] {
+    color: var(--accent);
+}
+
+#optimization-status[data-tone="error"] {
+    color: #b42318;
+}
+
+.stat-detail {
+    color: var(--muted);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+
 .workspace {
     display: grid;
     grid-template-columns: 360px minmax(0, 1.9fr) 360px;
