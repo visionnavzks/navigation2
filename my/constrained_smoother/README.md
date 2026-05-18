@@ -112,8 +112,8 @@ solver / post-validation failure
     -> or throw FailedToSmoothPath
 ```
 
-稳定错误码和原因字符串的完整目录见 [docs/error-codes.md](docs/error-codes.md)。
-如果你在排查失败语义，建议把本节和 [docs/error-codes.md](docs/error-codes.md) 一起看：这里讲传播路径，错误码文档讲稳定 code / reason 的含义。
+稳定错误码和原因字符串的完整目录见 [ERROR_CODES.md](ERROR_CODES.md)。
+如果你在排查失败语义，建议把本节和 [ERROR_CODES.md](ERROR_CODES.md) 一起看：这里讲传播路径，错误码文档讲稳定 code / reason 的含义。
 
 ### 最常见改动入口
 
@@ -123,7 +123,7 @@ solver / post-validation failure
 - 想改几何版端点锚定、上采样或 yaw 重建：看 `include/constrained_smoother/smoother_path_ops.hpp`。
 - 想改运动学状态展开、边界约束或问题拼接：看 `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`。
 - 想改运动学 cost functor：看 `include/constrained_smoother/kinematic_smoother_costs.hpp`。
-- 想改统一失败传播、错误码或异常语义：看 `include/constrained_smoother/exceptions.hpp`、[docs/error-codes.md](docs/error-codes.md) 和本 README 的“失败传播路径”小节。
+- 想改统一失败传播、错误码或异常语义：看 `include/constrained_smoother/exceptions.hpp`、[ERROR_CODES.md](ERROR_CODES.md) 和本 README 的“失败传播路径”小节。
 - 想改后验校验策略：看 `include/constrained_smoother/smoother_validator.hpp`。
 - 想改顶层调用编排或单次执行生命周期：看 `include/constrained_smoother/smoother.hpp`、`include/constrained_smoother/kinematic_smoother.hpp` 和 `include/constrained_smoother/smoother_run_base.hpp`。
 
@@ -138,7 +138,7 @@ solver / post-validation failure
 - 想给 Python / Web / UI 层提供稳定的结构化返回：优先走 pybind `try_*` 接口。
 	- 这层会把 native 异常和 `failure` 统一折叠成稳定的 `error_code` / `error_reason` / `error_details`。
 
-如果你在这几类接口之间切换，建议同时看本 README 的“失败传播路径”和 [docs/error-codes.md](docs/error-codes.md)。
+如果你在这几类接口之间切换，建议同时看本 README 的“失败传播路径”和 [ERROR_CODES.md](ERROR_CODES.md)。
 
 对 Python / Web 接入再细分一点：
 
@@ -221,7 +221,6 @@ The design notes under `docs/` can now be served as a local Material for MkDocs 
 ```
 
 The script launches the local MkDocs Material preview on `127.0.0.1:8000` by default.
-If that port is already busy, it automatically picks the next free port.
 Override `CS_DOCS_HOST` or `CS_DOCS_PORT` if you want a different bind address.
 
 ### Build static docs
@@ -391,7 +390,7 @@ The standalone project now uses stable error codes instead of relying on free-fo
 	- If that post-validation fails, the API sets `smooth_success=false`, fills `smooth_error`, includes `candidate_rectangle_validation`, and still returns the smoothed candidate for visualization.
 	- `final_rectangle_validation` always describes the path that is actually returned to the frontend.
 
-See [docs/error-codes.md](docs/error-codes.md) for the full catalog and handling guidance.
+See `ERROR_CODES.md` for the full catalog and handling guidance.
 
 ```json
 {
