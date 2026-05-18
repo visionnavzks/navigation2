@@ -81,9 +81,13 @@ demo 中不会直接使用整条原始参考路径，而是先做一次“初始
 
 步骤如下：
 
-1. 在参考折线上找到初始状态 `(x, y)` 的最近投影点。
+1. 在参考折线上找到初始状态 `(x, y)` 的最近投影点；如果初始状态落在参考路径首尾之外，则允许在首尾切向上做线性延长后再投影。
 2. 计算该投影点对应的参考弧长 $s_0$。
-3. 从 $s_0$ 开始，对原始参考轨迹重新插值得到一条新的参考轨迹。
+3. 之后不再直接裁剪离散点，而是通过连续的弧长采样器生成新的参考轨迹：
+  - 当 $s < 0$ 时，位置沿起点切向线性延长，航向固定为起点航向。
+  - 当 $0 \le s \le s_{end}$ 时，按原始参考轨迹插值采样。
+  - 当 $s > s_{end}$ 且起点仍在原始终点之前时，重采样在原始终点处截断，因此参考点数量可能减少。
+  - 当 $s > s_{end}$ 且起点本身已经在终点外时，不再继续延长原路径，而是从当前状态平滑收敛到终点切向的延长线，并沿这条延长线减速停车；这段停车参考的航向和曲率由几何轨迹反推，并额外按 `max_lat_accel`、`max_kappa`、`max_dkappa` 做整形。
 4. 这条对齐后的参考轨迹作为优化器输入。
 
 这样做的原因是：
@@ -117,7 +121,7 @@ $$
 为了减少直接欧拉离散误差，位置和航向更新使用中点量：
 
 $$
-v_{mid} = v_i + \frac{1}{2} dt_i a_i
+v_{mid} = v_i + \frac{1}{2} dt_i a_i + \frac{1}{8} dt_i^2 jerk_i
 $$
 
 $$
@@ -132,24 +136,31 @@ $$
 
 ### 位置更新
 
+当中点曲率接近零时，使用直线推进：
+
 $$
-x_{i+1} = x_i + dt_i \cdot v_{mid} \cdot \cos(\theta_{mid})
+x_{i+1} = x_i + dt_i \cdot v_{mid} \cdot \cos(\theta_i)
 $$
 
 $$
-y_{i+1} = y_i + dt_i \cdot v_{mid} \cdot \sin(\theta_{mid})
+y_{i+1} = y_i + dt_i \cdot v_{mid} \cdot \sin(\theta_i)
 $$
 
-其中：
+否则使用常曲率圆弧的解析推进：
 
 $$
-\theta_{mid} = \theta_i + \frac{1}{2} dt_i \cdot v_{mid} \cdot \kappa_{mid}
+x_{i+1} = x_i + \frac{\sin(\theta_{i+1}) - \sin(\theta_i)}{\kappa_{mid}}
+$$
+
+$$
+y_{i+1} = y_i + \frac{\cos(\theta_i) - \cos(\theta_{i+1})}{\kappa_{mid}}
 $$
 
 这个模型的特点是：
 
 - 比最简单的前向欧拉更平滑
 - 能把 `dt` 的伸缩直接作用到几何推进距离上
+- 在较大 `dt` 下比简单中点直线推进更贴近单轨几何运动
 - 能把 `jerk` 和 `d\kappa` 作为自然控制量放进优化器
 
 ## 代价函数
@@ -229,6 +240,7 @@ $$
 - $dt_{min} \le dt_i \le dt_{max}$
 - $0 \le v_i \le max\_speed$
 - $|a_i| \le max\_accel$
+- $|v_i^2 \kappa_i| \le max\_lat\_accel$
 - $|jerk_i| \le max\_jerk$
 - $|\kappa_i| \le max\_kappa$
 - $|d\kappa_i| \le max\_dkappa$
@@ -249,6 +261,7 @@ $$
 
 - `max_speed = 2.5`
 - `max_accel = 1.0`
+- `max_lat_accel = 1.5`
 - `max_jerk = 3.0`
 - `max_kappa = 2.0`
 - `max_dkappa = 1.5`

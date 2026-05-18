@@ -166,6 +166,7 @@ class TEBMPCController:
         self.dt_max = float(self.params.get("dt_max", 0.35))
         self.max_speed = float(self.params.get("max_speed", 2.5))
         self.max_accel = float(self.params.get("max_accel", 1.0))
+        self.max_lat_accel = float(self.params.get("max_lat_accel", 1.5))
         self.max_jerk = float(self.params.get("max_jerk", 3.0))
         self.max_kappa = float(self.params.get("max_kappa", 2.0))
         self.max_dkappa = float(self.params.get("max_dkappa", 1.5))
@@ -224,12 +225,18 @@ class TEBMPCController:
             kappa_next = kappa[i] + dt[i] * dkappa[i]
             v_next = v[i] + dt[i] * a[i] + 0.5 * dt[i] ** 2 * jerk[i]
 
-            v_mid = v[i] + 0.5 * dt[i] * a[i]
+            v_mid = v[i] + 0.5 * dt[i] * a[i] + 0.125 * dt[i] ** 2 * jerk[i]
             kappa_mid = kappa[i] + 0.5 * dt[i] * dkappa[i]
+            lat_accel_mid = v_mid ** 2 * kappa_mid
             theta_next = theta[i] + dt[i] * v_mid * kappa_mid
-            theta_mid = theta[i] + 0.5 * dt[i] * v_mid * kappa_mid
-            x_next = x[i] + dt[i] * v_mid * ca.cos(theta_mid)
-            y_next = y[i] + dt[i] * v_mid * ca.sin(theta_mid)
+            ds = dt[i] * v_mid
+            near_straight = ca.fabs(kappa_mid) < 1e-6
+            x_arc = x[i] + (ca.sin(theta_next) - ca.sin(theta[i])) / kappa_mid
+            y_arc = y[i] + (ca.cos(theta[i]) - ca.cos(theta_next)) / kappa_mid
+            x_straight = x[i] + ds * ca.cos(theta[i])
+            y_straight = y[i] + ds * ca.sin(theta[i])
+            x_next = ca.if_else(near_straight, x_straight, x_arc)
+            y_next = ca.if_else(near_straight, y_straight, y_arc)
 
             opti.subject_to(a[i + 1] == a_next)
             opti.subject_to(kappa[i + 1] == kappa_next)
@@ -237,6 +244,7 @@ class TEBMPCController:
             opti.subject_to(theta[i + 1] == theta_next)
             opti.subject_to(x[i + 1] == x_next)
             opti.subject_to(y[i + 1] == y_next)
+            opti.subject_to(opti.bounded(-self.max_lat_accel, lat_accel_mid, self.max_lat_accel))
 
         opti.subject_to(x[0] == initial_state.x)
         opti.subject_to(y[0] == initial_state.y)
@@ -248,6 +256,7 @@ class TEBMPCController:
         opti.subject_to(opti.bounded(self.dt_min, dt, self.dt_max))
         opti.subject_to(opti.bounded(0.0, v, self.max_speed))
         opti.subject_to(opti.bounded(-self.max_accel, a, self.max_accel))
+        opti.subject_to(opti.bounded(-self.max_lat_accel, v ** 2 * kappa, self.max_lat_accel))
         opti.subject_to(opti.bounded(-self.max_jerk, jerk, self.max_jerk))
         opti.subject_to(opti.bounded(-self.max_kappa, kappa, self.max_kappa))
         opti.subject_to(opti.bounded(-self.max_dkappa, dkappa, self.max_dkappa))

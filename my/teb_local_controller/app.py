@@ -99,6 +99,7 @@ def random_demo():
                 "initial_state": _state_to_dict(initial_state),
                 "reference": _reference_to_dict(reference),
                 "display_reference": _reference_to_dict(display_reference),
+                "reference_meta": solution.get("reference_meta", {}),
                 "solution": {
                     "x": solution["x"].tolist(),
                     "y": solution["y"].tolist(),

@@ -9,6 +9,8 @@ const plotlyChart = document.getElementById('plotly-chart');
 const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
 const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
+const initialHeadingSlider = document.getElementById('initial-heading-slider');
+const initialHeadingValue = document.getElementById('initial-heading-value');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -58,6 +60,7 @@ const PARAM_HELP_TEXTS = {
     dt_max: '优化允许的最大时间步长，单位 s。增大它会允许轨迹在某些段上明显放慢。',
     max_speed: '优化状态中的速度上界，单位 m/s。它是硬约束，不是参考速度。',
     max_accel: '优化状态中的加速度绝对值上界，单位 m/s²。',
+    max_lat_accel: '最大侧向加速度，单位 m/s²。这里约束的是 |v²·kappa|，会同时限制高速急转弯。',
     max_jerk: '控制量 jerk 的绝对值上界，单位 m/s³。越小表示速度变化更平滑，但机动性更弱。',
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
@@ -88,6 +91,7 @@ let activeParamTooltipAnchor = null;
 let isDraggingInitialState = false;
 const layerVisibility = {
     reference: true,
+    stopReference: true,
     optimized: true,
     correspondence: true,
     initial: true,
@@ -95,6 +99,18 @@ const layerVisibility = {
 
 function formatNumber(value, digits = 3) {
     return Number(value).toFixed(digits);
+}
+
+function normalizeAngle(angle) {
+    return Math.atan2(Math.sin(angle), Math.cos(angle));
+}
+
+function radiansToDegrees(angle) {
+    return angle * (180 / Math.PI);
+}
+
+function degreesToRadians(angle) {
+    return angle * (Math.PI / 180);
 }
 
 function setStatus(message, tone = 'idle') {
@@ -185,6 +201,35 @@ function resetParameterForm() {
     }
     applyConfigToForm(defaultParameterSnapshot);
     setStatus('已恢复默认参数，可以点击按钮重新求解。', 'idle');
+}
+
+function updateInitialHeadingControls(initialState) {
+    if (!initialHeadingSlider || !initialHeadingValue) {
+        return;
+    }
+
+    if (!initialState) {
+        initialHeadingSlider.disabled = true;
+        initialHeadingSlider.value = '0';
+        initialHeadingValue.textContent = '--';
+        return;
+    }
+
+    const normalizedTheta = normalizeAngle(initialState.theta);
+    initialHeadingSlider.disabled = false;
+    initialHeadingSlider.value = String(Math.round(radiansToDegrees(normalizedTheta)));
+    initialHeadingValue.textContent = `${formatNumber(normalizedTheta, 3)} rad / ${formatNumber(radiansToDegrees(normalizedTheta), 0)} deg`;
+}
+
+function scheduleInitialHeadingReplan() {
+    if (autoReplanTimer !== null) {
+        clearTimeout(autoReplanTimer);
+    }
+    setStatus('起点朝向已变更，正在等待基于当前状态自动重规划...', 'idle');
+    autoReplanTimer = window.setTimeout(() => {
+        autoReplanTimer = null;
+        runRandomDemo({ preserveInitialState: true, autoTriggered: true });
+    }, 220);
 }
 
 function ensureGlobalParamTooltip() {
@@ -464,6 +509,7 @@ function buildHoverItems(data) {
     const items = [];
     const solverReference = data.reference;
     const displayReference = data.display_reference || data.reference;
+    const stopReferenceActive = Boolean(data.reference_meta?.is_stopping_reference);
     const referenceCount = solverReference.x.length;
     const displayReferenceCount = displayReference.x.length;
     const solutionCount = data.solution.x.length;
@@ -489,6 +535,23 @@ function buildHoverItems(data) {
                 v: displayReference.v[index],
                 a: displayReference.a[index],
                 kappa: displayReference.kappa[index],
+            });
+        }
+    }
+
+    if (stopReferenceActive && layerVisibility.stopReference) {
+        for (let index = 0; index < referenceCount; index += 1) {
+            items.push({
+                key: `stop-reference-${index}`,
+                label: 'Stop Ref',
+                index,
+                x: solverReference.x[index],
+                y: solverReference.y[index],
+                s: solverReference.s[index],
+                theta: solverReference.theta[index],
+                v: solverReference.v[index],
+                a: solverReference.a[index],
+                kappa: solverReference.kappa[index],
             });
         }
     }
@@ -657,10 +720,12 @@ function updatePathHighlight(key) {
 function renderPathView(data, activeKey = null) {
     const { reference, solution, initial_state: initialState } = data;
     const displayReference = data.display_reference || data.reference;
+    const stopReferenceActive = Boolean(data.reference_meta?.is_stopping_reference);
     const referencePoints = displayReference.x.map((x, index) => [x, displayReference.y[index]]);
     const solverReferencePoints = reference.x.map((x, index) => [x, reference.y[index]]);
+    const stopReferencePoints = stopReferenceActive ? solverReferencePoints : [];
     const solutionPoints = solution.x.map((x, index) => [x, solution.y[index]]);
-    const allPoints = [...referencePoints, ...solutionPoints, [initialState.x, initialState.y]];
+    const allPoints = [...referencePoints, ...stopReferencePoints, ...solutionPoints, [initialState.x, initialState.y]];
     const xs = allPoints.map((point) => point[0]);
     const ys = allPoints.map((point) => point[1]);
     const spanX = Math.max(Math.max(...xs) - Math.min(...xs), 1.0);
@@ -673,7 +738,7 @@ function renderPathView(data, activeKey = null) {
     const annotations = [];
     const traces = [];
 
-    if (layerVisibility.correspondence && layerVisibility.reference && layerVisibility.optimized) {
+    if (layerVisibility.correspondence && layerVisibility.optimized) {
         const { xs: correspondenceX, ys: correspondenceY } = buildSegmentedLineCoords(solverReferencePoints, solutionPoints);
         traces.push({
             x: correspondenceX,
@@ -700,6 +765,27 @@ function renderPathView(data, activeKey = null) {
             showlegend: false,
         });
         annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, '#0f766e', 5, 0.45, arrowLength));
+    }
+
+    if (stopReferenceActive && layerVisibility.stopReference) {
+        const stopReferenceKeys = stopReferencePoints.map((_point, index) => `stop-reference-${index}`);
+        traces.push({
+            x: stopReferencePoints.map((point) => point[0]),
+            y: stopReferencePoints.map((point) => point[1]),
+            mode: 'lines+markers',
+            name: '停车参考',
+            customdata: stopReferenceKeys,
+            hovertemplate: '<extra></extra>',
+            line: { color: 'rgba(217, 119, 6, 0.9)', width: 4.2 },
+            marker: {
+                color: 'rgba(217, 119, 6, 0.85)',
+                size: 8,
+                symbol: 'diamond',
+                line: { color: 'rgba(255, 247, 242, 0.95)', width: 1.2 },
+            },
+            showlegend: false,
+        });
+        annotations.push(...buildHeadingAnnotations(stopReferencePoints, reference.theta, '#d97706', 4, 0.72, arrowLength * 0.95, 1.55));
     }
 
     if (layerVisibility.optimized) {
@@ -1006,6 +1092,8 @@ function renderStats(data) {
         ['a', `${formatNumber(initialState.a, 3)} m/s²`],
         ['kappa', `${formatNumber(initialState.kappa, 3)} 1/m`],
     ].map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+    updateInitialHeadingControls(initialState);
 }
 
 function renderConfig(data) {
@@ -1025,6 +1113,7 @@ function renderConfig(data) {
         ['dt', `[${formatNumber(limits.dt_min, 2)}, ${formatNumber(limits.dt_max, 2)}] s`],
         ['max_speed', `${formatNumber(limits.max_speed, 2)} m/s`],
         ['max_accel', `${formatNumber(limits.max_accel, 2)} m/s²`],
+        ['max_lat_accel', `${formatNumber(limits.max_lat_accel, 2)} m/s²`],
         ['max_jerk', `${formatNumber(limits.max_jerk, 2)} m/s³`],
         ['max_kappa', `${formatNumber(limits.max_kappa, 2)} 1/m`],
         ['max_dkappa', `${formatNumber(limits.max_dkappa, 2)} 1/(m*s)`],
@@ -1219,6 +1308,32 @@ function handleCanvasMove(event) {
     renderHoverDetails(nearest);
 }
 
+function handleInitialHeadingInput() {
+    if (!currentData?.initial_state || !initialHeadingSlider) {
+        return;
+    }
+
+    const sliderDegrees = Number.parseFloat(initialHeadingSlider.value);
+    if (Number.isNaN(sliderDegrees)) {
+        return;
+    }
+
+    currentData.initial_state = {
+        ...currentData.initial_state,
+        theta: normalizeAngle(degreesToRadians(sliderDegrees)),
+    };
+    activeHoverKey = 'initial-0';
+    renderPathView(currentData, activeHoverKey);
+    renderStats(currentData);
+
+    const currentInitialItem = currentScene?.itemMap.get('initial-0') || null;
+    if (currentInitialItem && activeHoverKey === 'initial-0') {
+        renderHoverDetails(currentInitialItem);
+    }
+
+    scheduleInitialHeadingReplan();
+}
+
 function clearCanvasHover() {
     if (isDraggingInitialState) {
         return;
@@ -1337,10 +1452,14 @@ legendToggles.forEach((toggle) => {
 axisButtons.forEach((button) => {
     button.addEventListener('click', () => setChartAxisMode(button.dataset.axisMode));
 });
+if (initialHeadingSlider) {
+    initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
+}
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => scheduleAutoReplan(input));
 });
 updateLegendToggleStyles();
 updateAxisButtonStyles();
 initParameterTooltips();
+updateInitialHeadingControls(null);
 runRandomDemo();

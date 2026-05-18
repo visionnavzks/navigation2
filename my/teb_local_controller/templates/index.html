@@ -81,6 +81,7 @@
                             <label class="param-field"><span>dt_max</span><input data-param-group="controller" data-param-key="dt_max" type="number" step="0.01" value="0.35"></label>
                             <label class="param-field"><span>max_speed</span><input data-param-group="controller" data-param-key="max_speed" type="number" step="0.05" value="2.5"></label>
                             <label class="param-field"><span>max_accel</span><input data-param-group="controller" data-param-key="max_accel" type="number" step="0.05" value="1.0"></label>
+                            <label class="param-field"><span>max_lat_accel</span><input data-param-group="controller" data-param-key="max_lat_accel" type="number" step="0.05" value="1.5"></label>
                             <label class="param-field"><span>max_jerk</span><input data-param-group="controller" data-param-key="max_jerk" type="number" step="0.05" value="3.0"></label>
                             <label class="param-field"><span>max_kappa</span><input data-param-group="controller" data-param-key="max_kappa" type="number" step="0.01" value="2.0"></label>
                             <label class="param-field"><span>max_dkappa</span><input data-param-group="controller" data-param-key="max_dkappa" type="number" step="0.05" value="1.5"></label>
@@ -122,6 +123,7 @@
                         </div>
                         <div class="legend-row">
                             <button type="button" class="legend-chip legend-toggle reference active" data-layer="reference">参考路径</button>
+                            <button type="button" class="legend-chip legend-toggle stop-reference active" data-layer="stopReference">停车参考</button>
                             <button type="button" class="legend-chip legend-toggle optimized active" data-layer="optimized">优化路径</button>
                             <button type="button" class="legend-chip legend-toggle correspondence active" data-layer="correspondence">对应关系</button>
                             <button type="button" class="legend-chip legend-toggle initial active" data-layer="initial">随机起点</button>
@@ -200,7 +202,18 @@
                         <h3>随机初始状态</h3>
                         <span class="section-pill">Init</span>
                     </div>
-                    <h3>随机初始状态</h3>
+                    <div class="state-slider-card">
+                        <div class="state-slider-header">
+                            <span>起点朝向</span>
+                            <strong id="initial-heading-value">--</strong>
+                        </div>
+                        <input id="initial-heading-slider" class="state-slider" type="range" min="-180" max="180" step="1" value="0" disabled>
+                        <div class="state-slider-scale">
+                            <span>-180 deg</span>
+                            <span>0 deg</span>
+                            <span>180 deg</span>
+                        </div>
+                    </div>
                     <div id="initial-state" class="state-list"></div>
                 </section>
 

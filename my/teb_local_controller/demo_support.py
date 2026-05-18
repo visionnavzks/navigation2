@@ -118,6 +118,7 @@ def describe_demo_configuration(
             "dt_max": controller.dt_max,
             "max_speed": controller.max_speed,
             "max_accel": controller.max_accel,
+            "max_lat_accel": controller.max_lat_accel,
             "max_jerk": controller.max_jerk,
             "max_kappa": controller.max_kappa,
             "max_dkappa": controller.max_dkappa,
@@ -170,6 +171,179 @@ def sample_random_initial_state(
     )
 
 
+def _projection_ratio_for_segment(index: int, segment_count: int, raw_ratio: float) -> float:
+    if segment_count == 1:
+        return raw_ratio
+    if index == 0:
+        return min(raw_ratio, 1.0)
+    if index == segment_count - 1:
+        return max(raw_ratio, 0.0)
+    return float(np.clip(raw_ratio, 0.0, 1.0))
+
+
+def _smoothstep_quintic(alpha: np.ndarray) -> np.ndarray:
+    return 6.0 * np.power(alpha, 5) - 15.0 * np.power(alpha, 4) + 10.0 * np.power(alpha, 3)
+
+
+def _derive_heading_from_positions(positions: np.ndarray, theta_start: float, theta_end: float) -> np.ndarray:
+    if positions.shape[0] == 1:
+        return np.array([theta_end], dtype=float)
+
+    deltas = np.diff(positions, axis=0)
+    segment_theta = np.array([math.atan2(delta[1], delta[0]) for delta in deltas], dtype=float)
+    theta = np.empty(positions.shape[0], dtype=float)
+    theta[0] = theta_start
+    theta[1:] = np.unwrap(segment_theta, discont=math.pi)
+    theta = np.unwrap(theta, discont=math.pi)
+    theta[0] = theta_start
+    theta[-1] = theta_end
+    return theta
+
+
+def _shape_curvature_profile(
+    theta: np.ndarray,
+    s: np.ndarray,
+    state: VehicleState,
+    v: np.ndarray,
+    dt_ref: float,
+    stop_constraints: Dict[str, float] | None,
+) -> np.ndarray:
+    sample_count = theta.shape[0]
+    if sample_count <= 1:
+        return np.array([float(state.kappa)], dtype=float)
+
+    target_kappa = np.zeros(sample_count, dtype=float)
+    ds = np.diff(s)
+    dtheta = np.diff(theta)
+    valid = ds > 1e-9
+    target_kappa[1:][valid] = dtheta[valid] / ds[valid]
+    target_kappa[0] = float(state.kappa)
+
+    max_kappa = float(stop_constraints.get("max_kappa", 2.0)) if stop_constraints else 2.0
+    max_dkappa = float(stop_constraints.get("max_dkappa", 1.5)) if stop_constraints else 1.5
+    max_lat_accel = float(stop_constraints.get("max_lat_accel", float("inf"))) if stop_constraints else float("inf")
+
+    for index in range(sample_count):
+        lat_limit = max_kappa
+        if math.isfinite(max_lat_accel) and max_lat_accel > 0.0:
+            speed_sq = max(float(v[index]) ** 2, 1e-6)
+            lat_limit = min(lat_limit, max_lat_accel / speed_sq)
+        target_kappa[index] = float(np.clip(target_kappa[index], -lat_limit, lat_limit))
+
+    delta_limit = max_dkappa * dt_ref
+    forward = np.empty(sample_count, dtype=float)
+    forward[0] = float(np.clip(state.kappa, -max_kappa, max_kappa))
+    for index in range(1, sample_count):
+        forward[index] = float(np.clip(target_kappa[index], forward[index - 1] - delta_limit, forward[index - 1] + delta_limit))
+
+    shaped = np.empty(sample_count, dtype=float)
+    shaped[-1] = 0.0
+    for index in range(sample_count - 2, -1, -1):
+        shaped[index] = float(np.clip(forward[index], shaped[index + 1] - delta_limit, shaped[index + 1] + delta_limit))
+
+    return shaped
+
+
+def _build_stopping_reference(
+    state: VehicleState,
+    reference: ReferenceTrajectory,
+    sample_count: int,
+    dt_ref: float,
+    stop_constraints: Dict[str, float] | None = None,
+) -> ReferenceTrajectory:
+    sample_count = max(int(sample_count), 2)
+    dt_ref = float(dt_ref)
+    times = np.arange(sample_count, dtype=float) * dt_ref
+    speed0 = max(float(state.v), 0.0)
+    horizon = max(times[-1], dt_ref)
+    decel = -speed0 / horizon if speed0 > 1e-9 else 0.0
+    travel = speed0 * times + 0.5 * decel * np.square(times)
+    travel = np.maximum(travel, 0.0)
+
+    end_theta = float(reference.theta[-1])
+    tangent = np.array([math.cos(end_theta), math.sin(end_theta)], dtype=float)
+    end_point = np.array([float(reference.x[-1]), float(reference.y[-1])], dtype=float)
+    state_point = np.array([float(state.x), float(state.y)], dtype=float)
+    relative_to_end = state_point - end_point
+    longitudinal_offset = float(np.dot(relative_to_end, tangent))
+    projected_point = end_point + longitudinal_offset * tangent
+    lateral_offset = state_point - projected_point
+    alpha = np.linspace(0.0, 1.0, sample_count, dtype=float)
+    blend = 1.0 - _smoothstep_quintic(alpha)
+    positions = projected_point + np.outer(travel, tangent) + np.outer(blend, lateral_offset)
+
+    v = np.maximum(speed0 + decel * times, 0.0)
+    a = np.full(sample_count, decel, dtype=float)
+    a[0] = float(state.a)
+    a[-1] = 0.0
+    s = np.zeros(sample_count, dtype=float)
+    if sample_count > 1:
+        s[1:] = np.cumsum(np.linalg.norm(np.diff(positions, axis=0), axis=1))
+    theta = _derive_heading_from_positions(positions, float(state.theta), end_theta)
+    kappa = _shape_curvature_profile(theta, s, state, v, dt_ref, stop_constraints)
+
+    return ReferenceTrajectory(
+        x=np.array(positions[:, 0], dtype=float),
+        y=np.array(positions[:, 1], dtype=float),
+        theta=theta,
+        v=np.array(v, dtype=float),
+        a=a,
+        kappa=kappa,
+        s=s,
+        dt_ref=dt_ref,
+    )
+
+
+def _sample_reference_at_s(reference: ReferenceTrajectory, query_s: np.ndarray) -> Dict[str, np.ndarray]:
+    original_s = np.array(reference.s, dtype=float)
+    start_s = float(original_s[0])
+    end_s = float(original_s[-1])
+    clipped_s = np.clip(query_s, start_s, end_s)
+
+    samples = {
+        "x": np.interp(clipped_s, original_s, reference.x),
+        "y": np.interp(clipped_s, original_s, reference.y),
+        "theta": np.interp(clipped_s, original_s, reference.theta),
+        "v": np.interp(clipped_s, original_s, reference.v),
+        "a": np.interp(clipped_s, original_s, reference.a),
+        "kappa": np.interp(clipped_s, original_s, reference.kappa),
+    }
+
+    before_start_mask = query_s < start_s
+    if np.any(before_start_mask):
+        delta_s = query_s[before_start_mask] - start_s
+        theta_start = float(reference.theta[0])
+        samples["x"][before_start_mask] = float(reference.x[0]) + delta_s * math.cos(theta_start)
+        samples["y"][before_start_mask] = float(reference.y[0]) + delta_s * math.sin(theta_start)
+        samples["theta"][before_start_mask] = theta_start
+        samples["v"][before_start_mask] = float(reference.v[0])
+        samples["a"][before_start_mask] = float(reference.a[0])
+        samples["kappa"][before_start_mask] = 0.0
+
+    return samples
+
+
+def _build_aligned_query_s(original_s: np.ndarray, projection_s: float) -> np.ndarray:
+    shifted_s = projection_s + original_s
+    end_s = float(original_s[-1])
+
+    if projection_s > end_s:
+        return shifted_s
+
+    tol = 1e-9
+    query_s = shifted_s[shifted_s <= end_s + tol]
+    if query_s.size == 0:
+        query_s = np.array([projection_s], dtype=float)
+
+    if projection_s >= 0.0 and query_s[-1] < end_s - tol:
+        query_s = np.concatenate((query_s, np.array([end_s], dtype=float)))
+
+    if query_s.size == 1:
+        query_s = np.concatenate((query_s, np.array([query_s[0]], dtype=float)))
+
+    return query_s
+
+
 def project_state_onto_reference(reference: ReferenceTrajectory, state: VehicleState) -> Dict[str, float]:
     if reference.size == 1:
         return {
@@ -185,8 +359,9 @@ def project_state_onto_reference(reference: ReferenceTrajectory, state: VehicleS
     query = np.array([state.x, state.y], dtype=float)
     best_projection = None
     best_distance_sq = float("inf")
+    segment_count = reference.size - 1
 
-    for index in range(reference.size - 1):
+    for index in range(segment_count):
         start = np.array([reference.x[index], reference.y[index]], dtype=float)
         end = np.array([reference.x[index + 1], reference.y[index + 1]], dtype=float)
         segment = end - start
@@ -196,7 +371,8 @@ def project_state_onto_reference(reference: ReferenceTrajectory, state: VehicleS
             ratio = 0.0
             projection = start
         else:
-            ratio = float(np.clip(np.dot(query - start, segment) / segment_len_sq, 0.0, 1.0))
+            raw_ratio = float(np.dot(query - start, segment) / segment_len_sq)
+            ratio = _projection_ratio_for_segment(index=index, segment_count=segment_count, raw_ratio=raw_ratio)
             projection = start + ratio * segment
 
         distance_sq = float(np.dot(query - projection, query - projection))
@@ -216,27 +392,57 @@ def project_state_onto_reference(reference: ReferenceTrajectory, state: VehicleS
 
 
 def align_reference_to_projection(reference: ReferenceTrajectory, state: VehicleState) -> ReferenceTrajectory:
+    aligned_reference, _ = align_reference_to_projection_with_constraints(reference, state)
+    return aligned_reference
+
+
+def align_reference_to_projection_with_constraints(
+    reference: ReferenceTrajectory,
+    state: VehicleState,
+    stop_constraints: Dict[str, float] | None = None,
+) -> Tuple[ReferenceTrajectory, Dict[str, object]]:
     projection = project_state_onto_reference(reference, state)
+    end_s = float(reference.s[-1])
+    if float(projection["s"]) > end_s:
+        return (
+            _build_stopping_reference(
+                state=state,
+                reference=reference,
+                sample_count=reference.size,
+                dt_ref=reference.dt_ref,
+                stop_constraints=stop_constraints,
+            ),
+            {
+                "mode": "beyond_end_stop",
+                "is_stopping_reference": True,
+                "end_extension_line": {
+                    "x": float(reference.x[-1]),
+                    "y": float(reference.y[-1]),
+                    "theta": float(reference.theta[-1]),
+                },
+            },
+        )
+
     original_s = np.array(reference.s, dtype=float)
-    query_s = np.clip(projection["s"] + original_s, projection["s"], original_s[-1])
+    query_s = _build_aligned_query_s(original_s, float(projection["s"]))
     aligned_s = query_s - query_s[0]
+    aligned_samples = _sample_reference_at_s(reference, query_s)
 
-    aligned_x = np.interp(query_s, original_s, reference.x)
-    aligned_y = np.interp(query_s, original_s, reference.y)
-    aligned_theta = np.interp(query_s, original_s, reference.theta)
-    aligned_v = np.interp(query_s, original_s, reference.v)
-    aligned_a = np.interp(query_s, original_s, reference.a)
-    aligned_kappa = np.interp(query_s, original_s, reference.kappa)
-
-    return ReferenceTrajectory(
-        x=aligned_x,
-        y=aligned_y,
-        theta=aligned_theta,
-        v=aligned_v,
-        a=aligned_a,
-        kappa=aligned_kappa,
-        s=aligned_s,
-        dt_ref=reference.dt_ref,
+    return (
+        ReferenceTrajectory(
+            x=aligned_samples["x"],
+            y=aligned_samples["y"],
+            theta=aligned_samples["theta"],
+            v=aligned_samples["v"],
+            a=aligned_samples["a"],
+            kappa=aligned_samples["kappa"],
+            s=aligned_s,
+            dt_ref=reference.dt_ref,
+        ),
+        {
+            "mode": "aligned_projection",
+            "is_stopping_reference": False,
+        },
     )
 
 
@@ -249,9 +455,19 @@ def run_random_demo(
     rng = np.random.default_rng(seed)
     base_reference = default_demo_reference(reference_config=reference_config)
     initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
-    reference = align_reference_to_projection(base_reference, initial_state)
     controller = TEBMPCController(params=params)
+    stop_constraints = {
+        "max_lat_accel": controller.max_lat_accel,
+        "max_kappa": controller.max_kappa,
+        "max_dkappa": controller.max_dkappa,
+    }
+    reference, reference_meta = align_reference_to_projection_with_constraints(
+        base_reference,
+        initial_state,
+        stop_constraints=stop_constraints,
+    )
     solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 
 
@@ -261,9 +477,19 @@ def solve_demo(
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     base_reference = default_demo_reference(reference_config=reference_config)
-    reference = align_reference_to_projection(base_reference, initial_state)
     controller = TEBMPCController(params=params)
+    stop_constraints = {
+        "max_lat_accel": controller.max_lat_accel,
+        "max_kappa": controller.max_kappa,
+        "max_dkappa": controller.max_dkappa,
+    }
+    reference, reference_meta = align_reference_to_projection_with_constraints(
+        base_reference,
+        initial_state,
+        stop_constraints=stop_constraints,
+    )
     solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 
 
@@ -272,9 +498,19 @@ def demo_problem(
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     initial_state = VehicleState(x=0.0, y=-0.3, theta=0.05, v=0.5, a=0.0, kappa=0.0)
-    reference = align_reference_to_projection(default_demo_reference(reference_config=reference_config), initial_state)
     controller = TEBMPCController(params=params)
+    stop_constraints = {
+        "max_lat_accel": controller.max_lat_accel,
+        "max_kappa": controller.max_kappa,
+        "max_dkappa": controller.max_dkappa,
+    }
+    reference, reference_meta = align_reference_to_projection_with_constraints(
+        default_demo_reference(reference_config=reference_config),
+        initial_state,
+        stop_constraints=stop_constraints,
+    )
     solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 
 
