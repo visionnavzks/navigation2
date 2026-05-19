@@ -61,7 +61,15 @@ $$
 
 ## 运行 Web Demo
 
-在仓库根目录激活虚拟环境后执行：
+优先使用目录里的启动脚本：
+
+```bash
+./my/teb_local_controller_ds/run.sh
+```
+
+脚本会自动选择 `5003` 开始的空闲端口，并设置 `HOST`、`PORT`、`FLASK_DEBUG` 环境变量后启动 Flask。
+
+也可以在仓库根目录激活虚拟环境后直接执行：
 
 ```bash
 python my/teb_local_controller_ds/app.py
