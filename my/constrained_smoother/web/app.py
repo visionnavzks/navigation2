@@ -205,6 +205,21 @@ def _build_smoother_error_payload(result):
     return error_payload
 
 
+_PRE_FINALIZE_FAILURE_REASONS = {
+    "solver_rejected_solution",
+    "no_cost_improvement",
+}
+
+
+def _failure_has_displayable_candidate_path(result):
+    candidate_path = result.get("path")
+    if candidate_path is None:
+        return False
+
+    failure_reason = result.get("error_reason")
+    return failure_reason not in _PRE_FINALIZE_FAILURE_REASONS
+
+
 # ---- Pipeline stage reporting helpers ----
 
 def _make_pipeline_stage(
@@ -501,7 +516,9 @@ def _run_smoother_stage(
                 planner,
             )
         smooth_time_ms = (time.time() - t0) * 1000.0
-        if smooth_result.get("path") is not None:
+        if bool(smooth_result["ok"]):
+            candidate_smoothed = smooth_result["path"]
+        elif _failure_has_displayable_candidate_path(smooth_result):
             candidate_smoothed = smooth_result["path"]
         smooth_success = bool(smooth_result["ok"])
         if smooth_success:

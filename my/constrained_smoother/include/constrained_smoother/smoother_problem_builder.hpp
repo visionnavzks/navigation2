@@ -181,6 +181,17 @@ private:
       double current_segment_len =
         (path_optim[i] - path_optim[state.last_i]).block<2, 1>(0, 0).norm();
 
+      if (current_segment_len <= EPSILON) {
+        if (is_cusp) {
+          state.potential_cusp_funcs_len = 0.0;
+          state.potential_cusp_funcs.clear();
+          state.len_since_cusp = 0.0;
+          state.last_was_cusp = true;
+          state.last_is_reversing = state.last_direction < 0.0;
+        }
+        continue;
+      }
+
       // 把当前段长计入候选 cusp 回溯窗口的累计长度。
       state.potential_cusp_funcs_len += current_segment_len;
 

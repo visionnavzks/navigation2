@@ -1010,6 +1010,58 @@ TEST(SmootherTest, CurvatureConstraintFailsPostValidation)
   EXPECT_NE(error_message.find("curvature_constraint@"), std::string::npos);
 }
 
+TEST(SmootherTest, ZeroLengthCuspMarkerDoesNotTriggerSolverRejectedSolution)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {2.0, 2.0, 1.0},
+    {4.0, 2.0, 1.0},
+    {6.5, 2.0, 1.0},
+    {9.5, 2.0, 1.0},
+    {11.0, 2.0, 1.0},
+    {11.0, 2.0, -1.0},
+    {11.2, 5.0, -1.0},
+    {11.2, 10.0, -1.0},
+    {11.2, 16.6, -1.0},
+    {14.5, 16.8, -1.0},
+    {17.0, 17.0, -1.0},
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.smooth_weight_sqrt = std::sqrt(20.0);
+  params.model_weight_sqrt = std::sqrt(20.0);
+  params.costmap_weight_sqrt = 0.0;
+  params.cusp_costmap_weight_sqrt = 0.0;
+  params.distance_weight_sqrt = 0.0;
+  params.curvature_weight_sqrt = std::sqrt(30.0);
+  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.max_curvature = 2.5;
+  params.max_time = 1.0;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+
+  constrained_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 50;
+
+  constrained_smoother::Smoother smoother;
+  smoother.initialize(opt_params);
+
+  constrained_smoother::SmoothingFailureInfo failure;
+  const bool success = smoother.smooth(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(-1.0, 0.0),
+    nullptr,
+    params,
+    nullptr,
+    &failure);
+
+  if (!success) {
+    EXPECT_NE(
+      failure.reason,
+      constrained_smoother::SmoothingFailureReason::SolverRejectedSolution);
+  }
+}
+
 // ---- Kinematic smoother behavior and error-surface tests ----
 
 TEST(KinematicSmootherTest, SmoothStraightPath)
