@@ -54,6 +54,8 @@ struct SmootherParams
   double cusp_zone_length{0.0};
   /// 约束优化后控制点贴近参考路径的平方根权重。
   double distance_weight_sqrt{0.0};
+  /// 每个优化点相对对应参考点的最大 x/y 偏移半径，单位米；<= 0 表示关闭。
+  double reference_point_max_deviation{0.0};
   /// 几何版中“超出最大曲率阈值”的平方根惩罚权重。
   double curvature_weight_sqrt{0.0};
   /// 几何版可选四点曲率变化率代理项的平方根权重。

@@ -368,6 +368,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "distance_weight_sqrt",
     &constrained_smoother::SmootherParams::distance_weight_sqrt)
     .def_readwrite(
+    "reference_point_max_deviation",
+    &constrained_smoother::SmootherParams::reference_point_max_deviation)
+    .def_readwrite(
     "curvature_weight_sqrt",
     &constrained_smoother::SmootherParams::curvature_weight_sqrt)
     .def_readwrite(

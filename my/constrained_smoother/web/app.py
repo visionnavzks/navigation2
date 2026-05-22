@@ -883,6 +883,7 @@ def _build_optimizer_config_payload(
     cusp_costmap_weight,
     cusp_zone_length,
     distance_weight,
+    reference_point_max_deviation,
     curvature_weight,
     curvature_rate_weight,
     kinematic_curvature_weight,
@@ -906,6 +907,7 @@ def _build_optimizer_config_payload(
         "cusp_costmap_weight": round(cusp_costmap_weight, 3),
         "cusp_zone_length_m": round(cusp_zone_length, 3),
         "distance_weight": round(distance_weight, 3),
+        "reference_point_max_deviation_m": round(reference_point_max_deviation, 3),
         "curvature_weight": round(curvature_weight, 3),
         "curvature_rate_weight": round(curvature_rate_weight, 3),
         "kinematic_curvature_weight": round(kinematic_curvature_weight, 3),
@@ -1472,6 +1474,12 @@ def plan_and_smooth():
         cusp_costmap_weight = max(0.0, float(req.get("cusp_costmap_weight", costmap_weight * 3.0)))
         cusp_zone_length = max(0.0, float(req.get("cusp_zone_length", 2.5)))
         distance_weight = float(req.get("distance_weight", 0.0))
+        enable_reference_point_max_deviation = _coerce_bool(
+            req.get("enable_reference_point_max_deviation"), True
+        )
+        reference_point_max_deviation = max(
+            0.0, float(req.get("reference_point_max_deviation_m", 0.25))
+        )
         curvature_weight = float(req.get("curvature_weight", 30.0))
         curvature_rate_weight = float(req.get("curvature_rate_weight", 5.0))
         kinematic_curvature_weight = float(req.get("kinematic_curvature_weight", curvature_weight))
@@ -1559,6 +1567,9 @@ def plan_and_smooth():
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
         smoother_params.cost_check_radius = footprint_model["check_radius"]
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
+        smoother_params.reference_point_max_deviation = (
+            reference_point_max_deviation if enable_reference_point_max_deviation else 0.0
+        )
         smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
         smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
         smoother_params.kinematic_curvature_weight_sqrt = math.sqrt(kinematic_curvature_weight)
@@ -1651,6 +1662,7 @@ def plan_and_smooth():
             cusp_costmap_weight,
             cusp_zone_length,
             distance_weight,
+            reference_point_max_deviation if enable_reference_point_max_deviation else 0.0,
             curvature_weight,
             curvature_rate_weight,
             kinematic_curvature_weight,

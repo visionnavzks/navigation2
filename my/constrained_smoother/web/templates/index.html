@@ -200,6 +200,15 @@
                 <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
                 <p class="param-hint" data-i18n="weights.distanceWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
               </div>
+              <div class="param-group param-group--stacked">
+                <label class="constraint-toggle" for="enable_reference_point_max_deviation">
+                  <input type="checkbox" id="enable_reference_point_max_deviation" checked>
+                  <span data-i18n="weights.enableReferencePointMaxDeviation">Enable reference-point max deviation</span>
+                </label>
+                <label data-i18n-html="weights.referencePointMaxDeviationLabel">Reference-Point Max Deviation (m): <span id="val_reference_point_max_deviation_m">0.25</span></label>
+                <input type="range" id="reference_point_max_deviation_m" min="0.05" max="2.00" step="0.05" value="0.25">
+                <p class="param-hint" data-i18n="weights.referencePointMaxDeviationHint">Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.</p>
+              </div>
               <div id="constrained-curvature-weight-group" class="param-group">
                 <label data-i18n-html="weights.curvatureWeightLabel">Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
                 <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">

@@ -272,9 +272,11 @@ private:
 
   static bool finalizeOptimizationProblem(
     ceres::Problem & problem,
-    const std::vector<Eigen::Vector3d> & path_optim,
+    std::vector<Eigen::Vector3d> & path_optim,
     const SmootherParams & params)
   {
+    applyReferencePointBounds(problem, path_optim, params.reference_point_max_deviation);
+
     const bool goal_position_fixed =
       params.goal_longitudinal_tolerance <= 1e-9 && params.goal_lateral_tolerance <= 1e-9;
 
@@ -303,6 +305,27 @@ private:
       problem.SetParameterBlockConstant(path_optim.back().data());
     }
     return true;
+  }
+
+  static void applyReferencePointBounds(
+    ceres::Problem & problem,
+    std::vector<Eigen::Vector3d> & path_optim,
+    double max_deviation)
+  {
+    if (max_deviation <= 1e-9) {
+      return;
+    }
+
+    for (auto & point : path_optim) {
+      if (!problem.HasParameterBlock(point.data())) {
+        continue;
+      }
+
+      problem.SetParameterLowerBound(point.data(), 0, point.x() - max_deviation);
+      problem.SetParameterUpperBound(point.data(), 0, point.x() + max_deviation);
+      problem.SetParameterLowerBound(point.data(), 1, point.y() - max_deviation);
+      problem.SetParameterUpperBound(point.data(), 1, point.y() + max_deviation);
+    }
   }
 
   static void addGoalPositionResidualBlock(

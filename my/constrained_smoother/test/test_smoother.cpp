@@ -702,6 +702,48 @@ TEST(SmootherTest, SmoothStraightPath)
   EXPECT_GE(path.size(), 2u);
 }
 
+TEST(SmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimizedPoint)
+{
+  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
+
+  const std::vector<Eigen::Vector3d> reference_path = {
+    {0.5, 0.5, 1.0},
+    {1.0, 1.0, 1.0},
+    {1.5, 0.5, 1.0},
+    {2.0, 0.5, 1.0},
+  };
+
+  auto run_case = [&](double max_deviation) {
+      std::vector<Eigen::Vector3d> path = reference_path;
+
+      constrained_smoother::SmootherParams params;
+      params.smooth_weight_sqrt = std::sqrt(5000.0);
+      params.costmap_weight_sqrt = 0.0;
+      params.cusp_costmap_weight_sqrt = 0.0;
+      params.distance_weight_sqrt = 0.0;
+      params.curvature_weight_sqrt = 0.0;
+      params.max_curvature = 1.0 / 0.4;
+      params.max_time = 1.0;
+      params.keep_start_orientation = false;
+      params.keep_goal_orientation = false;
+      params.reference_point_max_deviation = max_deviation;
+
+      constrained_smoother::OptimizerParams opt_params;
+      opt_params.max_iterations = 40;
+
+      constrained_smoother::Smoother smoother;
+      smoother.initialize(opt_params);
+      smoother.smooth(path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params);
+      return path;
+    };
+
+  const auto unbounded = run_case(0.0);
+  const auto bounded = run_case(0.1);
+
+  EXPECT_GT(std::abs(unbounded[1].y() - reference_path[1].y()), 0.100001);
+  EXPECT_LE(std::abs(bounded[1].y() - reference_path[1].y()), 0.100001);
+}
+
 TEST(SmootherTest, PathTooShortThrows)
 {
   constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
@@ -1007,6 +1049,52 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, &costmap, params));
   EXPECT_GE(path.size(), 2u);
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
+}
+
+TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimizedPoint)
+{
+  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
+
+  const std::vector<Eigen::Vector3d> reference_path = {
+    {0.5, 0.5, 1.0},
+    {1.0, 1.0, 1.0},
+    {1.5, 0.5, 1.0},
+    {2.0, 0.5, 1.0},
+  };
+
+  auto run_case = [&](double max_deviation) {
+      std::vector<Eigen::Vector3d> path = reference_path;
+
+      constrained_smoother::SmootherParams params;
+      params.smooth_weight_sqrt = std::sqrt(20.0);
+      params.model_weight_sqrt = std::sqrt(20.0);
+      params.costmap_weight_sqrt = 0.0;
+      params.cusp_costmap_weight_sqrt = 0.0;
+      params.distance_weight_sqrt = 0.0;
+      params.curvature_weight_sqrt = 0.0;
+      params.curvature_rate_weight_sqrt = 0.0;
+      params.kinematic_curvature_weight_sqrt = 0.0;
+      params.kinematic_curvature_rate_weight_sqrt = 0.0;
+      params.max_curvature = 1.0 / 0.4;
+      params.max_time = 1.0;
+      params.keep_start_orientation = false;
+      params.keep_goal_orientation = false;
+      params.reference_point_max_deviation = max_deviation;
+
+      constrained_smoother::OptimizerParams opt_params;
+      opt_params.max_iterations = 60;
+
+      constrained_smoother::KinematicSmoother smoother;
+      smoother.initialize(opt_params);
+      smoother.smooth(path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params);
+      return path;
+    };
+
+  const auto unbounded = run_case(0.0);
+  const auto bounded = run_case(0.1);
+
+  EXPECT_GT(std::abs(unbounded[1].y() - reference_path[1].y()), 0.100001);
+  EXPECT_LE(std::abs(bounded[1].y() - reference_path[1].y()), 0.100001);
 }
 
 TEST(KinematicSmootherTest, SmoothCuspPath)

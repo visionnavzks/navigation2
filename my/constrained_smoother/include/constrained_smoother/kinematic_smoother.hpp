@@ -117,8 +117,10 @@ private:
       KinematicSmootherProblemBuilder::applyBounds(
         problem_,
         variables_.data(),
+        processed_.reference_points,
         processed_.state_count,
-        this->request().params.max_curvature);
+        this->request().params.max_curvature,
+        this->request().params.reference_point_max_deviation);
       this->owner().last_optimized_knot_count_ = processed_.state_count;
     }
 

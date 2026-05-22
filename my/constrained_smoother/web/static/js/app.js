@@ -99,6 +99,9 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.cuspZoneLengthHint': '设置方向切换前后尖点障碍权重渐变生效的完整弧长范围。',
     'weights.distanceWeightLabel': '距离权重: <span id="val_distance_weight">0.0</span>',
     'weights.distanceWeightHint': '当你不希望出现大绕路时，用它让优化结果更贴近 A* 参考路径。',
+    'weights.enableReferencePointMaxDeviation': '启用参考点最大偏移约束',
+    'weights.referencePointMaxDeviationLabel': '参考点最大偏移 (m): <span id="val_reference_point_max_deviation_m">0.25</span>',
+    'weights.referencePointMaxDeviationHint': '为每个参考点增加逐点 x/y 盒约束。关闭时保持当前默认行为，不额外限制优化点偏移。',
     'weights.curvatureWeightLabel': '曲率权重: <span id="val_curvature_weight">30.0</span>',
     'weights.curvatureWeightHint': '抑制高曲率转弯，尤其是靠近障碍物角点时。',
     'weights.curvatureRateWeightLabel': '曲率变化率权重: <span id="val_curvature_rate_weight">5.0</span>',
@@ -292,6 +295,9 @@ document.addEventListener('DOMContentLoaded', () => {
       'session.goalLateralToleranceHint': 'Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.',
       'weights.modelWeightLabel': 'Model Weight: <span id="val_model_weight">20</span>',
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
+      'weights.enableReferencePointMaxDeviation': 'Enable reference-point max deviation',
+      'weights.referencePointMaxDeviationLabel': 'Reference-Point Max Deviation (m): <span id="val_reference_point_max_deviation_m">0.25</span>',
+      'weights.referencePointMaxDeviationHint': 'Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.',
       'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
       'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
@@ -588,6 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     cusp_costmap_weight: value => Number(value).toFixed(3),
     cusp_zone_length: value => Number(value).toFixed(2),
     distance_weight: value => Number(value).toFixed(1),
+    reference_point_max_deviation_m: value => Number(value).toFixed(2),
     curvature_weight: value => Number(value).toFixed(1),
     curvature_rate_weight: value => Number(value).toFixed(1),
     kinematic_curvature_weight: value => Number(value).toFixed(1),
@@ -606,17 +613,17 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   const optimizerScopedSliderIds = [
     'smooth_weight', 'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
-    'distance_weight', 'curvature_weight', 'curvature_rate_weight',
+    'distance_weight', 'reference_point_max_deviation_m', 'curvature_weight', 'curvature_rate_weight',
     'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'max_curvature',
     'reference_spacing_target_m', 'max_iterations', 'max_time',
     'path_downsampling_factor', 'path_upsampling_factor',
   ];
   const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
   const optimizerScopedSelectIds = ['linear_solver_type'];
-  const optimizerScopedCheckboxIds = ['optimizer_debug'];
+  const optimizerScopedCheckboxIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
   const numericInputs = Object.keys(numericInputConfig);
   const selectParamIds = ['optimizer_type', 'linear_solver_type'];
-  const checkboxParamIds = ['optimizer_debug'];
+  const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
 
   const sliders = Object.keys(sliderConfig);
   const layerBindings = {
@@ -815,6 +822,7 @@ document.addEventListener('DOMContentLoaded', () => {
       input.checked = Boolean(profile.checkboxes[id]);
     });
 
+    syncReferenceDeviationUi();
     syncDerivedParameterInfo();
     drawCurvatureChart();
   }
@@ -833,6 +841,16 @@ document.addEventListener('DOMContentLoaded', () => {
       selects: {...initialProfile.selects},
       checkboxes: {...initialProfile.checkboxes},
     };
+  }
+
+  function syncReferenceDeviationUi() {
+    const enabledInput = document.getElementById('enable_reference_point_max_deviation');
+    const deviationInput = document.getElementById('reference_point_max_deviation_m');
+    if (!enabledInput || !deviationInput) {
+      return;
+    }
+
+    deviationInput.disabled = !enabledInput.checked;
   }
 
   sliders.forEach(id => {
@@ -892,8 +910,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    input.addEventListener('change', () => scheduleAutoPlan());
+    input.addEventListener('change', () => {
+      if (id === 'enable_reference_point_max_deviation') {
+        syncReferenceDeviationUi();
+      }
+      scheduleAutoPlan();
+    });
   });
+
+  syncReferenceDeviationUi();
 
   if (mapDisplayModeSelect) {
     mapDisplayModeSelect.addEventListener('change', () => {
@@ -3560,6 +3585,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     params.keep_start_orientation = getConstraintEnabled('keep_start_orientation', true);
     params.keep_goal_orientation = getConstraintEnabled('keep_goal_orientation', true);
+    params.reference_point_max_deviation_m = params.enable_reference_point_max_deviation
+      ? (params.reference_point_max_deviation_m ?? 0)
+      : 0;
     updateRobotConfigUi();
     return params;
   }

@@ -279,12 +279,24 @@ public:
   static void applyBounds(
     ceres::Problem & problem,
     double * variables,
+    const std::vector<Eigen::Vector2d> & reference_points,
     size_t state_count,
-    double max_curvature)
+    double max_curvature,
+    double reference_point_max_deviation)
   {
     const double clamped_max_curvature = std::max(max_curvature, 1e-6);
     for (size_t index = 0; index < state_count; ++index) {
       double * state = variables + 5 * index;
+      if (reference_point_max_deviation > 1e-9) {
+        problem.SetParameterLowerBound(
+          state, 0, reference_points[index].x() - reference_point_max_deviation);
+        problem.SetParameterUpperBound(
+          state, 0, reference_points[index].x() + reference_point_max_deviation);
+        problem.SetParameterLowerBound(
+          state, 1, reference_points[index].y() - reference_point_max_deviation);
+        problem.SetParameterUpperBound(
+          state, 1, reference_points[index].y() + reference_point_max_deviation);
+      }
       problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
       problem.SetParameterUpperBound(state, 3, clamped_max_curvature);
       problem.SetParameterLowerBound(state, 4, 0.0);
