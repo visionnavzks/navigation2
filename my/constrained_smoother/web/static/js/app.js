@@ -704,7 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
       optimizerType: 'constrained_smoother',
       keepStartOrientation: true,
       keepGoalOrientation: true,
-      enableReferencePointMaxDeviation: true,
+      enableReferencePointMaxDeviation: false,
       manualReferencePath: null,
     },
     cusp_reverse: {

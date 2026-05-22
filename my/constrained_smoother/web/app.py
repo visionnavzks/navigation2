@@ -1492,7 +1492,7 @@ def plan_and_smooth():
         cusp_zone_length = max(0.0, float(req.get("cusp_zone_length", 2.5)))
         distance_weight = float(req.get("distance_weight", 0.0))
         enable_reference_point_max_deviation = _coerce_bool(
-            req.get("enable_reference_point_max_deviation"), True
+            req.get("enable_reference_point_max_deviation"), False
         )
         reference_point_max_deviation = max(
             0.0, float(req.get("reference_point_max_deviation_m", 0.25))

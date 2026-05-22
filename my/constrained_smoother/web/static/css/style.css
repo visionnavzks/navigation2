@@ -860,7 +860,7 @@ textarea {
   padding: 0.78rem;
   border-radius: var(--radius-lg);
   border: 1px solid rgba(35, 48, 40, 0.16);
-  background: rgba(255, 250, 240, 0.97);
+  background: rgba(255, 250, 240, 0.2);
   box-shadow: 0 18px 34px rgba(60, 47, 28, 0.24);
   backdrop-filter: blur(10px);
   display: grid;
