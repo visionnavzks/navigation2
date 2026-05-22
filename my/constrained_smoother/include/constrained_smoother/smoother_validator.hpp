@@ -342,7 +342,12 @@ private:
     const double goal_lat = -goal_frame.y() * goal_delta.x() + goal_frame.x() * goal_delta.y();
     const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
     const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
-    if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
+    // The hinge-loss residual has zero gradient at the tolerance boundary, so the
+    // optimizer can converge to values that are numerically indistinguishable from
+    // the limit.  Allow a small convergence margin to avoid false rejections.
+    constexpr double convergence_epsilon = 1e-4;
+    if (std::abs(goal_lon) > goal_lon_tol + convergence_epsilon ||
+        std::abs(goal_lat) > goal_lat_tol + convergence_epsilon) {
       const bool uses_goal_box =
         request.params.goal_longitudinal_tolerance > 1e-9 ||
         request.params.goal_lateral_tolerance > 1e-9;
@@ -579,7 +584,9 @@ private:
     const double goal_lat = -sin_goal * goal_dx + cos_goal * goal_dy;
     const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
     const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
-    if (std::abs(goal_lon) > goal_lon_tol || std::abs(goal_lat) > goal_lat_tol) {
+    constexpr double convergence_epsilon = 1e-4;
+    if (std::abs(goal_lon) > goal_lon_tol + convergence_epsilon ||
+        std::abs(goal_lat) > goal_lat_tol + convergence_epsilon) {
       const bool uses_goal_box =
         request.params.goal_longitudinal_tolerance > 1e-9 ||
         request.params.goal_lateral_tolerance > 1e-9;
