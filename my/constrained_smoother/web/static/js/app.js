@@ -659,6 +659,42 @@ document.addEventListener('DOMContentLoaded', () => {
     start: 45,
     goal: 45,
   };
+  function densifyManualReferencePath(path, spacing = 0.2) {
+    if (!Array.isArray(path) || path.length < 2) {
+      return Array.isArray(path) ? path.slice() : [];
+    }
+
+    const densifiedPath = [];
+    for (let index = 0; index < path.length; index += 1) {
+      const current = path[index];
+      if (index === 0) {
+        densifiedPath.push({...current});
+        continue;
+      }
+
+      const previous = path[index - 1];
+      const dx = current.x - previous.x;
+      const dy = current.y - previous.y;
+      const segmentLength = Math.hypot(dx, dy);
+
+      if (segmentLength <= 1e-9) {
+        densifiedPath.push({...current});
+        continue;
+      }
+
+      const stepCount = Math.max(1, Math.ceil(segmentLength / spacing));
+      for (let step = 1; step <= stepCount; step += 1) {
+        const ratio = step / stepCount;
+        densifiedPath.push({
+          x: previous.x + (dx * ratio),
+          y: previous.y + (dy * ratio),
+          direction_sign: current.direction_sign,
+        });
+      }
+    }
+
+    return densifiedPath;
+  }
   const DEFAULT_SCENE_PRESET = 'default';
   const SCENE_PRESETS = {
     default: {
@@ -668,6 +704,7 @@ document.addEventListener('DOMContentLoaded', () => {
       optimizerType: 'constrained_smoother',
       keepStartOrientation: true,
       keepGoalOrientation: true,
+      enableReferencePointMaxDeviation: true,
       manualReferencePath: null,
     },
     cusp_reverse: {
@@ -677,7 +714,8 @@ document.addEventListener('DOMContentLoaded', () => {
       optimizerType: 'kinematic_smoother',
       keepStartOrientation: true,
       keepGoalOrientation: true,
-      manualReferencePath: [
+      enableReferencePointMaxDeviation: false,
+      manualReferencePath: densifyManualReferencePath([
         {x: 2.0, y: 2.0, direction_sign: 1.0},
         {x: 4.0, y: 2.0, direction_sign: 1.0},
         {x: 6.5, y: 2.0, direction_sign: 1.0},
@@ -689,7 +727,7 @@ document.addEventListener('DOMContentLoaded', () => {
         {x: 11.2, y: 16.6, direction_sign: -1.0},
         {x: 14.5, y: 16.8, direction_sign: -1.0},
         {x: 17.0, y: 17.0, direction_sign: -1.0},
-      ],
+      ], 0.2),
     },
   };
 
@@ -1844,11 +1882,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const keepStartInput = document.getElementById('keep_start_orientation');
     const keepGoalInput = document.getElementById('keep_goal_orientation');
+    const referenceDeviationInput = document.getElementById('enable_reference_point_max_deviation');
     if (keepStartInput) {
       keepStartInput.checked = preset.keepStartOrientation;
     }
     if (keepGoalInput) {
       keepGoalInput.checked = preset.keepGoalOrientation;
+    }
+    if (referenceDeviationInput && typeof preset.enableReferencePointMaxDeviation === 'boolean') {
+      referenceDeviationInput.checked = preset.enableReferencePointMaxDeviation;
+      syncReferenceDeviationUi();
     }
     if (scenePresetSelect) {
       scenePresetSelect.value = resolvedKey;

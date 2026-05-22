@@ -1101,14 +1101,14 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
 {
   constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
 
-  std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 1.0},
-    {2.5, 2.0, 1.0},
-    {4.5, 2.0, 1.0},
-    {6.0, 2.0, -1.0},
-    {3.5, 2.0, -1.0},
-    {1.5, 2.0, -1.0},
-  };
+  std::vector<Eigen::Vector3d> path;
+  constexpr double spacing = 0.2;
+  for (double x = 1.0; x <= 6.0 + 1e-9; x += spacing) {
+    path.emplace_back(x, 2.0, 1.0);
+  }
+  for (double x = 6.0 - spacing; x >= 1.4 - 1e-9; x -= spacing) {
+    path.emplace_back(x, 2.0, -1.0);
+  }
   const auto input_size = path.size();
 
   constrained_smoother::SmootherParams params;
