@@ -64,6 +64,8 @@ struct SmootherParams
   double kinematic_curvature_weight_sqrt{0.0};
   /// 运动学版显式曲率变化率项的平方根权重。
   double kinematic_curvature_rate_weight_sqrt{0.0};
+  /// 运动学版显式弧长步长 ds 贴近目标间距的平方根正则权重。
+  double kinematic_spacing_weight_sqrt{1.0};
   /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
   /// 传给 Ceres 求解器的最大墙钟时间。

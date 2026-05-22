@@ -665,6 +665,62 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
   EXPECT_GT(kinematic_cost, 1.0);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpacingWeight)
+{
+  constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+  };
+
+  auto evaluate_cost = [&](double spacing_weight) {
+    constrained_smoother::SmootherParams params;
+    params.smooth_weight_sqrt = 0.0;
+    params.model_weight_sqrt = 0.0;
+    params.costmap_weight_sqrt = 0.0;
+    params.cusp_costmap_weight_sqrt = 0.0;
+    params.distance_weight_sqrt = 0.0;
+    params.curvature_weight_sqrt = 0.0;
+    params.curvature_rate_weight_sqrt = 0.0;
+    params.kinematic_curvature_weight_sqrt = 0.0;
+    params.kinematic_curvature_rate_weight_sqrt = 0.0;
+    params.kinematic_spacing_weight_sqrt = spacing_weight;
+    params.keep_start_orientation = false;
+    params.keep_goal_orientation = false;
+    params.goal_longitudinal_tolerance = 2.0;
+    params.goal_lateral_tolerance = 2.0;
+
+    std::vector<double> esdf_values;
+    constrained_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
+    builder.initializeEsdfValues(&costmap, params, nullptr);
+    const auto processed = constrained_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+      path,
+      Eigen::Vector2d(1.0, 0.0),
+      Eigen::Vector2d(1.0, 0.0),
+      params,
+      &costmap);
+
+    std::vector<double> variables = processed.initial_variables;
+    variables[4] = 2.0;
+    variables[5] = 2.0;
+    variables[6] = 0.0;
+    variables[7] = 0.0;
+    variables[8] = 0.0;
+    variables[9] = 0.0;
+
+    ceres::Problem problem;
+    builder.buildProblem(processed, &costmap, params, variables, problem);
+
+    ceres::Problem::EvaluateOptions options;
+    double cost = 0.0;
+    EXPECT_TRUE(problem.Evaluate(options, &cost, nullptr, nullptr, nullptr));
+    return cost;
+  };
+
+  EXPECT_NEAR(evaluate_cost(0.0), 0.0, 1e-9);
+  EXPECT_NEAR(evaluate_cost(3.0), 4.5, 1e-9);
+}
+
 // ---- Geometric smoother behavior and error-surface tests ----
 
 TEST(SmootherTest, SmoothStraightPath)
