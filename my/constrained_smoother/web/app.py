@@ -483,12 +483,8 @@ def _run_smoother_stage(
         optimized_knot_count: Backend-reported optimized knot/state count.
         stage: Pipeline-stage payload for frontend status rendering.
     """
-    optimizer_label = (
-        "Kinematic Smoother"
-        if optimizer_type == "kinematic_smoother"
-        else "Constrained Smoother"
-    )
-    smoother = pcs.KinematicSmoother() if optimizer_type == "kinematic_smoother" else pcs.Smoother()
+    optimizer_label = "Kinematic Smoother"
+    smoother = pcs.KinematicSmoother()
     smoother.initialize(opt_params)
 
     t0 = time.time()

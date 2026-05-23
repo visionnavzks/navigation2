@@ -1202,7 +1202,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateOptimizerUi() {
     const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
-    const isConstrainedSmoother = optimizerType === 'constrained_smoother';
+    const isConstrainedSmoother = false;
     const smoothWeightGroup = document.getElementById('smooth-weight-group');
     const modelWeightGroup = document.getElementById('model-weight-group');
     const constrainedCurvatureWeightGroup = document.getElementById('constrained-curvature-weight-group');
