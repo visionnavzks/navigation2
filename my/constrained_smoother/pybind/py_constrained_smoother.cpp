@@ -9,7 +9,6 @@
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/kinematic_smoother.hpp"
 #include "constrained_smoother/options.hpp"
-
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/esdf.hpp"
 

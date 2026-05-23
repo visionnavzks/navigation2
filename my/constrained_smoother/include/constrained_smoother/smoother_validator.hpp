@@ -1,3 +1,5 @@
+#define EPSILON 0.0001
+
 // Copyright (c) 2021 RoboTech Vision
 // Copyright (c) 2020, Samsung Research America
 //
@@ -30,7 +32,6 @@
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/options.hpp"
-#include "constrained_smoother/utils.hpp"
 
 namespace constrained_smoother
 {

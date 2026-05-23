@@ -1572,7 +1572,6 @@ def plan_and_smooth():
         astar_time = planner_stage_result["astar_time_ms"]
 
         smoother_params = pcs.SmootherParams()
-        smoother_params.smooth_weight_sqrt = math.sqrt(smooth_weight)
         smoother_params.model_weight_sqrt = math.sqrt(model_weight)
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
         smoother_params.cusp_costmap_weight_sqrt = math.sqrt(cusp_costmap_weight)
@@ -1583,8 +1582,6 @@ def plan_and_smooth():
         smoother_params.reference_point_max_deviation = (
             reference_point_max_deviation if enable_reference_point_max_deviation else 0.0
         )
-        smoother_params.curvature_weight_sqrt = math.sqrt(curvature_weight)
-        smoother_params.curvature_rate_weight_sqrt = math.sqrt(curvature_rate_weight)
         smoother_params.kinematic_curvature_weight_sqrt = math.sqrt(kinematic_curvature_weight)
         smoother_params.kinematic_curvature_rate_weight_sqrt = math.sqrt(
             kinematic_curvature_rate_weight

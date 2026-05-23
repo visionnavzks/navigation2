@@ -54,6 +54,8 @@ std::string expectFailedToSmoothPath(CallableT && callable)
 
 // ---- Testable subclass to expose protected methods ----
 
+;
+
 class TestSolverBackedSmootherBase : public constrained_smoother::SolverBackedSmootherBase
 {
 public:

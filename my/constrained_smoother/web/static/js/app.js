@@ -1202,7 +1202,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateOptimizerUi() {
     const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
-    const isConstrainedSmoother = false;
+
     const smoothWeightGroup = document.getElementById('smooth-weight-group');
     const modelWeightGroup = document.getElementById('model-weight-group');
     const constrainedCurvatureWeightGroup = document.getElementById('constrained-curvature-weight-group');
@@ -1211,38 +1211,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const kinematicCurvatureRateWeightGroup = document.getElementById('kinematic-curvature-rate-weight-group');
     const weightsOptimizerBadge = document.getElementById('weights-optimizer-badge');
 
-    if (linearSolverTypeSelect) {
-      linearSolverTypeSelect.disabled = !isConstrainedSmoother;
-    }
-
-    if (smoothWeightGroup) {
-      smoothWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (modelWeightGroup) {
-      modelWeightGroup.hidden = isConstrainedSmoother;
-    }
-
-    if (constrainedCurvatureWeightGroup) {
-      constrainedCurvatureWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (constrainedCurvatureRateWeightGroup) {
-      constrainedCurvatureRateWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (kinematicCurvatureWeightGroup) {
-      kinematicCurvatureWeightGroup.hidden = isConstrainedSmoother;
-    }
-
-    if (kinematicCurvatureRateWeightGroup) {
-      kinematicCurvatureRateWeightGroup.hidden = isConstrainedSmoother;
-    }
-
     if (weightsOptimizerBadge) {
-      weightsOptimizerBadge.textContent = isConstrainedSmoother
-        ? t('optimizer.constrained')
-        : t('optimizer.kinematic');
+      weightsOptimizerBadge.textContent = t('optimizer.kinematic');
     }
 
     setText(
