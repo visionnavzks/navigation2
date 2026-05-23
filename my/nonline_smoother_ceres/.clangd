@@ -1,5 +1,0 @@
-CompileFlags:
-  Add:
-    - -std=c++17
-    - -I/opt/homebrew/include
-    - -I/opt/homebrew/include/eigen3

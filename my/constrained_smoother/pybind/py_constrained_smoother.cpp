@@ -376,12 +376,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "curvature_rate_weight_sqrt",
     &constrained_smoother::SmootherParams::curvature_rate_weight_sqrt)
     .def_readwrite(
-    "kinematic_curvature_weight_sqrt",
-    &constrained_smoother::SmootherParams::kinematic_curvature_weight_sqrt)
-    .def_readwrite(
-    "kinematic_curvature_rate_weight_sqrt",
-    &constrained_smoother::SmootherParams::kinematic_curvature_rate_weight_sqrt)
-    .def_readwrite(
     "kinematic_spacing_weight_sqrt",
     &constrained_smoother::SmootherParams::kinematic_spacing_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)

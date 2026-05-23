@@ -61,9 +61,7 @@ struct SmootherParams
   /// 几何版可选四点曲率变化率代理项的平方根权重。
   double curvature_rate_weight_sqrt{0.0};
   /// 运动学版显式曲率状态 kappa 的平方根正则权重。
-  double kinematic_curvature_weight_sqrt{0.0};
   /// 运动学版显式曲率变化率项的平方根权重。
-  double kinematic_curvature_rate_weight_sqrt{0.0};
   /// 运动学版显式弧长步长 ds 贴近目标间距的平方根正则权重。
   double kinematic_spacing_weight_sqrt{1.0};
   /// 允许的最大曲率，单位为 1 / m。

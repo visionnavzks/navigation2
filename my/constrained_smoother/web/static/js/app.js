@@ -5,7 +5,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const SUPPORTED_LANGUAGES = ['en', 'zh'];
   const canvas = document.getElementById('map-canvas');
   const canvasWrap = document.querySelector('.canvas-wrap');
-  const baseCanvasPixelSize = Math.max(1, Number(canvas?.getAttribute('width')) || 800);
   const ctx = canvas.getContext('2d');
   const curvatureChart = document.getElementById('curvature-chart');
   const dsChart = document.getElementById('ds-chart');
@@ -21,18 +20,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const optimizerTypeSelect = document.getElementById('optimizer_type');
   const linearSolverTypeSelect = document.getElementById('linear_solver_type');
   const languageSwitch = document.getElementById('language-switch');
-  const scenePresetSelect = document.getElementById('scene-preset');
   const runBtn = document.getElementById('run-btn');
   const clearBtn = document.getElementById('clear-btn');
   const resetViewBtn = document.getElementById('reset-view-btn');
   const statusMsg = document.getElementById('status-msg');
   const validationDetailsCard = document.getElementById('footprint-validation-details-card');
-  const kinematicDiagnosticsCard = document.getElementById('kinematic-diagnostics-card');
-  const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
-  const CHART_HEIGHTS = {
-    primary: 190,
-    secondary: 136,
-  };
 
   const zhStaticTranslations = {
     'hero.eyebrow': '独立版 Nav2 约束平滑器',
@@ -56,19 +48,11 @@ document.addEventListener('DOMContentLoaded', () => {
     'session.goalConstraint': '终点约束',
     'session.enableStartConstraint': '启用起点朝向约束',
     'session.enableGoalConstraint': '启用终点朝向约束',
-    'session.scenePresetLabel': '场景预置',
-    'session.scenePresetDefault': '默认规划场景',
-    'session.scenePresetCusp': 'Cusp 倒车演示',
-    'session.scenePresetHint': '加载预定义场景。cusp 演示会绕过 A*，直接发送一条带方向符号的参考链给 smoother，从而真正触发方向切换。',
     'session.startHeadingLabel': '起点朝向: <span id="val_start_yaw_deg">45 deg</span>',
     'session.startHeadingHint': '设置平滑时起点位姿使用的世界坐标系朝向约束。',
     'session.goalHeadingLabel': '终点朝向: <span id="val_goal_yaw_deg">45 deg</span>',
     'session.goalHeadingHint': '设置平滑时终点位姿使用的世界坐标系朝向约束。',
-    'session.goalLongitudinalToleranceLabel': '终点纵向容差 (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span>',
-    'session.goalLongitudinalToleranceHint': '允许终点在目标坐标系前后方向内先自由滑动，超出带宽后才触发 hinge 惩罚。若纵向和横向容差都为 0，则终点位置保持固定。',
-    'session.goalLateralToleranceLabel': '终点横向容差 (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
-    'session.goalLateralToleranceHint': '允许终点在目标坐标系侧向内先自由偏移，超出带宽后才触发 hinge 惩罚。这就是文档里的终点位置带宽残差。',
-    'session.reversingHint': '当前 API 已支持运动学平滑器的 <strong>reversing_enabled</strong>，但 Web Lab 仍以路径点自带的方向符号作为倒车语义来源，因此这个兼容开关依旧不在界面中显示。',
+    'session.reversingHint': '独立构建版本仍然定义了 <strong>reversing_enabled</strong>，但当前实现并不会读取它，因此刻意不在界面中显示。',
     'session.knownLimitation': '已知限制：当前独立版平滑器不会单独优化转向状态。它先优化 <strong>x/y</strong> 几何，再根据局部切线重建 <strong>yaw</strong>，因此这里的尖点更像几何方向切换，而不是机器人原地不动、只改变转向角的真实停转机动。',
     'session.mapNote': '地图现在显示世界坐标系叠加层，原点位于左下角，<strong>X</strong> 向右增大，<strong>Y</strong> 向上增大。可左键拖拽 <strong>起点</strong>、<strong>终点</strong> 或任意描边障碍块来编辑场景；左键拖拽空白画布可平移；在画布任意处双击可恢复整图视角。滑块变动仍会自动重新规划。',
     'map.title': '地图概览',
@@ -86,11 +70,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'loupe.cellCost': '栅格代价值',
     'loupe.esdfDistance': 'ESDF 距离',
     'weights.title': '平滑权重',
-    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数；约束平滑器使用 smooth_weight 和几何曲率权重，运动学平滑器使用 model_weight 和独立的运动学曲率权重。',
     'weights.smoothWeightLabel': '平滑权重: <span id="val_smooth_weight">20</span>',
-    'weights.smoothWeightHint': '这是约束平滑器三点几何平滑残差的原始权重。调高后，相邻线段会更均匀、更少锯齿，但它并不直接强制自行车模型状态转移。',
-    'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
-    'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
+    'weights.smoothWeightHint': '惩罚局部锯齿。调高后优化曲线会更平滑。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
     'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
     'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
@@ -99,24 +80,17 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.cuspZoneLengthHint': '设置方向切换前后尖点障碍权重渐变生效的完整弧长范围。',
     'weights.distanceWeightLabel': '距离权重: <span id="val_distance_weight">0.0</span>',
     'weights.distanceWeightHint': '当你不希望出现大绕路时，用它让优化结果更贴近 A* 参考路径。',
-    'weights.enableReferencePointMaxDeviation': '启用参考点最大偏移约束',
-    'weights.referencePointMaxDeviationLabel': '参考点最大偏移 (m): <span id="val_reference_point_max_deviation_m">0.25</span>',
-    'weights.referencePointMaxDeviationHint': '为每个参考点增加逐点 x/y 盒约束。关闭时保持当前默认行为，不额外限制优化点偏移。',
     'weights.curvatureWeightLabel': '曲率权重: <span id="val_curvature_weight">30.0</span>',
     'weights.curvatureWeightHint': '抑制高曲率转弯，尤其是靠近障碍物角点时。',
     'weights.curvatureRateWeightLabel': '曲率变化率权重: <span id="val_curvature_rate_weight">5.0</span>',
     'weights.curvatureRateWeightHint': '使用四点 D3 有限差分惩罚。调高它可以抑制曲率突变，但不会替代最大曲率约束。',
-    'weights.kinematicCurvatureWeightLabel': '运动学曲率权重: <span id="val_kinematic_curvature_weight">30.0</span>',
-    'weights.kinematicCurvatureWeightHint': '惩罚运动学平滑器里的显式 kappa 状态。调高后会更偏向较小的平均转向曲率，而不只是减少超过最大曲率阈值的片段。',
-    'weights.kinematicCurvatureRateWeightLabel': '运动学曲率变化率权重: <span id="val_kinematic_curvature_rate_weight">5.0</span>',
-    'weights.kinematicCurvatureRateWeightHint': '惩罚相邻状态之间显式 kappa 的变化率。这和几何平滑器里的四点 D3 代理项不是同一个残差。',
     'weights.maxCurvatureLabel': '最大曲率 (1/m): <span id="val_max_curvature">2.5</span>',
     'weights.maxCurvatureHint': '限制转弯曲率。值越小，最小转弯半径越大。',
     'planner.title': '规划器',
     'planner.penaltyWeightLabel': 'A* 惩罚权重: <span id="val_planner_penalty_weight">1.0</span>',
     'planner.penaltyWeightHint': '缩放共享二次铰链损失下 A* 对低净空栅格的绕行强度。它只影响规划器，不影响平滑器的障碍权重。',
-    'planner.hingeThresholdLabel': '障碍表面净空 (m): <span id="val_surface_clearance_margin_m">0.50</span>',
-    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的障碍表面净空边界。检查点到障碍物表面的距离超过该值后，ESDF 铰链惩罚为 0。真正的检查点中心无惩罚净空等于这个值再加上机器人检查半径。',
+    'planner.hingeThresholdLabel': '铰链损失阈值 (m): <span id="val_hinge_loss_threshold_m">0.50</span>',
+    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的铰链边界。ESDF 距离超过该阈值后不再产生惩罚。点机器人模式下，有效阈值等于该值加上机器人半径。',
     'robot.title': '机器人',
     'robot.footprintModel': '足迹模型',
     'robot.footprintCapsule': '胶囊检查点',
@@ -173,8 +147,6 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.referencePathHint': '降采样后的优化器输入',
     'layers.smoothedPath': '平滑路径',
     'layers.smoothedPathHint': 'Ceres 输出，按前进 / 倒车方向着色',
-    'layers.rejectedSmoothedPath': '失败的平滑路径',
-    'layers.rejectedSmoothedPathHint': '被后验证拒绝的候选结果，使用警示虚线样式显示',
     'layers.robotProjection': '机器人投影',
     'layers.robotProjectionHint': '沿平滑路径扫过的检查圆与虚线矩形验证轮廓',
     'run.title': '运行统计',
@@ -186,27 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.optimizationKnots': '优化结点数',
     'run.returnedPathPoints': '返回路径点数',
     'run.refSpacingTarget': '参考间距目标',
-    'run.hingeThreshold': '表面净空边界',
-    'run.totalNoPenaltyClearance': '总无惩罚净空',
     'run.rawLength': '原始长度',
     'run.referenceLength': '参考长度',
     'run.optimizedLength': '优化长度',
     'run.optMinusRef': '优化 - 参考',
-    'diagnostics.title': '诊断',
-    'diagnostics.pending': '当某次运行产生验证或运动学详情时，它们会显示在这里。',
-    'run.kinematicDetails': '运动学详情',
-    'run.goalSegmentError': '终端段方向误差',
-    'run.goalTolerance': '允许容差',
-    'run.goalExpected': '期望终点方向',
-    'run.goalActualSegment': '实际终端段方向',
-    'run.goalPoseHeading': '终端位姿朝向',
-    'run.goalPoseError': '终端位姿误差',
-    'run.kinematicMaxIterations': '最大迭代次数',
-    'run.kinematicMaxTime': '最大求解时间',
-    'run.kinematicMaxCurvature': '最大曲率',
-    'run.kinematicCurvatureRateWeight': '曲率变化率权重',
-    'run.kinematicResampling': '重采样',
-    'run.kinematicCeresTolerances': 'Ceres 容差',
     'toolbar.runPlanning': '执行规划',
     'toolbar.resetScene': '重置场景',
     'toolbar.resetView': '重置视图',
@@ -252,7 +207,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'unit.metersPerCell': 'm/cell',
       'unit.cells': 'cells',
       'unit.ms': 'ms',
-      'unit.second': 's',
       'common.enabled': 'Enabled',
       'common.disabled': 'Disabled',
       'common.idle': 'idle',
@@ -270,17 +224,14 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.obstacleRebuilding': 'Obstacle moved. Rebuilding costmap…',
       'status.obstacleUpdateFailed': 'Failed to update obstacles.',
       'status.obstacleUpdateError': 'Failed to update obstacles: {message}',
-        'status.scenePresetLoaded': 'Loaded preset: {preset}.',
       'status.markerMoved': '{marker} moved. Replanning…',
       'status.viewReset': 'View reset to the full map extent.',
       'status.sceneReset': 'Scene reset to the default layout. Rebuilding costmap…',
       'status.loadingCostmap': 'Loading costmap…',
       'status.costmapLoaded': 'Costmap loaded. Left-drag endpoints or obstacle rectangles to update the scene, or left-drag empty space to pan.',
       'status.costmapLoadFailed': 'Failed to load costmap: {message}',
-      'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms. {statsSummary}',
-      'status.pathStats': 'Returned {pointCount} pts, total {pathLength}, mean spacing {meanSpacing}.',
+      'status.planSuccess': '{optimizerLabel} complete. A* {astarTimeMs} ms, smoothing {smoothTimeMs} ms.',
       'status.planFallback': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix} so the reference path is shown. {smoothMessage}',
-      'status.planRejectedShown': 'A* succeeded in {astarTimeMs} ms, but {optimizerLabel} failed{errorCodeSuffix}. The rejected smoothed candidate is still shown. {smoothMessage}',
       'selection.ready': 'Markers ready',
       'selection.dragMarker': 'Dragging marker',
       'selection.dragObstacle': 'Dragging obstacle',
@@ -289,15 +240,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.leftDrag': 'Left-drag',
       'optimizer.constrained': 'Constrained Smoother',
       'optimizer.kinematic': 'Kinematic Smoother',
-      'session.goalLongitudinalToleranceLabel': 'Goal Longitudinal Tolerance (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span>',
-      'session.goalLongitudinalToleranceHint': 'Allows the final point to slide forward or backward inside the goal frame before the hinge penalty turns on. Set both goal tolerances to zero to keep the goal position fixed.',
-      'session.goalLateralToleranceLabel': 'Goal Lateral Tolerance (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
-      'session.goalLateralToleranceHint': 'Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.',
-      'weights.modelWeightLabel': 'Model Weight: <span id="val_model_weight">20</span>',
-      'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
-      'weights.enableReferencePointMaxDeviation': 'Enable reference-point max deviation',
-      'weights.referencePointMaxDeviationLabel': 'Reference-Point Max Deviation (m): <span id="val_reference_point_max_deviation_m">0.25</span>',
-      'weights.referencePointMaxDeviationHint': 'Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.',
       'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
       'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
@@ -309,8 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'validation.path.smoothed_candidate': 'Rejected smoothed candidate',
       'validation.path.reference_fallback': 'Returned reference path',
       'validation.path.smoothed_path': 'Returned smoothed path',
-      'layers.rejectedSmoothedPath': 'Failed smoothed path',
-      'layers.rejectedSmoothedPathHint': 'Rejected candidate, shown with a warning dashed style',
       'validation.reason.lethal_overlap': 'Lethal obstacle overlap',
       'validation.reason.out_of_bounds': 'Footprint leaves map bounds',
       'validation.reason.nonfinite_pose': 'Non-finite pose value',
@@ -338,29 +278,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'curvature.axis.rate': 'dk/ds (1/m^2)',
       'run.note.success': '{optimizerLabel} produced the smoothed path. Compare the raw, reference, and smoothed lengths while toggling layers to inspect how the backend changed geometry.',
       'run.note.fallback': '{optimizerLabel} failed and the reference path is being shown instead. {smoothMessage}',
-      'run.note.rejected': '{optimizerLabel} failed validation, but the rejected smoothed candidate is still being shown for inspection. {smoothMessage}',
-      'diagnostics.title': 'Diagnostics',
-      'diagnostics.pending': 'Validation and kinematic details appear here when a run exposes them.',
-      'run.hingeThreshold': 'Surface Clearance Margin',
-      'run.totalNoPenaltyClearance': 'Total No-Penalty Clearance',
-      'run.kinematicDetails': 'Kinematic Details',
-      'run.goalSegmentError': 'Goal Segment Error',
-      'run.goalTolerance': 'Goal Tolerance',
-      'run.goalExpected': 'Expected Goal Heading',
-      'run.goalActualSegment': 'Actual Terminal Segment',
-      'run.goalPoseHeading': 'Terminal Pose Heading',
-      'run.goalPoseError': 'Terminal Pose Error',
-      'run.kinematicMaxIterations': 'Max Iterations',
-      'run.kinematicMaxTime': 'Max Solver Time',
-      'run.kinematicMaxCurvature': 'Max Curvature',
-      'run.kinematicCurvatureRateWeight': 'Curvature Rate Weight',
-      'run.kinematicResampling': 'Resampling',
-      'run.kinematicCeresTolerances': 'Ceres Tolerances',
       'run.pipeline.pending': 'Pipeline status will appear after each run.',
       'run.pipeline.summary': 'Pipeline: {summary}',
       'run.smoothState.success': '{optimizerLabel} success',
       'run.smoothState.fallback': '{optimizerLabel} fallback',
-      'run.smoothState.rejected': '{optimizerLabel} rejected candidate shown',
       'run.stage.status.ok': 'ok',
       'run.stage.status.error': 'error',
       'run.stage.status.fallback': 'fallback',
@@ -388,7 +309,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'unit.metersPerCell': '米/格',
       'unit.cells': '格',
       'unit.ms': '毫秒',
-      'unit.second': '秒',
       'common.enabled': '已启用',
       'common.disabled': '已禁用',
       'common.idle': '空闲',
@@ -412,10 +332,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'status.loadingCostmap': '正在加载代价地图…',
       'status.costmapLoaded': '代价地图已加载。可左键拖拽端点或障碍矩形更新场景，或左键拖拽空白区域平移视图。',
       'status.costmapLoadFailed': '加载代价地图失败：{message}',
-      'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。{statsSummary}',
-      'status.pathStats': '返回 {pointCount} 个点，总长度 {pathLength}，平均间距 {meanSpacing}。',
+      'status.planSuccess': '{optimizerLabel}完成。A* 用时 {astarTimeMs} 毫秒，平滑用时 {smoothTimeMs} 毫秒。',
       'status.planFallback': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}，因此当前显示参考路径。{smoothMessage}',
-      'status.planRejectedShown': 'A* 在 {astarTimeMs} 毫秒内成功，但 {optimizerLabel}失败{errorCodeSuffix}。当前仍显示被拒绝的平滑候选路径。{smoothMessage}',
       'selection.ready': '标记点就绪',
       'selection.dragMarker': '正在拖拽标记点',
       'selection.dragObstacle': '正在拖拽障碍',
@@ -424,8 +342,6 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.leftDrag': '左键拖拽',
       'optimizer.constrained': '约束平滑器',
       'optimizer.kinematic': '运动学平滑器',
-      'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
-      'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
       'optimizer.mode.constrained': '约束平滑器使用现有的 C++ Ceres 目标函数，包含曲率、尖点和 ESDF 障碍项。',
       'optimizer.mode.kinematic': '运动学平滑器使用新的 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
       'optimizer.linear.constrained': '选择每次非线性迭代内部使用的 Ceres 线性求解后端。',
@@ -464,12 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'curvature.axis.rate': 'dk/ds (1/米^2)',
       'run.note.success': '{optimizerLabel}已生成平滑路径。切换图层并比较原始、参考和平滑路径长度，可以观察后端如何改变路径几何。',
       'run.note.fallback': '{optimizerLabel}失败，因此当前显示参考路径。{smoothMessage}',
-      'run.note.rejected': '{optimizerLabel}未通过验证，但当前仍显示被拒绝的平滑候选路径以便检查。{smoothMessage}',
       'run.pipeline.pending': '每次运行后会在这里显示流水线状态。',
       'run.pipeline.summary': '流水线：{summary}',
       'run.smoothState.success': '{optimizerLabel}成功',
       'run.smoothState.fallback': '{optimizerLabel}回退',
-      'run.smoothState.rejected': '{optimizerLabel}候选已拒绝但仍显示',
       'run.stage.status.ok': '正常',
       'run.stage.status.error': '错误',
       'run.stage.status.fallback': '回退',
@@ -581,24 +495,18 @@ document.addEventListener('DOMContentLoaded', () => {
   const sliderConfig = {
     start_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
     goal_yaw_deg: value => `${Math.round(value)} ${t('unit.degree')}`,
-    goal_longitudinal_tolerance_m: value => Number(value).toFixed(2),
-    goal_lateral_tolerance_m: value => Number(value).toFixed(2),
     planner_penalty_weight: value => Number(value).toFixed(1),
-    surface_clearance_margin_m: value => Number(value).toFixed(2),
+    hinge_loss_threshold_m: value => Number(value).toFixed(2),
     point_robot_radius_m: value => Number(value).toFixed(2),
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
     smooth_weight: value => Math.round(value).toLocaleString(),
-    model_weight: value => Math.round(value).toLocaleString(),
     costmap_weight: value => Number(value).toFixed(3),
     cusp_costmap_weight: value => Number(value).toFixed(3),
     cusp_zone_length: value => Number(value).toFixed(2),
     distance_weight: value => Number(value).toFixed(1),
-    reference_point_max_deviation_m: value => Number(value).toFixed(2),
     curvature_weight: value => Number(value).toFixed(1),
     curvature_rate_weight: value => Number(value).toFixed(1),
-    kinematic_curvature_weight: value => Number(value).toFixed(1),
-    kinematic_curvature_rate_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
     reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),
@@ -611,19 +519,9 @@ document.addEventListener('DOMContentLoaded', () => {
     fn_tol: value => formatScientific(value),
     gradient_tol: value => formatScientific(value),
   };
-  const optimizerScopedSliderIds = [
-    'smooth_weight', 'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
-    'distance_weight', 'reference_point_max_deviation_m', 'curvature_weight', 'curvature_rate_weight',
-    'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'max_curvature',
-    'reference_spacing_target_m', 'max_iterations', 'max_time',
-    'path_downsampling_factor', 'path_upsampling_factor',
-  ];
-  const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
-  const optimizerScopedSelectIds = ['linear_solver_type'];
-  const optimizerScopedCheckboxIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
   const numericInputs = Object.keys(numericInputConfig);
   const selectParamIds = ['optimizer_type', 'linear_solver_type'];
-  const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
+  const checkboxParamIds = ['optimizer_debug'];
 
   const sliders = Object.keys(sliderConfig);
   const layerBindings = {
@@ -638,8 +536,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const planInfoIds = [
     'info-optimizer', 'info-astar-time', 'info-smooth-time', 'info-astar-pts', 'info-ref-pts', 'info-opt-knots', 'info-opt-pts',
-    'info-ref-spacing', 'info-hinge-threshold', 'info-total-clearance', 'info-raw-length', 'info-ref-length', 'info-opt-length',
-    'info-length-delta',
+    'info-ref-spacing', 'info-raw-length', 'info-ref-length', 'info-opt-length', 'info-length-delta',
   ];
   const AUTO_REPLAN_DELAY_MS = 220;
   const OPTIMIZED_POINT_HOVER_RADIUS_PX = 11;
@@ -658,77 +555,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const DEFAULT_HEADINGS_DEG = {
     start: 45,
     goal: 45,
-  };
-  function densifyManualReferencePath(path, spacing = 0.2) {
-    if (!Array.isArray(path) || path.length < 2) {
-      return Array.isArray(path) ? path.slice() : [];
-    }
-
-    const densifiedPath = [];
-    for (let index = 0; index < path.length; index += 1) {
-      const current = path[index];
-      if (index === 0) {
-        densifiedPath.push({...current});
-        continue;
-      }
-
-      const previous = path[index - 1];
-      const dx = current.x - previous.x;
-      const dy = current.y - previous.y;
-      const segmentLength = Math.hypot(dx, dy);
-
-      if (segmentLength <= 1e-9) {
-        densifiedPath.push({...current});
-        continue;
-      }
-
-      const stepCount = Math.max(1, Math.ceil(segmentLength / spacing));
-      for (let step = 1; step <= stepCount; step += 1) {
-        const ratio = step / stepCount;
-        densifiedPath.push({
-          x: previous.x + (dx * ratio),
-          y: previous.y + (dy * ratio),
-          direction_sign: current.direction_sign,
-        });
-      }
-    }
-
-    return densifiedPath;
-  }
-  const DEFAULT_SCENE_PRESET = 'default';
-  const SCENE_PRESETS = {
-    default: {
-      start: {x: DEFAULT_ENDPOINTS.start.x, y: DEFAULT_ENDPOINTS.start.y},
-      goal: {x: DEFAULT_ENDPOINTS.goal.x, y: DEFAULT_ENDPOINTS.goal.y},
-      headings: {start: DEFAULT_HEADINGS_DEG.start, goal: DEFAULT_HEADINGS_DEG.goal},
-      optimizerType: 'constrained_smoother',
-      keepStartOrientation: true,
-      keepGoalOrientation: true,
-      enableReferencePointMaxDeviation: false,
-      manualReferencePath: null,
-    },
-    cusp_reverse: {
-      start: {x: 2.0, y: 2.0},
-      goal: {x: 17.0, y: 17.0},
-      headings: {start: 0, goal: 180},
-      optimizerType: 'kinematic_smoother',
-      keepStartOrientation: true,
-      keepGoalOrientation: true,
-      enableReferencePointMaxDeviation: false,
-      manualReferencePath: densifyManualReferencePath([
-        {x: 2.0, y: 2.0, direction_sign: 1.0},
-        {x: 4.0, y: 2.0, direction_sign: 1.0},
-        {x: 6.5, y: 2.0, direction_sign: 1.0},
-        {x: 9.5, y: 2.0, direction_sign: 1.0},
-        {x: 11.0, y: 2.0, direction_sign: 1.0},
-        {x: 11.0, y: 2.0, direction_sign: -1.0},
-        {x: 11.2, y: 5.0, direction_sign: -1.0},
-        {x: 11.2, y: 10.0, direction_sign: -1.0},
-        {x: 11.2, y: 16.6, direction_sign: -1.0},
-        {x: 14.5, y: 16.8, direction_sign: -1.0},
-        {x: 17.0, y: 17.0, direction_sign: -1.0},
-      ], 0.2),
-    },
   };
 
   const state = {
@@ -759,13 +585,6 @@ document.addEventListener('DOMContentLoaded', () => {
     dragOffsetX: 0,
     dragOffsetY: 0,
     pendingAutoPlanTimer: null,
-    currentOptimizerType: optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother',
-    activeScenePreset: DEFAULT_SCENE_PRESET,
-    manualReferencePath: null,
-    optimizerProfiles: {
-      constrained_smoother: null,
-      kinematic_smoother: null,
-    },
     mapDisplayMode: 'costmap',
     esdfColormap: 'diverging',
     layers: {
@@ -787,110 +606,6 @@ document.addEventListener('DOMContentLoaded', () => {
   let activePlanRequestId = 0;
   let activeObstacleUpdateRequestId = 0;
 
-  function updateSliderReadout(id) {
-    const input = document.getElementById(id);
-    const label = document.getElementById('val_' + id);
-    if (!input || !label) {
-      return;
-    }
-    label.textContent = sliderConfig[id](parseFloat(input.value));
-  }
-
-  function updateNumericReadout(id) {
-    const input = document.getElementById(id);
-    const label = document.getElementById('val_' + id);
-    if (!input || !label) {
-      return;
-    }
-    const value = parseFloat(input.value);
-    if (!Number.isFinite(value)) {
-      return;
-    }
-    label.textContent = numericInputConfig[id](value);
-  }
-
-  function captureOptimizerProfile() {
-    return {
-      sliders: Object.fromEntries(optimizerScopedSliderIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      numerics: Object.fromEntries(optimizerScopedNumericIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      selects: Object.fromEntries(optimizerScopedSelectIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      checkboxes: Object.fromEntries(optimizerScopedCheckboxIds.map(id => [id, Boolean(document.getElementById(id)?.checked)])),
-    };
-  }
-
-  function applyOptimizerProfile(profile) {
-    if (!profile) {
-      return;
-    }
-
-    optimizerScopedSliderIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.sliders?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-      updateSliderReadout(id);
-    });
-
-    optimizerScopedNumericIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.numerics?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-      updateNumericReadout(id);
-    });
-
-    optimizerScopedSelectIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.selects?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-    });
-
-    optimizerScopedCheckboxIds.forEach(id => {
-      const input = document.getElementById(id);
-      if (!input || !profile.checkboxes || !Object.prototype.hasOwnProperty.call(profile.checkboxes, id)) {
-        return;
-      }
-      input.checked = Boolean(profile.checkboxes[id]);
-    });
-
-    syncReferenceDeviationUi();
-    syncDerivedParameterInfo();
-    drawCurvatureChart();
-  }
-
-  function initializeOptimizerProfiles() {
-    const initialProfile = captureOptimizerProfile();
-    state.optimizerProfiles.constrained_smoother = {
-      sliders: {...initialProfile.sliders},
-      numerics: {...initialProfile.numerics},
-      selects: {...initialProfile.selects},
-      checkboxes: {...initialProfile.checkboxes},
-    };
-    state.optimizerProfiles.kinematic_smoother = {
-      sliders: {...initialProfile.sliders},
-      numerics: {...initialProfile.numerics},
-      selects: {...initialProfile.selects},
-      checkboxes: {...initialProfile.checkboxes},
-    };
-  }
-
-  function syncReferenceDeviationUi() {
-    const enabledInput = document.getElementById('enable_reference_point_max_deviation');
-    const deviationInput = document.getElementById('reference_point_max_deviation_m');
-    if (!enabledInput || !deviationInput) {
-      return;
-    }
-
-    deviationInput.disabled = !enabledInput.checked;
-  }
-
   sliders.forEach(id => {
     const input = document.getElementById(id);
     if (!input || !document.getElementById('val_' + id)) {
@@ -898,12 +613,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const sync = () => {
-      updateSliderReadout(id);
+      const label = document.getElementById('val_' + id);
+      if (!label) {
+        return;
+      }
+      label.textContent = sliderConfig[id](parseFloat(input.value));
       if (id === 'start_yaw_deg' || id === 'goal_yaw_deg') {
         updateSelectionInfo();
         draw();
       }
-      if (id === 'surface_clearance_margin_m' || id === 'point_robot_radius_m' ||
+      if (id === 'hinge_loss_threshold_m' || id === 'point_robot_radius_m' ||
         id === 'robot_length_m' || id === 'robot_width_m') {
         updateRobotConfigUi();
         draw();
@@ -922,7 +641,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const sync = () => {
-      updateNumericReadout(id);
+      const label = document.getElementById('val_' + id);
+      if (!label) {
+        return;
+      }
+      const value = parseFloat(input.value);
+      if (!Number.isFinite(value)) {
+        return;
+      }
+      label.textContent = numericInputConfig[id](value);
     };
 
     input.addEventListener('input', sync);
@@ -948,15 +675,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    input.addEventListener('change', () => {
-      if (id === 'enable_reference_point_max_deviation') {
-        syncReferenceDeviationUi();
-      }
-      scheduleAutoPlan();
-    });
+    input.addEventListener('change', () => scheduleAutoPlan());
   });
-
-  syncReferenceDeviationUi();
 
   if (mapDisplayModeSelect) {
     mapDisplayModeSelect.addEventListener('change', () => {
@@ -983,14 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (optimizerTypeSelect) {
     optimizerTypeSelect.addEventListener('change', () => {
-      const previousOptimizerType = state.currentOptimizerType;
-      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
-        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
-      }
-      state.currentOptimizerType = optimizerTypeSelect.value;
-      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
       updateOptimizerUi();
-      scheduleAutoPlan();
     });
   }
 
@@ -1023,91 +736,10 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
-  let pendingCanvasResizeFrame = null;
-  let pendingPlotResizeFrame = null;
-
-  function resizeMapCanvas() {
-    if (!canvas || !canvasWrap) {
-      return;
-    }
-
-    const wrapStyle = window.getComputedStyle(canvasWrap);
-    const innerWidth = canvasWrap.clientWidth
-      - parseFloat(wrapStyle.paddingLeft || '0')
-      - parseFloat(wrapStyle.paddingRight || '0');
-    const innerHeight = canvasWrap.clientHeight
-      - parseFloat(wrapStyle.paddingTop || '0')
-      - parseFloat(wrapStyle.paddingBottom || '0');
-    const displaySize = Math.max(1, Math.floor(Math.min(innerWidth, innerHeight)));
-    if (!Number.isFinite(displaySize) || displaySize < 1) {
-      return;
-    }
-
-    const displaySizePx = `${displaySize}px`;
-    if (
-      canvas.width === baseCanvasPixelSize
-      && canvas.height === baseCanvasPixelSize
-      && canvas.style.width === displaySizePx
-      && canvas.style.height === displaySizePx
-    ) {
-      return;
-    }
-
-    canvas.width = baseCanvasPixelSize;
-    canvas.height = baseCanvasPixelSize;
-    canvas.style.width = displaySizePx;
-    canvas.style.height = displaySizePx;
-    positionOptimizedPointPopup();
-    draw();
-  }
-
-  function scheduleMapCanvasResize() {
-    if (pendingCanvasResizeFrame !== null) {
-      window.cancelAnimationFrame(pendingCanvasResizeFrame);
-    }
-    pendingCanvasResizeFrame = window.requestAnimationFrame(() => {
-      pendingCanvasResizeFrame = null;
-      resizeMapCanvas();
-    });
-  }
-
-  function resizeProfileCharts({rerender = false} = {}) {
-    if (!chartElements.length) {
-      return;
-    }
-
-    if (rerender) {
-      drawCurvatureChart();
-      return;
-    }
-
-    if (!window.Plotly?.Plots) {
-      return;
-    }
-
-    chartElements.forEach(element => {
-      if (element?.clientWidth > 0 && element?.clientHeight > 0 && element.data) {
-        window.Plotly.Plots.resize(element);
-      }
-    });
-  }
-
-  function scheduleProfileChartResize(options = {}) {
-    if (pendingPlotResizeFrame !== null) {
-      window.cancelAnimationFrame(pendingPlotResizeFrame);
-    }
-    pendingPlotResizeFrame = window.requestAnimationFrame(() => {
-      pendingPlotResizeFrame = null;
-      resizeProfileCharts(options);
-    });
-  }
-
   syncDerivedParameterInfo();
   updateRobotConfigUi();
-  initializeOptimizerProfiles();
   clearOptimizedPointInspector();
   clearCurvatureChart();
-  resizeMapCanvas();
 
   const maxCurvatureInput = document.getElementById('max_curvature');
   if (maxCurvatureInput) {
@@ -1117,19 +749,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  window.addEventListener('resize', () => {
-    scheduleMapCanvasResize();
-    scheduleProfileChartResize();
-  });
-
-  if (window.ResizeObserver) {
-    if (canvasWrap) {
-      new window.ResizeObserver(() => scheduleMapCanvasResize()).observe(canvasWrap);
-    }
-    document.querySelectorAll('.curvature-panel').forEach(profilePanel => {
-      new window.ResizeObserver(() => scheduleProfileChartResize()).observe(profilePanel);
-    });
-  }
+  window.addEventListener('resize', () => drawCurvatureChart());
 
   Object.entries(layerBindings).forEach(([id, key]) => {
     const checkbox = document.getElementById(id);
@@ -1150,70 +770,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  function initializePanelSwitcher(container) {
-    const navButtons = Array.from(container.querySelectorAll('.control-nav-btn[data-panel-target]'));
-    const panels = Array.from(container.querySelectorAll('[data-panel-id]'));
-    if (!navButtons.length || !panels.length) {
-      return;
-    }
-
-    const setActivePanel = panelId => {
-      const fallbackPanelId = panels[0]?.dataset.panelId;
-      const nextPanelId = panels.some(panel => panel.dataset.panelId === panelId) ? panelId : fallbackPanelId;
-      if (!nextPanelId) {
-        return;
-      }
-
-      navButtons.forEach(button => {
-        const isActive = button.dataset.panelTarget === nextPanelId;
-        button.classList.toggle('is-active', isActive);
-        button.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      });
-
-      panels.forEach(panel => {
-        const isActive = panel.dataset.panelId === nextPanelId;
-        panel.classList.toggle('is-active', isActive);
-        panel.hidden = !isActive;
-      });
-
-      scheduleMapCanvasResize();
-      scheduleProfileChartResize();
-    };
-
-    navButtons.forEach(button => {
-      button.addEventListener('click', () => {
-        setActivePanel(button.dataset.panelTarget);
-      });
-    });
-
-    const defaultPanelId = navButtons.find(button => button.classList.contains('is-active'))?.dataset.panelTarget
-      || panels[0]?.dataset.panelId;
-    setActivePanel(defaultPanelId);
-  }
-
-  function initializeControlPanels() {
-    const panelSwitchers = Array.from(document.querySelectorAll('[data-panel-switcher]'));
-    if (!panelSwitchers.length) {
-      return;
-    }
-
-    panelSwitchers.forEach(initializePanelSwitcher);
-  }
-
   function updateOptimizerUi() {
     const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
-
-    const smoothWeightGroup = document.getElementById('smooth-weight-group');
-    const modelWeightGroup = document.getElementById('model-weight-group');
-    const constrainedCurvatureWeightGroup = document.getElementById('constrained-curvature-weight-group');
-    const constrainedCurvatureRateWeightGroup = document.getElementById('constrained-curvature-rate-weight-group');
-    const kinematicCurvatureWeightGroup = document.getElementById('kinematic-curvature-weight-group');
-    const kinematicCurvatureRateWeightGroup = document.getElementById('kinematic-curvature-rate-weight-group');
-    const weightsOptimizerBadge = document.getElementById('weights-optimizer-badge');
-
-    if (weightsOptimizerBadge) {
-      weightsOptimizerBadge.textContent = t('optimizer.kinematic');
-    }
 
     setText(
       'optimizer-mode-hint',
@@ -1261,19 +819,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   updateOptimizerUi();
-  initializeControlPanels();
   function formatMeters(value, digits = 2) {
     if (value === null || value === undefined || Number.isNaN(value)) {
       return '--';
     }
     return `${Number(value).toFixed(digits)} ${t('unit.meter')}`;
-  }
-
-  function formatSeconds(value, digits = 2) {
-    if (value === null || value === undefined || Number.isNaN(value)) {
-      return '--';
-    }
-    return `${Number(value).toFixed(digits)} ${t('unit.second')}`;
   }
 
   function formatDegrees(value, digits = 1) {
@@ -1310,31 +860,6 @@ document.addEventListener('DOMContentLoaded', () => {
     return '--';
   }
 
-  function isRejectedSmoothedPathVisible(pathData = state.paths) {
-    return Boolean(
-      pathData
-      && !pathData.smooth_success
-      && pathData.final_rectangle_validation?.validated_path === 'smoothed_path'
-    );
-  }
-
-  function updateSmoothedLayerPresentation(pathData = state.paths) {
-    const layerName = document.querySelector('[data-i18n="layers.smoothedPath"]');
-    const layerHint = document.querySelector('[data-i18n="layers.smoothedPathHint"]');
-    const layerSwatch = document.querySelector('.swatch-smoothed');
-    const rejected = isRejectedSmoothedPathVisible(pathData);
-
-    if (layerName) {
-      layerName.textContent = rejected ? t('layers.rejectedSmoothedPath') : t('layers.smoothedPath');
-    }
-    if (layerHint) {
-      layerHint.textContent = rejected ? t('layers.rejectedSmoothedPathHint') : t('layers.smoothedPathHint');
-    }
-    if (layerSwatch) {
-      layerSwatch.classList.toggle('swatch-smoothed-rejected', rejected);
-    }
-  }
-
   function formatValidationReason(reason) {
     const reasonLabels = {
       lethal_overlap: t('validation.reason.lethal_overlap'),
@@ -1349,39 +874,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return '--';
     }
     return `${Number(pose.x).toFixed(2)}, ${Number(pose.y).toFixed(2)} ${t('unit.meter')}`;
-  }
-
-  function buildPathStatsSummary(pathData) {
-    const pointCount = Number(pathData?.num_returned_pts ?? pathData?.num_opt_pts);
-    const totalLength = Number(pathData?.opt_path_length_m);
-    const xs = pathData?.opt_x || [];
-    const ys = pathData?.opt_y || [];
-    let meanSpacing = Number.NaN;
-
-    if (xs.length >= 2 && ys.length >= 2) {
-      let spacingSum = 0;
-      let segmentCount = 0;
-      for (let idx = 1; idx < Math.min(xs.length, ys.length); idx += 1) {
-        spacingSum += Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
-        segmentCount += 1;
-      }
-      meanSpacing = segmentCount > 0 ? spacingSum / segmentCount : Number.NaN;
-    } else if (Number.isFinite(totalLength) && Number.isFinite(pointCount) && pointCount > 1) {
-      meanSpacing = totalLength / (pointCount - 1);
-    }
-
-    return t('status.pathStats', {
-      pointCount: Number.isFinite(pointCount) ? String(pointCount) : '--',
-      pathLength: formatMeters(totalLength),
-      meanSpacing: formatMeters(meanSpacing, 3),
-    });
-  }
-
-  function formatAngleDiagnostic(anglePayload) {
-    if (!anglePayload || anglePayload.deg === null || anglePayload.deg === undefined) {
-      return '--';
-    }
-    return `${Number(anglePayload.deg).toFixed(2)} ${t('unit.degree')} (${Number(anglePayload.rad).toFixed(4)} ${t('unit.radian')})`;
   }
 
   function formatValidationCell(firstFailure) {
@@ -1425,57 +917,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('validation-detail-cell', '--');
     setText('validation-detail-cell-world', '--');
     setText('validation-detail-message', '--');
-  }
-
-  function clearKinematicDiagnostics() {
-    if (kinematicDiagnosticsCard) {
-      kinematicDiagnosticsCard.hidden = true;
-    }
-    [
-      'kinematic-detail-mode',
-      'kinematic-goal-segment-error',
-      'kinematic-goal-tolerance',
-      'kinematic-goal-expected',
-      'kinematic-goal-actual-segment',
-      'kinematic-goal-pose-heading',
-      'kinematic-goal-pose-error',
-      'kinematic-param-max-iterations',
-      'kinematic-param-max-time',
-      'kinematic-param-max-curvature',
-      'kinematic-param-curvature-rate-weight',
-      'kinematic-param-resampling',
-      'kinematic-param-ceres-tolerances',
-    ].forEach(id => setText(id, '--'));
-  }
-
-  function updateKinematicDiagnostics(data) {
-    if (!kinematicDiagnosticsCard || data?.optimizer_type !== 'kinematic_smoother') {
-      clearKinematicDiagnostics();
-      return;
-    }
-
-    kinematicDiagnosticsCard.hidden = false;
-    const diagnostics = data.goal_orientation_diagnostics || {};
-    const optimizerConfig = data.optimizer_config || {};
-    setText('kinematic-detail-mode', data.smooth_success ? t('run.stage.status.ok') : t('run.stage.status.error'));
-    setText('kinematic-goal-segment-error', formatAngleDiagnostic(diagnostics.terminal_segment_error));
-    setText('kinematic-goal-tolerance', formatAngleDiagnostic(diagnostics.tolerance));
-    setText('kinematic-goal-expected', formatAngleDiagnostic(diagnostics.expected_goal_heading));
-    setText('kinematic-goal-actual-segment', formatAngleDiagnostic(diagnostics.terminal_segment_heading));
-    setText('kinematic-goal-pose-heading', formatAngleDiagnostic(diagnostics.terminal_pose_heading));
-    setText('kinematic-goal-pose-error', formatAngleDiagnostic(diagnostics.terminal_pose_error));
-    setText('kinematic-param-max-iterations', optimizerConfig.max_iterations ?? '--');
-    setText('kinematic-param-max-time', formatSeconds(optimizerConfig.max_time_s, 2));
-    setText('kinematic-param-max-curvature', formatCurvature(optimizerConfig.max_curvature, 2));
-    setText(
-      'kinematic-param-curvature-rate-weight',
-      optimizerConfig.kinematic_curvature_rate_weight ?? '--'
-    );
-    setText('kinematic-param-resampling', `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'}`);
-    setText(
-      'kinematic-param-ceres-tolerances',
-      `p ${Number(optimizerConfig.param_tol ?? NaN).toExponential(1)}, f ${Number(optimizerConfig.fn_tol ?? NaN).toExponential(1)}, g ${Number(optimizerConfig.gradient_tol ?? NaN).toExponential(1)}`
-    );
   }
 
   function showValidationFailureDetails(validation) {
@@ -1809,78 +1250,27 @@ document.addEventListener('DOMContentLoaded', () => {
     return rects.map(cloneObstacleRect);
   }
 
-  function cloneReferencePose(pose) {
-    return {x: pose.x, y: pose.y, direction_sign: pose.direction_sign};
-  }
-
-  function cloneReferencePath(path) {
-    return path ? path.map(cloneReferencePose) : null;
-  }
-
-  function applyScenePreset(presetKey) {
-    const resolvedKey = Object.prototype.hasOwnProperty.call(SCENE_PRESETS, presetKey)
-      ? presetKey
-      : DEFAULT_SCENE_PRESET;
-    const preset = SCENE_PRESETS[resolvedKey];
-
-    state.activeScenePreset = resolvedKey;
-    state.manualReferencePath = cloneReferencePath(preset.manualReferencePath);
-    state.start = clonePoint(preset.start);
-    state.goal = clonePoint(preset.goal);
-
-    if (optimizerTypeSelect && preset.optimizerType && optimizerTypeSelect.value !== preset.optimizerType) {
-      const previousOptimizerType = state.currentOptimizerType;
-      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
-        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
-      }
-      optimizerTypeSelect.value = preset.optimizerType;
-      state.currentOptimizerType = preset.optimizerType;
-      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
-      updateOptimizerUi();
-    }
-
+  function resetEndpoints() {
+    state.start = clonePoint(DEFAULT_ENDPOINTS.start);
+    state.goal = clonePoint(DEFAULT_ENDPOINTS.goal);
     const startYawInput = document.getElementById('start_yaw_deg');
     const goalYawInput = document.getElementById('goal_yaw_deg');
     if (startYawInput) {
-      startYawInput.value = String(preset.headings.start);
-      document.getElementById('val_start_yaw_deg').textContent = sliderConfig.start_yaw_deg(preset.headings.start);
+      startYawInput.value = String(DEFAULT_HEADINGS_DEG.start);
+      document.getElementById('val_start_yaw_deg').textContent = sliderConfig.start_yaw_deg(DEFAULT_HEADINGS_DEG.start);
     }
     if (goalYawInput) {
-      goalYawInput.value = String(preset.headings.goal);
-      document.getElementById('val_goal_yaw_deg').textContent = sliderConfig.goal_yaw_deg(preset.headings.goal);
+      goalYawInput.value = String(DEFAULT_HEADINGS_DEG.goal);
+      document.getElementById('val_goal_yaw_deg').textContent = sliderConfig.goal_yaw_deg(DEFAULT_HEADINGS_DEG.goal);
     }
-
     const keepStartInput = document.getElementById('keep_start_orientation');
     const keepGoalInput = document.getElementById('keep_goal_orientation');
-    const referenceDeviationInput = document.getElementById('enable_reference_point_max_deviation');
     if (keepStartInput) {
-      keepStartInput.checked = preset.keepStartOrientation;
+      keepStartInput.checked = true;
     }
     if (keepGoalInput) {
-      keepGoalInput.checked = preset.keepGoalOrientation;
+      keepGoalInput.checked = true;
     }
-    if (referenceDeviationInput && typeof preset.enableReferencePointMaxDeviation === 'boolean') {
-      referenceDeviationInput.checked = preset.enableReferencePointMaxDeviation;
-      syncReferenceDeviationUi();
-    }
-    if (scenePresetSelect) {
-      scenePresetSelect.value = resolvedKey;
-    }
-  }
-
-  function clearManualReferencePreset() {
-    if (state.activeScenePreset === DEFAULT_SCENE_PRESET && !state.manualReferencePath) {
-      return;
-    }
-    state.activeScenePreset = DEFAULT_SCENE_PRESET;
-    state.manualReferencePath = null;
-    if (scenePresetSelect) {
-      scenePresetSelect.value = DEFAULT_SCENE_PRESET;
-    }
-  }
-
-  function resetEndpoints() {
-    applyScenePreset(DEFAULT_SCENE_PRESET);
   }
 
   function syncObstaclesFromCostmap(costmap) {
@@ -2552,6 +1942,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('curvature-max', '--');
     setText('curvature-note', t('curvature.note.pending'));
 
+    const chartElements = [curvatureChart, dsChart, dkdsChart].filter(Boolean);
     if (!chartElements.length) {
       return;
     }
@@ -2565,7 +1956,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const createEmptyLayout = (height, title) => ({
       height,
-      margin: {l: 52, r: 14, t: 12, b: 38},
+      margin: {l: 56, r: 18, t: 16, b: 46},
       paper_bgcolor: 'rgba(255, 250, 240, 0.96)',
       plot_bgcolor: 'rgba(255, 250, 240, 0.96)',
       font: {
@@ -2601,19 +1992,19 @@ document.addEventListener('DOMContentLoaded', () => {
     window.Plotly.react(
       curvatureChart,
       [],
-      createEmptyLayout(CHART_HEIGHTS.primary, t('curvature.empty.curvature')),
+      createEmptyLayout(260, t('curvature.empty.curvature')),
       config
     );
     window.Plotly.react(
       dsChart,
       [],
-      createEmptyLayout(CHART_HEIGHTS.secondary, t('curvature.empty.spacing')),
+      createEmptyLayout(220, t('curvature.empty.spacing')),
       config
     );
     window.Plotly.react(
       dkdsChart,
       [],
-      createEmptyLayout(CHART_HEIGHTS.secondary, t('curvature.empty.rate')),
+      createEmptyLayout(220, t('curvature.empty.rate')),
       config
     );
   }
@@ -2647,7 +2038,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     const makeLayout = (height, xTitle, yTitle) => ({
       height,
-      margin: {l: 58, r: 14, t: 14, b: 44},
+      margin: {l: 64, r: 18, t: 18, b: 52},
       paper_bgcolor: plotBackground,
       plot_bgcolor: plotBackground,
       font: {
@@ -2673,7 +2064,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const maxCurvatureLimit = parseFloat(document.getElementById('max_curvature')?.value || '0');
-    const curvatureLayout = makeLayout(CHART_HEIGHTS.primary, t('curvature.axis.arcLength'), t('curvature.axis.curvature'));
+    const curvatureLayout = makeLayout(260, t('curvature.axis.arcLength'), t('curvature.axis.curvature'));
     if (maxCurvatureLimit > 0) {
       curvatureLayout.shapes = [maxCurvatureLimit, -maxCurvatureLimit].map(limit => ({
         type: 'line',
@@ -2714,7 +2105,7 @@ document.addEventListener('DOMContentLoaded', () => {
         marker: {size: 6, color: 'rgba(20, 122, 106, 0.95)'},
         hovertemplate: 's=%{x:.2f} m<br>ds=%{y:.3f} m<extra></extra>',
       }],
-      makeLayout(CHART_HEIGHTS.secondary, t('curvature.axis.segmentMidpoint'), t('curvature.axis.spacing')),
+      makeLayout(220, t('curvature.axis.segmentMidpoint'), t('curvature.axis.spacing')),
       config
     );
 
@@ -2728,7 +2119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         line: {color: 'rgba(217, 122, 43, 0.95)', width: 2.4},
         hovertemplate: 's=%{x:.2f} m<br>dk/ds=%{y:.3f} 1/m^2<extra></extra>',
       }],
-      makeLayout(CHART_HEIGHTS.secondary, t('curvature.axis.arcLength'), t('curvature.axis.rate')),
+      makeLayout(220, t('curvature.axis.arcLength'), t('curvature.axis.rate')),
       config
     );
 
@@ -2747,10 +2138,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
-    updateSmoothedLayerPresentation(data);
-    updateKinematicDiagnostics(data);
-    const showsRejectedCandidate = !data.smooth_success
-      && data.final_rectangle_validation?.validated_path === 'smoothed_path';
     const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || '');
     setText('info-optimizer', optimizerLabel || '--');
     setText('info-astar-time', `${data.astar_time_ms} ${t('unit.ms')}`);
@@ -2760,14 +2147,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('info-opt-knots', String(data.num_opt_knots));
     setText('info-opt-pts', String(data.num_returned_pts ?? data.num_opt_pts));
     setText('info-ref-spacing', formatMeters(data.reference_spacing_target_m));
-    setText(
-      'info-hinge-threshold',
-      formatMeters(data.surface_clearance_margin_m ?? data.hinge_loss_threshold_m)
-    );
-    setText(
-      'info-total-clearance',
-      formatMeters(Number(data.effective_safe_distance_m) + Number(data.collision_check_radius_m))
-    );
     setText('info-raw-length', formatMeters(data.raw_path_length_m));
     setText('info-ref-length', formatMeters(data.ref_path_length_m));
     setText('info-opt-length', formatMeters(data.opt_path_length_m));
@@ -2782,17 +2161,13 @@ document.addEventListener('DOMContentLoaded', () => {
       'smooth-state',
       data.smooth_success
         ? t('run.smoothState.success', {optimizerLabel: optimizerLabel || 'optimizer'})
-        : showsRejectedCandidate
-          ? t('run.smoothState.rejected', {optimizerLabel: optimizerLabel || 'optimizer'})
-          : t('run.smoothState.fallback', {optimizerLabel: optimizerLabel || 'optimizer'})
+        : t('run.smoothState.fallback', {optimizerLabel: optimizerLabel || 'optimizer'})
     );
     setText(
       'run-note',
       data.smooth_success
         ? t('run.note.success', {optimizerLabel: optimizerLabel || 'The selected optimizer'})
-        : showsRejectedCandidate
-          ? t('run.note.rejected', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
-          : t('run.note.fallback', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
+        : t('run.note.fallback', {optimizerLabel: optimizerLabel || 'The selected optimizer', smoothMessage: data.smooth_message || ''}).trim()
     );
     setText(
       'pipeline-summary',
@@ -2829,12 +2204,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const returnedSummary = !returnedValidation
         ? ''
         : returnedValidation.collision_free
-          ? currentLanguage === 'zh'
-            ? ` ${formatValidationPathLabel(returnedValidation.validated_path)}矩形验证已通过。`
-            : ` ${formatValidationPathLabel(returnedValidation.validated_path)} rectangle validation passed.`
+          ? (currentLanguage === 'zh' ? ' 返回的参考路径矩形验证已通过。' : ' Returned reference path rectangle validation passed.')
           : currentLanguage === 'zh'
-            ? ` ${formatValidationPathLabel(returnedValidation.validated_path)}矩形验证也失败了${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`
-            : ` ${formatValidationPathLabel(returnedValidation.validated_path)} rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
+            ? ` 返回的参考路径矩形验证也失败了${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}。${returnedValidation.message || ''}`
+            : ` Returned reference path rectangle validation also failed${returnedValidation.error_code ? ` [${returnedValidation.error_code}]` : ''}. ${returnedValidation.message || ''}`;
       setText(
         'footprint-validation-summary',
         currentLanguage === 'zh'
@@ -2842,7 +2215,9 @@ document.addEventListener('DOMContentLoaded', () => {
           : `Rejected smoothed path${candidateCode}. ${candidateValidation.message || ''}${returnedSummary}`.trim()
       );
     } else if (returnedValidation) {
-      const pathLabel = formatValidationPathLabel(returnedValidation.validated_path);
+      const pathLabel = returnedValidation.validated_path === 'reference_fallback'
+        ? t('validation.path.reference_fallback')
+        : currentLanguage === 'zh' ? '返回路径' : 'Returned path';
       const statusText = returnedValidation.collision_free
         ? currentLanguage === 'zh'
           ? `${pathLabel}的矩形验证已在全部 ${data.num_returned_pts ?? data.num_opt_pts ?? 0} 个位姿上通过。`
@@ -2864,9 +2239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('run-note', currentLanguage === 'zh' ? '设置起点和终点后即可生成路径指标。' : 'Set a start and goal to generate path metrics.');
     setText('pipeline-summary', t('run.pipeline.pending'));
     setText('footprint-validation-summary', t('robot.validation.pending'));
-    updateSmoothedLayerPresentation(null);
     clearValidationFailureDetails();
-    clearKinematicDiagnostics();
     drawFootprintPreview();
     clearCurvatureChart();
   }
@@ -3224,7 +2597,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return dot >= 0 ? 'forward' : 'reverse';
   }
 
-  function drawDirectionalSmoothedPath(xs, ys, thetas, width, drawDots = false, rejected = false) {
+  function drawDirectionalSmoothedPath(xs, ys, thetas, width, drawDots = false) {
     if (!xs || xs.length < 2 || !thetas || thetas.length < 2) {
       drawPath(xs, ys, SMOOTHED_FORWARD_COLOR, width, drawDots);
       return;
@@ -3235,22 +2608,6 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
 
-    if (rejected) {
-      ctx.save();
-      ctx.setLineDash([10, 7]);
-      ctx.lineWidth = width + 3.0;
-      ctx.strokeStyle = 'rgba(70, 33, 22, 0.82)';
-      ctx.beginPath();
-      const firstPoint = worldToCanvas(xs[0], ys[0]);
-      ctx.moveTo(firstPoint.x, firstPoint.y);
-      for (let idx = 1; idx < xs.length; idx += 1) {
-        const point = worldToCanvas(xs[idx], ys[idx]);
-        ctx.lineTo(point.x, point.y);
-      }
-      ctx.stroke();
-      ctx.restore();
-    }
-
     for (let idx = 0; idx < xs.length - 1; idx += 1) {
       const startPoint = worldToCanvas(xs[idx], ys[idx]);
       const endPoint = worldToCanvas(xs[idx + 1], ys[idx + 1]);
@@ -3260,14 +2617,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ctx.beginPath();
       ctx.moveTo(startPoint.x, startPoint.y);
       ctx.lineTo(endPoint.x, endPoint.y);
-      if (rejected) {
-        ctx.setLineDash([7, 5]);
-      } else {
-        ctx.setLineDash([]);
-      }
-      ctx.strokeStyle = rejected
-        ? motionDirection === 'reverse' ? 'rgba(38, 108, 177, 0.88)' : 'rgba(191, 54, 87, 0.88)'
-        : motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+      ctx.strokeStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
       ctx.stroke();
     }
 
@@ -3281,16 +2631,9 @@ document.addEventListener('DOMContentLoaded', () => {
           motionDirection = getSegmentMotionDirection(thetas[idx], xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
         }
         ctx.beginPath();
-        ctx.arc(point.x, point.y, Math.max(width + (rejected ? 1.8 : 0.4), 2.2), 0, Math.PI * 2);
-        ctx.fillStyle = rejected
-          ? motionDirection === 'reverse' ? 'rgba(38, 108, 177, 0.94)' : 'rgba(191, 54, 87, 0.94)'
-          : motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
+        ctx.arc(point.x, point.y, Math.max(width + 0.4, 2.2), 0, Math.PI * 2);
+        ctx.fillStyle = motionDirection === 'reverse' ? SMOOTHED_REVERSE_COLOR : SMOOTHED_FORWARD_COLOR;
         ctx.fill();
-        if (rejected) {
-          ctx.lineWidth = 1.2;
-          ctx.strokeStyle = 'rgba(70, 33, 22, 0.82)';
-          ctx.stroke();
-        }
       }
     }
 
@@ -3540,14 +2883,7 @@ document.addEventListener('DOMContentLoaded', () => {
         drawSmoothedRobotProjection(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta);
       }
       if (state.layers.smoothed) {
-        drawDirectionalSmoothedPath(
-          state.paths.opt_x,
-          state.paths.opt_y,
-          state.paths.opt_theta,
-          2.8,
-          true,
-          isRejectedSmoothedPathVisible(state.paths)
-        );
+        drawDirectionalSmoothedPath(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta, 2.8, true);
       }
     }
 
@@ -3598,9 +2934,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     params.keep_start_orientation = getConstraintEnabled('keep_start_orientation', true);
     params.keep_goal_orientation = getConstraintEnabled('keep_goal_orientation', true);
-    params.reference_point_max_deviation_m = params.enable_reference_point_max_deviation
-      ? (params.reference_point_max_deviation_m ?? 0)
-      : 0;
     updateRobotConfigUi();
     return params;
   }
@@ -3629,7 +2962,6 @@ document.addEventListener('DOMContentLoaded', () => {
       drag: t('status.dragPlanning'),
       obstacle: t('status.obstaclePlanning'),
       initial: t('status.initialPlanning'),
-      preset: t('status.manualPlanning'),
     };
     setStatus(statusByReason[reason] || statusByReason.manual, '');
     runBtn.disabled = true;
@@ -3639,7 +2971,6 @@ document.addEventListener('DOMContentLoaded', () => {
       start_y: state.start.y,
       goal_x: state.goal.x,
       goal_y: state.goal.y,
-      manual_reference_path: state.manualReferencePath ? cloneReferencePath(state.manualReferencePath) : null,
       ...getParams(),
     };
 
@@ -3674,23 +3005,13 @@ document.addEventListener('DOMContentLoaded', () => {
       updateRunInfo(data);
       const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || 'Optimizer');
       const smoothErrorLabel = data.smooth_error?.code ? ` [${data.smooth_error.code}]` : '';
-      const showsRejectedCandidate = !data.smooth_success
-        && data.final_rectangle_validation?.validated_path === 'smoothed_path';
       setStatus(
         data.smooth_success
           ? t('status.planSuccess', {
             optimizerLabel,
             astarTimeMs: data.astar_time_ms,
             smoothTimeMs: data.smooth_time_ms,
-            statsSummary: buildPathStatsSummary(data),
           })
-          : showsRejectedCandidate
-            ? t('status.planRejectedShown', {
-              astarTimeMs: data.astar_time_ms,
-              optimizerLabel,
-              errorCodeSuffix: smoothErrorLabel,
-              smoothMessage: data.smooth_message || '',
-            }).trim()
           : t('status.planFallback', {
             astarTimeMs: data.astar_time_ms,
             optimizerLabel,
@@ -3892,7 +3213,6 @@ document.addEventListener('DOMContentLoaded', () => {
     updateCanvasCursor();
 
     if (didMoveMarker) {
-      clearManualReferencePreset();
       setStatus(
         t('status.markerMoved', {marker: t(draggedMarker === 'start' ? 'marker.start' : 'marker.goal')}),
         ''
@@ -3935,16 +3255,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   runBtn.addEventListener('click', () => runPlanning({reason: 'manual'}));
 
-  if (scenePresetSelect) {
-    scenePresetSelect.addEventListener('change', () => {
-      applyScenePreset(scenePresetSelect.value);
-      updateSelectionInfo();
-      draw();
-      setStatus(t('status.scenePresetLoaded', {preset: scenePresetSelect.options[scenePresetSelect.selectedIndex]?.text || ''}), '');
-      runPlanning({reason: 'preset'});
-    });
-  }
-
   clearBtn.addEventListener('click', () => {
     cancelPendingPlanning();
     state.paths = null;
@@ -3986,23 +3296,13 @@ document.addEventListener('DOMContentLoaded', () => {
       updateRunInfo(state.paths);
       const optimizerLabel = localizeOptimizerLabel(state.paths.optimizer_label || 'Optimizer');
       const smoothErrorLabel = state.paths.smooth_error?.code ? ` [${state.paths.smooth_error.code}]` : '';
-      const showsRejectedCandidate = !state.paths.smooth_success
-        && state.paths.final_rectangle_validation?.validated_path === 'smoothed_path';
       setStatus(
         state.paths.smooth_success
           ? t('status.planSuccess', {
             optimizerLabel,
             astarTimeMs: state.paths.astar_time_ms,
             smoothTimeMs: state.paths.smooth_time_ms,
-            statsSummary: buildPathStatsSummary(state.paths),
           })
-          : showsRejectedCandidate
-            ? t('status.planRejectedShown', {
-              astarTimeMs: state.paths.astar_time_ms,
-              optimizerLabel,
-              errorCodeSuffix: smoothErrorLabel,
-              smoothMessage: state.paths.smooth_message || '',
-            }).trim()
           : t('status.planFallback', {
             astarTimeMs: state.paths.astar_time_ms,
             optimizerLabel,

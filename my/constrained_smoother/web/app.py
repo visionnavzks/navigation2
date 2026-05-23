@@ -121,9 +121,6 @@ def _exception_to_api_error(exc, *, default_status=400, default_source="server")
         )
 
     code = getattr(exc, "code", None)
-
-    # ---- API error normalization helpers ----
-
     numeric_code = getattr(exc, "numeric_code", None)
     if code:
         details = {"exception_type": type(exc).__name__}
@@ -205,23 +202,6 @@ def _build_smoother_error_payload(result):
     return error_payload
 
 
-_PRE_FINALIZE_FAILURE_REASONS = {
-    "solver_rejected_solution",
-    "no_cost_improvement",
-}
-
-
-def _failure_has_displayable_candidate_path(result):
-    candidate_path = result.get("path")
-    if candidate_path is None:
-        return False
-
-    failure_reason = result.get("error_reason")
-    return failure_reason not in _PRE_FINALIZE_FAILURE_REASONS
-
-
-# ---- Pipeline stage reporting helpers ----
-
 def _make_pipeline_stage(
     stage_key,
     label,
@@ -275,11 +255,7 @@ def _build_pipeline_payload(stages):
     }
 
 
-# ---- Planner / smoother / validation pipeline stages ----
-
 def _run_astar_stage(
-    costmap_grid,
-    esdf_grid,
     planner_costmap,
     footprint_model,
     planner_penalty_weight,
@@ -293,17 +269,6 @@ def _run_astar_stage(
     keep_start_orientation,
     keep_goal_orientation,
 ):
-    """Run the planner stage and normalize its result into a stable dict.
-
-    Return contract:
-        planner: Planner instance whose ESDF may be reused by the smoother stage.
-        raw_path: Raw A* path as world-coordinate tuples.
-        sparse_path: Downsampled reference path used as the smoother input chain.
-        eigen_path: Reference path encoded as `[x, y, direction_sign]` triples.
-        reference_with_yaw: Display-ready reference path with reconstructed yaw.
-        astar_time_ms: Planner runtime in milliseconds.
-        stage: Pipeline-stage payload for frontend status rendering.
-    """
     planner = pcs.AStarPlanner()
     planner_params = pcs.AStarPlannerParams()
     planner_params.safe_distance = footprint_model["safe_distance"]
@@ -327,21 +292,11 @@ def _run_astar_stage(
     astar_time_ms = (time.time() - t0) * 1000.0
 
     if not raw_path:
-        failure = _diagnose_astar_no_path(
-            costmap_grid,
-            esdf_grid,
-            footprint_model,
-            start_x,
-            start_y,
-            goal_x,
-            goal_y,
-        )
         raise ApiError(
             ERROR_ASTAR_NO_PATH,
-            failure["message"],
+            "A* could not find a path.",
             status_code=409,
             source="planner",
-            details=failure,
         )
 
     raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
@@ -375,90 +330,6 @@ def _run_astar_stage(
     }
 
 
-def _parse_manual_reference_path(raw_path):
-    if raw_path is None:
-        return None
-    if not isinstance(raw_path, list):
-        raise ApiError(
-            ERROR_INVALID_REQUEST,
-            "manual_reference_path must be a list of poses.",
-            status_code=400,
-            source="request",
-        )
-
-    parsed_path = []
-    for index, pose in enumerate(raw_path):
-        if isinstance(pose, dict):
-            x_value = pose.get("x")
-            y_value = pose.get("y")
-            direction_value = pose.get("direction_sign", 1.0)
-        elif isinstance(pose, (list, tuple)) and len(pose) >= 2:
-            x_value = pose[0]
-            y_value = pose[1]
-            direction_value = pose[2] if len(pose) >= 3 else 1.0
-        else:
-            raise ApiError(
-                ERROR_INVALID_REQUEST,
-                f"manual_reference_path[{index}] must contain x/y and optional direction_sign.",
-                status_code=400,
-                source="request",
-            )
-
-        x = float(x_value)
-        y = float(y_value)
-        direction_sign = -1.0 if float(direction_value) < 0.0 else 1.0
-        parsed_path.append((x, y, direction_sign))
-
-    if len(parsed_path) < 2:
-        raise ApiError(
-            ERROR_INVALID_REQUEST,
-            "manual_reference_path must contain at least 2 poses.",
-            status_code=400,
-            source="request",
-        )
-
-    return parsed_path
-
-
-def _run_manual_reference_stage(
-    manual_reference_path,
-    start_yaw_rad,
-    goal_yaw_rad,
-    keep_start_orientation,
-    keep_goal_orientation,
-):
-    raw_path = [(float(point[0]), float(point[1])) for point in manual_reference_path]
-    eigen_path = [
-        [float(point[0]), float(point[1]), -1.0 if float(point[2]) < 0.0 else 1.0]
-        for point in manual_reference_path
-    ]
-    reference_with_yaw = _reconstruct_path_with_yaw(
-        eigen_path,
-        start_yaw=start_yaw_rad,
-        goal_yaw=goal_yaw_rad,
-        keep_start_orientation=keep_start_orientation,
-        keep_goal_orientation=keep_goal_orientation,
-    )
-    stage = _make_pipeline_stage(
-        "planner",
-        "Manual Reference",
-        "ok",
-        f"Manual reference provided {len(eigen_path)} pose(s), including signed direction metadata.",
-        elapsed_ms=0.0,
-        path_key="reference_path",
-        details={"source": "manual_reference_path"},
-    )
-    return {
-        "planner": None,
-        "raw_path": raw_path,
-        "sparse_path": raw_path,
-        "eigen_path": eigen_path,
-        "reference_with_yaw": reference_with_yaw,
-        "astar_time_ms": 0.0,
-        "stage": stage,
-    }
-
-
 def _run_smoother_stage(
     optimizer_type,
     opt_params,
@@ -470,20 +341,9 @@ def _run_smoother_stage(
     planner,
     reference_with_yaw,
 ):
-    """Run the smoother stage and normalize its result into a stable dict.
-
-    Returned keys:
-        optimizer_label: Human-readable backend label shown in the pipeline UI.
-        smooth_success: Whether the smoother produced an accepted candidate path.
-        smooth_time_ms: Optimizer wall time in milliseconds.
-        smooth_message: Human-readable fallback or failure message.
-        smooth_error: Structured error payload or None.
-        candidate_smoothed: Candidate path emitted by the backend, even when post-validation later rejects it.
-        returned_path: Path forwarded to the next stage.
-        optimized_knot_count: Backend-reported optimized knot/state count.
-        stage: Pipeline-stage payload for frontend status rendering.
-    """
-    optimizer_label = "Kinematic Smoother"
+    optimizer_label = (
+"Kinematic Smoother"
+    )
     smoother = pcs.KinematicSmoother()
     smoother.initialize(opt_params)
 
@@ -494,30 +354,18 @@ def _run_smoother_stage(
     returned_path = reference_with_yaw
 
     try:
-        if planner is None:
-            smooth_result = smoother.try_smooth(
-                eigen_path,
-                start_dir,
-                end_dir,
-                planner_costmap,
-                smoother_params,
-            )
-        else:
-            smooth_result = smoother.try_smooth_with_planner_esdf(
-                eigen_path,
-                start_dir,
-                end_dir,
-                planner_costmap,
-                smoother_params,
-                planner,
-            )
+        smooth_result = smoother.try_smooth_with_planner_esdf(
+            eigen_path,
+            start_dir,
+            end_dir,
+            planner_costmap,
+            smoother_params,
+            planner,
+        )
         smooth_time_ms = (time.time() - t0) * 1000.0
-        if bool(smooth_result["ok"]):
-            candidate_smoothed = smooth_result["path"]
-        elif _failure_has_displayable_candidate_path(smooth_result):
-            candidate_smoothed = smooth_result["path"]
         smooth_success = bool(smooth_result["ok"])
         if smooth_success:
+            candidate_smoothed = smooth_result["path"]
             returned_path = candidate_smoothed
             stage = _make_pipeline_stage(
                 "smoother",
@@ -537,7 +385,7 @@ def _run_smoother_stage(
                 smooth_message or "Optimizer failed; using the reference path.",
                 elapsed_ms=smooth_time_ms,
                 error_code=smooth_error.get("code"),
-                path_key="smoothed_candidate" if candidate_smoothed is not None else "reference_fallback",
+                path_key="reference_fallback",
             )
     except Exception as exc:
         smooth_time_ms = (time.time() - t0) * 1000.0
@@ -577,22 +425,10 @@ def _run_validation_stage(
     robot_length_m,
     robot_width_m,
 ):
-    """Run rectangle validation and decide which path the web layer should return.
-
-    Returned keys:
-        smooth_success: Final success flag after candidate validation.
-        smooth_error: Structured smoother or validation error payload.
-        smooth_message: Human-readable status/fallback message.
-        returned_path: Path that should be exposed to the frontend, including rejected candidates kept for visualization.
-        candidate_rectangle_validation: Validation result for the candidate path, if any.
-        final_rectangle_validation: Validation result for the actually returned path.
-        stage: Rectangle-validation pipeline-stage payload.
-        response_stage: Final web response-stage payload.
-    """
     candidate_rectangle_validation = None
-    returned_path = candidate_smoothed if candidate_smoothed is not None else reference_with_yaw
+    returned_path = candidate_smoothed if smooth_success and candidate_smoothed is not None else reference_with_yaw
 
-    if candidate_smoothed is not None:
+    if smooth_success and candidate_smoothed is not None:
         candidate_rectangle_validation = _validate_smoothed_path_rectangles(
             costmap_grid,
             [pose[0] for pose in candidate_smoothed],
@@ -606,6 +442,7 @@ def _run_validation_stage(
             smooth_success = False
             smooth_error = _build_validation_error_payload(candidate_rectangle_validation)
             smooth_message = smooth_error["message"]
+            returned_path = reference_with_yaw
 
     final_rectangle_validation = _validate_smoothed_path_rectangles(
         costmap_grid,
@@ -615,7 +452,9 @@ def _run_validation_stage(
         robot_length_m,
         robot_width_m,
     )
-    final_rectangle_validation["validated_path"] = "smoothed_path" if returned_path is candidate_smoothed else "reference_fallback"
+    final_rectangle_validation["validated_path"] = (
+        "smoothed_path" if smooth_success else "reference_fallback"
+    )
 
     if not final_rectangle_validation["valid"]:
         validation_stage = _make_pipeline_stage(
@@ -638,18 +477,18 @@ def _run_validation_stage(
         validation_stage = _make_pipeline_stage(
             "validate",
             "Rectangle Validate",
-            "error",
+            "fallback",
             candidate_rectangle_validation["message"],
             error_code=candidate_rectangle_validation["error_code"],
-            path_key="smoothed_path",
+            path_key="reference_fallback",
         )
         response_stage = _make_pipeline_stage(
             "web",
             "Web",
-            "error",
-            "Showing the smoothed candidate on the web even though candidate validation failed.",
+            "fallback",
+            "Showing the reference fallback path on the web after candidate validation failed.",
             error_code=(smooth_error or {}).get("code"),
-            path_key="smoothed_path",
+            path_key="reference_fallback",
         )
     else:
         validation_stage = _make_pipeline_stage(
@@ -684,8 +523,6 @@ def _run_validation_stage(
 
 app = Flask(__name__)
 
-# ---- Shared in-memory scene state ----
-
 # ---------------------------------------------------------------------------
 # Default costmap: 200×200 cells, 0.1 m resolution → 20 m × 20 m world area
 # ---------------------------------------------------------------------------
@@ -696,7 +533,6 @@ DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
 DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
 INFLATION_RADIUS_CELLS = 5
-KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD = 0.1
 DEFAULT_OBSTACLE_RECTS = [
     # (x_start, y_start, x_end, y_end) in cell coordinates
     (60, 40, 80, 100),
@@ -852,272 +688,6 @@ def _serialize_validation_scalar(value, digits=4):
     return round(numeric_value, digits)
 
 
-def _serialize_angle_pair(radians, digits_rad=4, digits_deg=2):
-    numeric_value = float(radians)
-    if not math.isfinite(numeric_value):
-        return {"rad": None, "deg": None}
-    return {
-        "rad": round(numeric_value, digits_rad),
-        "deg": round(math.degrees(numeric_value), digits_deg),
-    }
-
-
-def _build_goal_orientation_diagnostics(path, goal_yaw_rad, tolerance_rad):
-    if not path:
-        return None
-
-    terminal_pose_yaw = float(path[-1][2])
-    terminal_pose_yaw_error = _normalize_angle_rad(terminal_pose_yaw - goal_yaw_rad)
-
-    terminal_segment_heading = terminal_pose_yaw
-    terminal_segment_error = terminal_pose_yaw_error
-    if len(path) >= 2:
-        dx = float(path[-1][0]) - float(path[-2][0])
-        dy = float(path[-1][1]) - float(path[-2][1])
-        if math.hypot(dx, dy) > 1e-9:
-            terminal_segment_heading = math.atan2(dy, dx)
-            terminal_segment_error = _normalize_angle_rad(terminal_segment_heading - goal_yaw_rad)
-
-    return {
-        "expected_goal_heading": _serialize_angle_pair(goal_yaw_rad),
-        "terminal_segment_heading": _serialize_angle_pair(terminal_segment_heading),
-        "terminal_segment_error": _serialize_angle_pair(terminal_segment_error),
-        "terminal_pose_heading": _serialize_angle_pair(terminal_pose_yaw),
-        "terminal_pose_error": _serialize_angle_pair(terminal_pose_yaw_error),
-        "tolerance": _serialize_angle_pair(tolerance_rad),
-    }
-
-
-def _build_optimizer_config_payload(
-    optimizer_type,
-    smooth_weight,
-    model_weight,
-    costmap_weight,
-    cusp_costmap_weight,
-    cusp_zone_length,
-    distance_weight,
-    reference_point_max_deviation,
-    curvature_weight,
-    curvature_rate_weight,
-    kinematic_curvature_weight,
-    kinematic_curvature_rate_weight,
-    max_curvature,
-    max_time,
-    max_iterations,
-    param_tol,
-    fn_tol,
-    gradient_tol,
-    path_downsample,
-    path_upsample,
-    keep_start_orientation,
-    keep_goal_orientation,
-):
-    return {
-        "optimizer_type": optimizer_type,
-        "smooth_weight": round(smooth_weight, 3),
-        "model_weight": round(model_weight, 3),
-        "costmap_weight": round(costmap_weight, 3),
-        "cusp_costmap_weight": round(cusp_costmap_weight, 3),
-        "cusp_zone_length_m": round(cusp_zone_length, 3),
-        "distance_weight": round(distance_weight, 3),
-        "reference_point_max_deviation_m": round(reference_point_max_deviation, 3),
-        "curvature_weight": round(curvature_weight, 3),
-        "curvature_rate_weight": round(curvature_rate_weight, 3),
-        "kinematic_curvature_weight": round(kinematic_curvature_weight, 3),
-        "kinematic_curvature_rate_weight": round(kinematic_curvature_rate_weight, 3),
-        "max_curvature": round(max_curvature, 4),
-        "max_time_s": round(max_time, 3),
-        "max_iterations": int(max_iterations),
-        "param_tol": param_tol,
-        "fn_tol": fn_tol,
-        "gradient_tol": gradient_tol,
-        "path_downsampling_factor": int(path_downsample),
-        "path_upsampling_factor": int(path_upsample),
-        "keep_start_orientation": bool(keep_start_orientation),
-        "keep_goal_orientation": bool(keep_goal_orientation),
-    }
-
-
-def _world_to_costmap_cell(world_x, world_y):
-    return (
-        int((world_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION),
-        int((world_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION),
-    )
-
-
-def _costmap_cell_in_bounds(grid, mx, my):
-    size_y, size_x = grid.shape
-    return 0 <= mx < size_x and 0 <= my < size_y
-
-
-def _build_astar_endpoint_payload(endpoint, world_x, world_y, mx, my):
-    return {
-        "endpoint": endpoint,
-        "world_x": _serialize_validation_scalar(world_x),
-        "world_y": _serialize_validation_scalar(world_y),
-        "mx": int(mx),
-        "my": int(my),
-    }
-
-
-def _diagnose_astar_endpoint(
-    grid,
-    esdf_grid,
-    footprint_model,
-    endpoint,
-    world_x,
-    world_y,
-    yaw,
-):
-    mx, my = _world_to_costmap_cell(world_x, world_y)
-    endpoint_payload = _build_astar_endpoint_payload(endpoint, world_x, world_y, mx, my)
-
-    if not _costmap_cell_in_bounds(grid, mx, my):
-        return {
-            "reason": f"{endpoint}_out_of_bounds",
-            "message": f"A* could not find a path because the {endpoint} pose lies outside the costmap bounds.",
-            endpoint: endpoint_payload,
-        }
-
-    endpoint_payload["cell_cost"] = int(grid[my, mx])
-    if endpoint_payload["cell_cost"] >= int(pcs.Costmap2D.LETHAL_OBSTACLE):
-        return {
-            "reason": f"{endpoint}_in_lethal_obstacle",
-            "message": f"A* could not find a path because the {endpoint} pose lies inside a lethal obstacle cell.",
-            endpoint: endpoint_payload,
-        }
-
-    radius = max(float(footprint_model["check_radius"]), 0.0)
-    planner_points = footprint_model["planner_points"]
-    if not planner_points or radius <= 1e-9:
-        return None
-
-    cos_yaw = math.cos(yaw)
-    sin_yaw = math.sin(yaw)
-    min_clearance = math.inf
-    min_clearance_sample = None
-    for offset in range(0, len(planner_points), 2):
-        local_x = float(planner_points[offset])
-        local_y = float(planner_points[offset + 1])
-        checkpoint_world_x = world_x + cos_yaw * local_x - sin_yaw * local_y
-        checkpoint_world_y = world_y + sin_yaw * local_x + cos_yaw * local_y
-        checkpoint_mx, checkpoint_my = _world_to_costmap_cell(checkpoint_world_x, checkpoint_world_y)
-
-        if not _costmap_cell_in_bounds(grid, checkpoint_mx, checkpoint_my):
-            return {
-                "reason": f"{endpoint}_footprint_out_of_bounds",
-                "message": f"A* could not find a path because the {endpoint} footprint leaves the costmap bounds.",
-                endpoint: endpoint_payload,
-                "checkpoint": {
-                    "index": offset // 2,
-                    "local_x": _serialize_validation_scalar(local_x),
-                    "local_y": _serialize_validation_scalar(local_y),
-                    "world_x": _serialize_validation_scalar(checkpoint_world_x),
-                    "world_y": _serialize_validation_scalar(checkpoint_world_y),
-                    "mx": int(checkpoint_mx),
-                    "my": int(checkpoint_my),
-                },
-            }
-
-        if esdf_grid is None:
-            continue
-
-        clearance = float(esdf_grid[checkpoint_my, checkpoint_mx])
-        if clearance < min_clearance:
-            min_clearance = clearance
-            min_clearance_sample = {
-                "mx": int(checkpoint_mx),
-                "my": int(checkpoint_my),
-                "world_x": _serialize_validation_scalar(checkpoint_world_x),
-                "world_y": _serialize_validation_scalar(checkpoint_world_y),
-            }
-
-    if esdf_grid is not None and min_clearance < radius:
-        return {
-            "reason": f"{endpoint}_footprint_collision",
-            "message": (
-                f"A* could not find a path because the {endpoint} footprint is in collision or too close "
-                f"to obstacles (clearance {min_clearance:.3f} m, required {radius:.3f} m)."
-            ),
-            endpoint: endpoint_payload,
-            "required_clearance_m": _serialize_validation_scalar(radius),
-            "clearance_m": _serialize_validation_scalar(min_clearance),
-            "closest_observed_cell": min_clearance_sample,
-        }
-
-    return None
-
-
-def _diagnose_astar_no_path(
-    grid,
-    esdf_grid,
-    footprint_model,
-    start_x,
-    start_y,
-    goal_x,
-    goal_y,
-):
-    nominal_yaw = math.atan2(goal_y - start_y, goal_x - start_x)
-
-    start_failure = _diagnose_astar_endpoint(
-        grid,
-        esdf_grid,
-        footprint_model,
-        "start",
-        start_x,
-        start_y,
-        nominal_yaw,
-    )
-    if start_failure is not None:
-        start_failure["goal"] = _build_astar_endpoint_payload(
-            "goal",
-            goal_x,
-            goal_y,
-            *_world_to_costmap_cell(goal_x, goal_y),
-        )
-        return start_failure
-
-    goal_failure = _diagnose_astar_endpoint(
-        grid,
-        esdf_grid,
-        footprint_model,
-        "goal",
-        goal_x,
-        goal_y,
-        nominal_yaw,
-    )
-    if goal_failure is not None:
-        goal_failure["start"] = _build_astar_endpoint_payload(
-            "start",
-            start_x,
-            start_y,
-            *_world_to_costmap_cell(start_x, start_y),
-        )
-        return goal_failure
-
-    return {
-        "reason": "disconnected_free_space",
-        "message": (
-            "A* could not find a path because the start and goal are individually traversable, "
-            "but no connected corridor satisfies the current obstacle layout and footprint clearance constraints."
-        ),
-        "start": _build_astar_endpoint_payload(
-            "start",
-            start_x,
-            start_y,
-            *_world_to_costmap_cell(start_x, start_y),
-        ),
-        "goal": _build_astar_endpoint_payload(
-            "goal",
-            goal_x,
-            goal_y,
-            *_world_to_costmap_cell(goal_x, goal_y),
-        ),
-        "required_clearance_m": _serialize_validation_scalar(float(footprint_model["check_radius"])),
-        "safe_distance_m": _serialize_validation_scalar(float(footprint_model["safe_distance"])),
-    }
-
-
 def _build_validation_error_payload(validation):
     return {
         "code": validation["error_code"],
@@ -1148,7 +718,7 @@ def _build_capsule_center_offsets(limit_x, radius, tolerance):
 
 def _build_robot_footprint_model(
     footprint_mode,
-    surface_clearance_margin_m,
+    hinge_loss_threshold_m,
     point_robot_radius_m,
     robot_length_m,
     robot_width_m,
@@ -1180,7 +750,7 @@ def _build_robot_footprint_model(
             "y": round(float(point_y), 4),
         })
 
-    safe_distance = surface_clearance_margin_m
+    safe_distance = hinge_loss_threshold_m
     return {
         "mode": mode,
         "safe_distance": safe_distance,
@@ -1455,9 +1025,7 @@ def update_obstacles():
 def plan_and_smooth():
     """Run A* to find a reference path, then smooth it with the constrained smoother."""
     try:
-        # ---- Request parsing and frontend knob normalization ----
         req = request.get_json(silent=True) or {}
-        manual_reference_path = _parse_manual_reference_path(req.get("manual_reference_path"))
         start_x = float(req.get("start_x", 1.0))
         start_y = float(req.get("start_y", 1.0))
         goal_x = float(req.get("goal_x", 18.0))
@@ -1466,39 +1034,22 @@ def plan_and_smooth():
         goal_yaw_deg = float(req.get("goal_yaw_deg", 45.0))
         keep_start_orientation = _coerce_bool(req.get("keep_start_orientation"), True)
         keep_goal_orientation = _coerce_bool(req.get("keep_goal_orientation"), True)
-        goal_longitudinal_tolerance_m = max(0.0, float(req.get("goal_longitudinal_tolerance_m", 0.0)))
-        goal_lateral_tolerance_m = max(0.0, float(req.get("goal_lateral_tolerance_m", 0.0)))
-        goal_orientation_tolerance_deg = max(0.0, float(req.get("goal_orientation_tolerance_deg", 0.0)))
         footprint_mode = str(req.get("footprint_mode", "capsule")).strip().lower()
         if footprint_mode not in {"point", "capsule"}:
             footprint_mode = "capsule"
-        surface_clearance_margin_m = max(
-            0.05,
-            float(req.get("surface_clearance_margin_m", req.get("hinge_loss_threshold_m", 0.5))),
-        )
+        hinge_loss_threshold_m = max(0.05, float(req.get("hinge_loss_threshold_m", 0.5)))
         point_robot_radius_m = max(0.0, float(req.get("point_robot_radius_m", 1.0)))
         robot_length_m = max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8)))
         robot_width_m = max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5)))
 
         # Smoother tuning knobs from the frontend
         smooth_weight = float(req.get("smooth_weight", 20.0))
-        model_weight = float(req.get("model_weight", smooth_weight))
         costmap_weight = float(req.get("costmap_weight", 1.0))
         cusp_costmap_weight = max(0.0, float(req.get("cusp_costmap_weight", costmap_weight * 3.0)))
         cusp_zone_length = max(0.0, float(req.get("cusp_zone_length", 2.5)))
         distance_weight = float(req.get("distance_weight", 0.0))
-        enable_reference_point_max_deviation = _coerce_bool(
-            req.get("enable_reference_point_max_deviation"), False
-        )
-        reference_point_max_deviation = max(
-            0.0, float(req.get("reference_point_max_deviation_m", 0.25))
-        )
         curvature_weight = float(req.get("curvature_weight", 30.0))
         curvature_rate_weight = float(req.get("curvature_rate_weight", 5.0))
-        kinematic_curvature_weight = float(req.get("kinematic_curvature_weight", curvature_weight))
-        kinematic_curvature_rate_weight = float(
-            req.get("kinematic_curvature_rate_weight", curvature_rate_weight)
-        )
         max_curvature = float(req.get("max_curvature", 2.5))
         max_time = max(0.01, float(req.get("max_time", 10.0)))
         reference_spacing_target_m = min(
@@ -1508,9 +1059,7 @@ def plan_and_smooth():
         path_downsample = max(1, int(req.get("path_downsampling_factor", 1)))
         path_upsample = max(1, int(req.get("path_upsampling_factor", 1)))
         max_iterations = max(1, int(req.get("max_iterations", 50)))
-        optimizer_type = str(req.get("optimizer_type", "constrained_smoother")).strip().lower()
-        if optimizer_type not in {"constrained_smoother", "kinematic_smoother"}:
-            optimizer_type = "constrained_smoother"
+        optimizer_type = "kinematic_smoother"
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
             linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
@@ -1522,7 +1071,7 @@ def plan_and_smooth():
 
         footprint_model = _build_robot_footprint_model(
             footprint_mode,
-            surface_clearance_margin_m,
+            hinge_loss_threshold_m,
             point_robot_radius_m,
             robot_length_m,
             robot_width_m,
@@ -1530,7 +1079,6 @@ def plan_and_smooth():
 
         with STATE_LOCK:
             costmap_grid = COSTMAP_GRID.copy()
-            esdf_grid = ESDF_GRID.copy() if ESDF_GRID is not None else None
             planner_costmap = _grid_to_pcs_costmap(costmap_grid)
 
         start_yaw_rad = math.radians(start_yaw_deg)
@@ -1538,32 +1086,20 @@ def plan_and_smooth():
         s_dir = [math.cos(start_yaw_rad), math.sin(start_yaw_rad)]
         e_dir = [math.cos(goal_yaw_rad), math.sin(goal_yaw_rad)]
 
-        # ---- Stage 1: planner builds the reference path and sparse control chain ----
-        if manual_reference_path is not None:
-            planner_stage_result = _run_manual_reference_stage(
-                manual_reference_path,
-                start_yaw_rad,
-                goal_yaw_rad,
-                keep_start_orientation,
-                keep_goal_orientation,
-            )
-        else:
-            planner_stage_result = _run_astar_stage(
-                costmap_grid,
-                esdf_grid,
-                planner_costmap,
-                footprint_model,
-                planner_penalty_weight,
-                start_x,
-                start_y,
-                goal_x,
-                goal_y,
-                reference_spacing_target_m,
-                start_yaw_rad,
-                goal_yaw_rad,
-                keep_start_orientation,
-                keep_goal_orientation,
-            )
+        planner_stage_result = _run_astar_stage(
+            planner_costmap,
+            footprint_model,
+            planner_penalty_weight,
+            start_x,
+            start_y,
+            goal_x,
+            goal_y,
+            reference_spacing_target_m,
+            start_yaw_rad,
+            goal_yaw_rad,
+            keep_start_orientation,
+            keep_goal_orientation,
+        )
         planner = planner_stage_result["planner"]
         raw_path = planner_stage_result["raw_path"]
         sparse_path = planner_stage_result["sparse_path"]
@@ -1572,27 +1108,16 @@ def plan_and_smooth():
         astar_time = planner_stage_result["astar_time_ms"]
 
         smoother_params = pcs.SmootherParams()
-        smoother_params.model_weight_sqrt = math.sqrt(model_weight)
         smoother_params.costmap_weight_sqrt = math.sqrt(costmap_weight)
         smoother_params.cusp_costmap_weight_sqrt = math.sqrt(cusp_costmap_weight)
         smoother_params.cusp_zone_length = cusp_zone_length
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
         smoother_params.cost_check_radius = footprint_model["check_radius"]
         smoother_params.distance_weight_sqrt = math.sqrt(distance_weight)
-        smoother_params.reference_point_max_deviation = (
-            reference_point_max_deviation if enable_reference_point_max_deviation else 0.0
-        )
-        smoother_params.kinematic_curvature_weight_sqrt = math.sqrt(kinematic_curvature_weight)
-        smoother_params.kinematic_curvature_rate_weight_sqrt = math.sqrt(
-            kinematic_curvature_rate_weight
-        )
         smoother_params.max_curvature = max_curvature
         smoother_params.max_time = max_time
         smoother_params.keep_start_orientation = keep_start_orientation
         smoother_params.keep_goal_orientation = keep_goal_orientation
-        smoother_params.goal_longitudinal_tolerance = goal_longitudinal_tolerance_m
-        smoother_params.goal_lateral_tolerance = goal_lateral_tolerance_m
-        smoother_params.goal_orientation_tolerance = math.radians(goal_orientation_tolerance_deg)
         smoother_params.cost_check_points = footprint_model["smoother_points"]
         smoother_params.path_downsampling_factor = path_downsample
         smoother_params.path_upsampling_factor = path_upsample
@@ -1605,7 +1130,6 @@ def plan_and_smooth():
         opt_params.fn_tol = fn_tol
         opt_params.gradient_tol = gradient_tol
 
-        # ---- Stage 2: smoother optimizes against the planner path, but may fall back ----
         smoother_stage_result = _run_smoother_stage(
             optimizer_type,
             opt_params,
@@ -1625,7 +1149,6 @@ def plan_and_smooth():
         candidate_smoothed = smoother_stage_result["candidate_smoothed"]
         optimized_knot_count = smoother_stage_result["optimized_knot_count"]
 
-        # ---- Stage 3: rectangle validation decides whether to keep the candidate path ----
         validation_stage_result = _run_validation_stage(
             costmap_grid,
             candidate_smoothed,
@@ -1648,48 +1171,8 @@ def plan_and_smooth():
             validation_stage_result["stage"],
             validation_stage_result["response_stage"],
         ])
-        goal_orientation_diagnostics = None
-        if optimizer_type == "kinematic_smoother":
-            goal_orientation_diagnostics = _build_goal_orientation_diagnostics(
-                smoothed,
-                goal_yaw_rad,
-                KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD,
-            )
-            if (
-                smooth_error
-                and smooth_error.get("details", {}).get("failure_reason") == "goal_orientation_constraint"
-                and goal_orientation_diagnostics is not None
-            ):
-                smooth_error.setdefault("details", {}).update({
-                    "goal_orientation": goal_orientation_diagnostics,
-                })
 
-        optimizer_config = _build_optimizer_config_payload(
-            optimizer_type,
-            smooth_weight,
-            model_weight,
-            costmap_weight,
-            cusp_costmap_weight,
-            cusp_zone_length,
-            distance_weight,
-            reference_point_max_deviation if enable_reference_point_max_deviation else 0.0,
-            curvature_weight,
-            curvature_rate_weight,
-            kinematic_curvature_weight,
-            kinematic_curvature_rate_weight,
-            max_curvature,
-            max_time,
-            max_iterations,
-            param_tol,
-            fn_tol,
-            gradient_tol,
-            path_downsample,
-            path_upsample,
-            keep_start_orientation,
-            keep_goal_orientation,
-        )
-
-        # ---- Final response assembly for the frontend ----
+        # Format response
         astar_x = [p[0] for p in raw_path]
         astar_y = [p[1] for p in raw_path]
         ref_x = [p[0] for p in sparse_path]
@@ -1702,7 +1185,6 @@ def plan_and_smooth():
         opt_length = _path_length(smoothed)
 
         return jsonify({
-            # High-level pipeline and fallback status.
             "success": True,
             "pipeline": pipeline,
             "smooth_success": smooth_success,
@@ -1711,10 +1193,6 @@ def plan_and_smooth():
             "smooth_message": smooth_message,
             "smooth_error": smooth_error,
             "candidate_rectangle_validation": candidate_rectangle_validation,
-            "goal_orientation_diagnostics": goal_orientation_diagnostics,
-            "optimizer_config": optimizer_config,
-
-            # Raw planner / reference / returned path geometry.
             "astar_x": astar_x,
             "astar_y": astar_y,
             "ref_x": ref_x,
@@ -1722,8 +1200,6 @@ def plan_and_smooth():
             "opt_x": opt_x,
             "opt_y": opt_y,
             "opt_theta": opt_theta,
-
-            # Path cardinality and length metrics.
             "num_astar_pts": len(raw_path),
             "num_ref_pts": len(sparse_path),
             "num_opt_knots": optimized_knot_count,
@@ -1733,8 +1209,6 @@ def plan_and_smooth():
             "ref_path_length_m": round(ref_length, 3),
             "opt_path_length_m": round(opt_length, 3),
             "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
-
-            # Planner / optimizer configuration echoed back to the frontend.
             "reference_spacing_target_m": round(reference_spacing_target_m, 3),
             "planner_penalty_weight": round(planner_penalty_weight, 3),
             "optimizer_type": optimizer_type,
@@ -1744,8 +1218,7 @@ def plan_and_smooth():
             "goal_yaw_deg": round(goal_yaw_deg, 2),
             "keep_start_orientation": keep_start_orientation,
             "keep_goal_orientation": keep_goal_orientation,
-            "hinge_loss_threshold_m": round(surface_clearance_margin_m, 3),
-            "surface_clearance_margin_m": round(surface_clearance_margin_m, 3),
+            "hinge_loss_threshold_m": round(hinge_loss_threshold_m, 3),
             "point_robot_radius_m": round(point_robot_radius_m, 3),
             "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
             "footprint_mode": footprint_model["mode"],
@@ -1754,8 +1227,6 @@ def plan_and_smooth():
             "robot_check_points": len(footprint_model["serialized_points"]),
             "collision_check_radius_m": round(footprint_model["check_radius"], 3),
             "collision_check_points_local": footprint_model["serialized_points"],
-
-            # Final post-validation status for the path actually returned.
             "final_rectangle_validation": final_rectangle_validation,
         })
 
