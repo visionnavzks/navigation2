@@ -159,23 +159,22 @@
             <section id="panel-weights" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-weights" hidden>
               <div class="section-heading">
                 <h2 data-i18n="weights.title">Smoother Weights</h2>
-                <span id="weights-optimizer-badge" class="pill" data-i18n="solver.constrained">Constrained Smoother</span>
+                <span id="weights-optimizer-badge" class="pill" data-i18n="solver.kinematic">Kinematic Smoother</span>
               </div>
               <div class="param-group param-group--stacked">
                 <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
                 <select id="optimizer_type">
-                  <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
-                  <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
+                  <option value="kinematic_smoother" selected data-i18n="solver.kinematic">Kinematic Smoother</option>
                 </select>
-                <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
+                <p id="optimizer-mode-hint" class="param-hint">Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.</p>
               </div>
-              <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver; Constrained Smoother uses smooth_weight plus geometric curvature weights, while Kinematic Smoother uses model_weight plus its own kinematic curvature weights.</p>
-              <div id="smooth-weight-group" class="param-group">
+              <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver; Kinematic Smoother uses model_weight plus its own kinematic curvature weights.</p>
+              <div id="smooth-weight-group" class="param-group" hidden>
                 <label data-i18n-html="weights.smoothWeightLabel">Smoothness Weight: <span id="val_smooth_weight">20</span></label>
                 <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
-                <p class="param-hint" data-i18n="weights.smoothWeightHint">Raw weight for the geometric three-point smoothness residual used by Constrained Smoother. Higher values suppress zig-zag changes between adjacent segments, but they do not enforce a bicycle-model transition.</p>
+
               </div>
-              <div id="model-weight-group" class="param-group" hidden>
+              <div id="model-weight-group" class="param-group">
                 <label data-i18n-html="weights.modelWeightLabel">Model Weight: <span id="val_model_weight">20</span></label>
                 <input type="range" id="model_weight" min="0" max="100" step="1" value="20">
                 <p class="param-hint" data-i18n="weights.modelWeightHint">Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
@@ -209,22 +208,22 @@
                 <input type="range" id="reference_point_max_deviation_m" min="0.05" max="2.00" step="0.05" value="0.25">
                 <p class="param-hint" data-i18n="weights.referencePointMaxDeviationHint">Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.</p>
               </div>
-              <div id="constrained-curvature-weight-group" class="param-group">
+              <div id="constrained-curvature-weight-group" class="param-group" hidden>
                 <label data-i18n-html="weights.curvatureWeightLabel">Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
                 <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
                 <p class="param-hint" data-i18n="weights.curvatureWeightHint">Discourages high-curvature turns, especially around obstacle corners.</p>
               </div>
-              <div id="constrained-curvature-rate-weight-group" class="param-group">
+              <div id="constrained-curvature-rate-weight-group" class="param-group" hidden>
                 <label data-i18n-html="weights.curvatureRateWeightLabel">Curvature-Rate Weight: <span id="val_curvature_rate_weight">5.0</span></label>
                 <input type="range" id="curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
                 <p class="param-hint" data-i18n="weights.curvatureRateWeightHint">Applies a four-point D3 finite-difference penalty. Raise it to suppress sudden curvature changes without replacing the max-curvature constraint.</p>
               </div>
-              <div id="kinematic-curvature-weight-group" class="param-group" hidden>
+              <div id="kinematic-curvature-weight-group" class="param-group">
                 <label data-i18n-html="weights.kinematicCurvatureWeightLabel">Kinematic Curvature Weight: <span id="val_kinematic_curvature_weight">30.0</span></label>
                 <input type="range" id="kinematic_curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureWeightHint">Penalizes the explicit kappa state used by the kinematic smoother. Higher values bias the optimizer toward lower average steering curvature, not just fewer max-curvature violations.</p>
               </div>
-              <div id="kinematic-curvature-rate-weight-group" class="param-group" hidden>
+              <div id="kinematic-curvature-rate-weight-group" class="param-group">
                 <label data-i18n-html="weights.kinematicCurvatureRateWeightLabel">Kinematic Curvature-Rate Weight: <span id="val_kinematic_curvature_rate_weight">5.0</span></label>
                 <input type="range" id="kinematic_curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureRateWeightHint">Penalizes changes in the explicit kappa state between transitions. This is different from the geometric smoother&apos;s four-point D3 proxy.</p>
