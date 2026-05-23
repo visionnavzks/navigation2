@@ -75,6 +75,9 @@ Session.vim
 # macOS Finder metadata
 .DS_Store
 target
-.cache
+.cache/
 build-*/
 .venv/
+my/constrained_smoother/build-py313
+my/constrained_smoother/Testing/
+my/constrained_smoother/build-tests

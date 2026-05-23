@@ -1,0 +1,9 @@
+# Build artifacts
+build/
+build-py*/
+.venv/
+site/
+*.so
+*.pyd
+__pycache__/
+*.pyc

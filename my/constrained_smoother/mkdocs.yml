@@ -1,0 +1,56 @@
+site_name: Constrained Smoother
+site_description: Standalone constrained smoother design and implementation notes
+repo_url: https://github.com/ros-navigation/navigation2
+repo_name: ros-navigation/navigation2
+
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Overview: index.md
+  - Package Guide: package-guide.md
+  - Interfaces:
+      - Geometric Smoother I/O: SMOOTHER_INPUT_OUTPUT.md
+  - Design:
+      - Geometric Smoother: SMOOTHER_DESIGN.md
+      - 原理详解: PRINCIPLES_zh.md
+      - Kinematic Smoother: KINEMATIC_SMOOTHER_DESIGN.md
+      - MPC Cost Notes: mpc_cost.md
+  - Reference:
+      - Error Codes: error-codes.md

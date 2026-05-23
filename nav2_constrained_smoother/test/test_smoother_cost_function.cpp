@@ -30,7 +30,7 @@ class TestableSmootherCostFunction : nav2_constrained_smoother::SmootherCostFunc
 public:
   TestableSmootherCostFunction(
     const Eigen::Vector2d & original_pos,
-    double next_to_last_length_ratio,
+    double last_to_current_length_ratio,
     bool reversing,
     const nav2_costmap_2d::Costmap2D * costmap,
     const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<unsigned char>>> &
@@ -38,7 +38,7 @@ public:
     const nav2_constrained_smoother::SmootherParams & params,
     double costmap_weight)
   : SmootherCostFunction(
-      original_pos, next_to_last_length_ratio, reversing,
+      original_pos, last_to_current_length_ratio, reversing,
       costmap, costmap_interpolator,
       params, costmap_weight)
   {

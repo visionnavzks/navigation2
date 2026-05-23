@@ -1,0 +1,5 @@
+algorithm,implementation,cycles,total_ns
+gjk_penetration,c,10,2941497
+gjk_penetration,rust,10,1427926
+mpr_penetration,c,10000,248194969
+mpr_penetration,rust,10000,195286658
