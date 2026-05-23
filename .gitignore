@@ -77,3 +77,4 @@ Session.vim
 target
 .cache
 build-*/
+.venv/
