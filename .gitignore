@@ -71,3 +71,9 @@ Session.vim
 # Vim Temporary
 .netrwhist
 *.png
+
+# macOS Finder metadata
+.DS_Store
+target
+.cache
+build-*/
