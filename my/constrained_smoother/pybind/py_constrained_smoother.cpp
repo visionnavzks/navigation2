@@ -9,7 +9,6 @@
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/kinematic_smoother.hpp"
 #include "constrained_smoother/options.hpp"
-#include "constrained_smoother/smoother.hpp"
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/esdf.hpp"
 
@@ -355,7 +354,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   // --- SmootherParams ---
   py::class_<constrained_smoother::SmootherParams>(m, "SmootherParams")
     .def(py::init<>())
-    .def_readwrite("smooth_weight_sqrt", &constrained_smoother::SmootherParams::smooth_weight_sqrt)
     .def_readwrite("model_weight_sqrt", &constrained_smoother::SmootherParams::model_weight_sqrt)
     .def_readwrite(
     "costmap_weight_sqrt",
@@ -365,17 +363,11 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     &constrained_smoother::SmootherParams::cusp_costmap_weight_sqrt)
     .def_readwrite("cusp_zone_length", &constrained_smoother::SmootherParams::cusp_zone_length)
     .def_readwrite(
-    "distance_weight_sqrt",
-    &constrained_smoother::SmootherParams::distance_weight_sqrt)
+    "reference_path_weight_sqrt",
+    &constrained_smoother::SmootherParams::reference_path_weight_sqrt)
     .def_readwrite(
-    "reference_point_max_deviation",
-    &constrained_smoother::SmootherParams::reference_point_max_deviation)
-    .def_readwrite(
-    "curvature_weight_sqrt",
-    &constrained_smoother::SmootherParams::curvature_weight_sqrt)
-    .def_readwrite(
-    "curvature_rate_weight_sqrt",
-    &constrained_smoother::SmootherParams::curvature_rate_weight_sqrt)
+    "reference_point_max_deviation_m",
+    &constrained_smoother::SmootherParams::reference_point_max_deviation_m)
     .def_readwrite(
     "kinematic_curvature_weight_sqrt",
     &constrained_smoother::SmootherParams::kinematic_curvature_weight_sqrt)
@@ -424,13 +416,20 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   py::class_<constrained_smoother::OptimizerParams>(m, "OptimizerParams")
     .def(py::init<>())
     .def_readwrite("debug", &constrained_smoother::OptimizerParams::debug)
-    .def_readwrite(
+    .def_property(
     "linear_solver_type",
-    &constrained_smoother::OptimizerParams::linear_solver_type)
+    [](const constrained_smoother::OptimizerParams & params) {
+      return std::string(
+        constrained_smoother::OptimizerParams::linearSolverToString(params.linear_solver));
+    },
+    [](constrained_smoother::OptimizerParams & params, const std::string & solver_name) {
+      params.linear_solver =
+        constrained_smoother::OptimizerParams::linearSolverFromString(solver_name);
+    })
     .def_readwrite("max_iterations", &constrained_smoother::OptimizerParams::max_iterations)
-    .def_readwrite("param_tol", &constrained_smoother::OptimizerParams::param_tol)
-    .def_readwrite("fn_tol", &constrained_smoother::OptimizerParams::fn_tol)
-    .def_readwrite("gradient_tol", &constrained_smoother::OptimizerParams::gradient_tol);
+    .def_readwrite("parameter_tolerance", &constrained_smoother::OptimizerParams::parameter_tolerance)
+    .def_readwrite("function_tolerance", &constrained_smoother::OptimizerParams::function_tolerance)
+    .def_readwrite("gradient_tolerance", &constrained_smoother::OptimizerParams::gradient_tolerance);
 
   py::class_<constrained_smoother::AStarPlannerParams>(m, "AStarPlannerParams")
     .def(py::init<>())
@@ -481,166 +480,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE,
     py::arg("use_exact") = true);
 
-  // ---- Geometric smoother bindings ----
-
-  py::class_<constrained_smoother::Smoother>(m, "Smoother")
-    .def(py::init<>())
-    .def("initialize", &constrained_smoother::Smoother::initialize)
-    .def("get_last_optimized_knot_count", &constrained_smoother::Smoother::getLastOptimizedKnotCount)
-    .def(
-    "smooth",
-    [](constrained_smoother::Smoother & self,
-    const py::handle & path_handle,
-    const py::handle & start_dir_handle,
-    const py::handle & end_dir_handle,
-    const py::handle & costmap_handle,
-    const constrained_smoother::SmootherParams & params) -> PyObject *
-    {
-      std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-      const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-      const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-      const auto * costmap = copy_optional_costmap(costmap_handle);
-      constrained_smoother::SmoothingFailureInfo failure;
-      if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
-        return make_python_smoothing_failure(failure);
-      }
-      return py::cast(path).release().ptr();
-    },
-    py::return_value_policy::take_ownership,
-    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap") = py::none(), py::arg("params"),
-    // 异常式接口：失败时抛 Python 异常，成功时直接返回平滑后的路径。
-    "Smooth a path. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
-    .def(
-    "try_smooth",
-    [](constrained_smoother::Smoother & self,
-    const py::handle & path_handle,
-    const py::handle & start_dir_handle,
-    const py::handle & end_dir_handle,
-    const py::handle & costmap_handle,
-    const constrained_smoother::SmootherParams & params) -> py::dict
-    {
-      try {
-        std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-        const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-        const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-        const auto * costmap = copy_optional_costmap(costmap_handle);
-        constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
-          return make_error_result(failure, py::cast(path));
-        }
-
-        py::dict result;
-        result["ok"] = true;
-        result["path"] = path;
-        result["error_code"] = py::none();
-        result["error_message"] = py::none();
-        result["error_reason"] = py::none();
-        result["error_details"] = py::none();
-        return result;
-      } catch (const constrained_smoother::InvalidPath & error) {
-        return make_error_result(error);
-      } catch (const constrained_smoother::InvalidCostmap & error) {
-        return make_error_result(error);
-      } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
-        return make_error_result(error);
-      } catch (const py::error_already_set &) {
-        throw;
-      } catch (const std::exception & error) {
-        py::dict result;
-        result["ok"] = false;
-        result["path"] = py::none();
-        result["error_code"] = py::none();
-        result["error_message"] = py::str(error.what());
-        result["error_reason"] = py::none();
-        result["error_details"] = py::none();
-        return result;
-      }
-    },
-    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap") = py::none(), py::arg("params"),
-    // 结构化接口：把 native 失败统一折叠成 ok/error_* 字段，适合脚本和服务层。
-    "Try to smooth a path and return a structured result with ok/path/error_code/error_message.")
-    .def(
-    "smooth_with_planner_esdf",
-    [](constrained_smoother::Smoother & self,
-    const py::handle & path_handle,
-    const py::handle & start_dir_handle,
-    const py::handle & end_dir_handle,
-    const constrained_smoother::Costmap2D & costmap,
-    const constrained_smoother::SmootherParams & params,
-    const constrained_smoother::AStarPlanner & planner) -> PyObject *
-    {
-      std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-      const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-      const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-      constrained_smoother::SmoothingFailureInfo failure;
-      if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-        return make_python_smoothing_failure(failure);
-      }
-      return py::cast(path).release().ptr();
-    },
-    py::return_value_policy::take_ownership,
-    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap"), py::arg("params"), py::arg("planner"),
-    // 异常式接口：复用 planner 已算好的 ESDF，失败时抛 Python 异常。
-    "Smooth a path while reusing the ESDF previously computed by an A* planner.")
-    .def(
-    "try_smooth_with_planner_esdf",
-    [](constrained_smoother::Smoother & self,
-    const py::handle & path_handle,
-    const py::handle & start_dir_handle,
-    const py::handle & end_dir_handle,
-    const constrained_smoother::Costmap2D & costmap,
-    const constrained_smoother::SmootherParams & params,
-    const constrained_smoother::AStarPlanner & planner) -> py::dict
-    {
-      try {
-        std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-        const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-        const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-        constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-          return make_error_result(failure, py::cast(path));
-        }
-
-        py::dict result;
-        result["ok"] = true;
-        result["path"] = path;
-        result["error_code"] = py::none();
-        result["error_message"] = py::none();
-        result["error_reason"] = py::none();
-        result["error_details"] = py::none();
-        return result;
-      } catch (const constrained_smoother::InvalidPath & error) {
-        return make_error_result(error);
-      } catch (const constrained_smoother::InvalidCostmap & error) {
-        return make_error_result(error);
-      } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
-        return make_error_result(error);
-      } catch (const py::error_already_set &) {
-        throw;
-      } catch (const std::exception & error) {
-        py::dict result;
-        result["ok"] = false;
-        result["path"] = py::none();
-        result["error_code"] = py::none();
-        result["error_message"] = py::str(error.what());
-        result["error_reason"] = py::none();
-        result["error_details"] = py::none();
-        return result;
-      }
-    },
-    py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-    py::arg("costmap"), py::arg("params"), py::arg("planner"),
-    // 结构化接口：复用 planner ESDF，同时保持稳定的 ok/error_* 返回面。
-    "Try to smooth a path with a planner ESDF and return a structured result.");
-
   // ---- Kinematic smoother bindings ----
-  // These bindings intentionally mirror the geometric smoother API above:
-  // same exception-style entrypoints, same try_* methods, and the same
-  // ok/error_* structured result schema. That keeps Python and web callers
-  // backend-agnostic even though the underlying optimizer model differs.
+  // This is now the only smoothing backend exposed by the standalone module.
 
   py::class_<constrained_smoother::KinematicSmoother>(m, "KinematicSmoother")
     .def(py::init<>())

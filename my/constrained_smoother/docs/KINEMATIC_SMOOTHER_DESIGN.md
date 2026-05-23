@@ -1,6 +1,6 @@
 # 运动学平滑器设计说明
 
-本文档说明 `my/constrained_smoother` 中 `KinematicSmoother` 的实现思路，覆盖 C++ 版本 `include/constrained_smoother/kinematic_smoother.hpp` 和 Python 版本 `include/constrained_smoother/kinematic_smoother.py`。
+本文档说明 `my/constrained_smoother` 中 `KinematicSmoother` 的实现思路，覆盖当前保留的 C++ 版本 `include/constrained_smoother/kinematic_smoother.hpp`。
 
 当前 C++ 版本已经拆成“顶层编排 + 共享运行骨架 + 运动学问题构建器 + cost functor”几层，不再把状态展开、问题拼接和执行主线都塞在一个头文件里。
 
@@ -8,9 +8,7 @@
 
 ## 这版 smoother 在做什么
 
-几何版 `Smoother` 直接优化路径点位置，再从局部切向恢复 yaw。
-
-`KinematicSmoother` 更进一步，把每个离散状态显式写成：
+`KinematicSmoother` 把每个离散状态显式写成：
 
 - `x`：位置横坐标
 - `y`：位置纵坐标
@@ -26,12 +24,11 @@
 
 - 输入路径的第三个分量仍沿用方向语义。
 - C++ 版本从 `path[i].z()` 推断每一段是前进还是倒车。
-- Python 版本允许显式传入 `gear_directions`。
 
 但在内部，优化器实际处理的是一条展平后的状态链：
 
 - 每个状态是 `(x, y, theta, kappa, ds)`。
-- 所有状态按固定顺序展开成一维变量数组，交给 Ceres 或 SciPy 最小二乘求解器。
+- 所有状态按固定顺序展开成一维变量数组，交给 Ceres 最小二乘求解器。
 
 求解完成后：
 
@@ -40,14 +37,12 @@
 
 ## 总体流程
 
-`KinematicSmoother::smooth(...)` 与 Python 版 `_optimize_impl(...)` 都遵循同一条主线：
+`KinematicSmoother::smooth(...)` 当前遵循同一条主线：
 
 1. 校验输入合法性。
     - 至少要有起点和终点。
-    - Python 版还会校验 `raw_path` 形状和 `gear_directions` 长度。
 2. 准备 ESDF 或障碍物上下文。
     - C++ 版会构建或接收预计算 ESDF，供障碍物残差和后验校验共用。
-    - Python 版当前不带 ESDF 障碍物项，主要聚焦运动学残差本身。
 3. 把原始路径展开成运动学状态链。
     - 遇到换向时插入 cusp 停驻状态。
 4. 用参考几何初始化 `(x, y, theta, kappa, ds)`。
@@ -57,8 +52,7 @@
 6. 施加显式变量边界。
     - 主要是曲率上下界和非负弧长约束。
 7. 交给求解器优化。
-    - C++ 版使用 Ceres。
-    - Python 版使用 `scipy.optimize.least_squares`。
+    - 当前版本使用 Ceres。
 8. 执行后验校验。
     - C++ 版会检查有限值、边界约束、换向一致性、cusp 停驻行为和障碍物净空。
 9. 回写公共输出路径。
@@ -81,12 +75,26 @@
 
 共享层还包括：
 
-- `include/constrained_smoother/smoother_base.hpp`
-    - 统一 solver 配置、调试状态和公共输入校验。
 - `include/constrained_smoother/smoother_request.hpp`
     - 统一单次调用请求结构。
-- `include/constrained_smoother/smoother_run_base.hpp`
-    - 统一 `prepare -> solve -> finalize` 的执行骨架。
+
+## Web 层如何驱动它
+
+当前 `web/app.py` 不再把 `/api/plan` 的输入拆成大量独立局部变量，而是先收束成 `PlanRequestConfig`：
+
+- `PlanRequestConfig.from_payload()` 负责一次性解析和归一化前端参数。
+- `build_footprint_model()` 负责生成 planner / smoother 共用的检查点与半径模型。
+- `build_smoother_params()` 负责把 Web 层权重转换成 pybind `SmootherParams`。
+- `build_optimizer_params()` 负责把 Web 层求解器参数转换成 pybind `OptimizerParams`。
+
+这样 `/api/plan` 主流程就只保留四件事：
+
+1. 构造请求配置。
+2. 运行 planner stage。
+3. 运行 `KinematicSmoother`。
+4. 做矩形足迹后验校验并组装响应。
+
+这层设计的目标不是引入额外抽象，而是把“请求解析”和“算法执行”分开，让接口层修改不会污染求解主线。
 
 ## 第一个关键点：为什么要插入 cusp 状态
 
@@ -198,16 +206,10 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 6. `KinematicSmootherProblemBuilder::unpackPath(...)`
     - 理解内部状态是如何恢复成对外输出路径的。
 
-如果你准备先看 Python 实现，推荐顺序是：
+如果你准备连同 Web 接口一起看，建议在这之后再读：
 
-1. `_optimize_impl(...)`
-2. `_residuals(...)`
-3. `_kinematic_residuals(...)`
-4. `_smoothness_residuals(...)`
-5. `_spacing_residuals(...)`
-6. `_boundary_residuals(...)`
-
-Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程化约束和后验校验。
+7. `PlanRequestConfig` in `web/app.py`
+8. `/api/plan` in `web/app.py`
 
 ## 最短阅读路径
 
@@ -246,7 +248,7 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
     - 软残差、显式边界和后验拒绝各自承担不同职责，不建议混写。
 - 把 cusp 段当成普通运动段处理。
     - cusp 段的 `gear == 0`，语义是停驻过渡，不是普通短段。
-- 修改 Python 原型或 pybind 返回格式时，不同步 README / [Error Codes](error-codes.md) 的结构化错误约定。
+- 修改 pybind 返回格式时，不同步 README / [Error Codes](error-codes.md) 的结构化错误约定。
     - 这类漂移最容易让 web 和 notebook 调用层出现“能跑但语义对不上”的问题。
 
 ## 建议结合阅读的文件
@@ -256,13 +258,9 @@ Python 版更短，更适合先建立直觉；C++ 版则包含更完整的工程
 - `include/constrained_smoother/kinematic_smoother.hpp`
 - `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
 - `include/constrained_smoother/kinematic_smoother_costs.hpp`
-- `include/constrained_smoother/kinematic_smoother.py`
 - `include/constrained_smoother/smoother_validator.hpp`
 - `include/constrained_smoother/options.hpp`
-- `docs/SMOOTHER_DESIGN.md`
 
 这样可以同时看到：
 
-- 运动学版和几何版的建模差异。
-- Python 原型和 C++ 工程实现的对应关系。
 - 后验校验如何把求解结果转化为可交付行为。

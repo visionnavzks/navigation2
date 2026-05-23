@@ -18,6 +18,13 @@ require_command uv
 require_command cmake
 require_command "$python_bin"
 
+venv_python_is_healthy() {
+  [[ -x "$venv_dir/bin/python" ]] || return 1
+  "$venv_dir/bin/python" - <<'PY' >/dev/null 2>&1
+import encodings
+PY
+}
+
 if [[ -z "${parallel_jobs}" ]]; then
   if command -v nproc >/dev/null 2>&1; then
     parallel_jobs="$(nproc)"
@@ -26,7 +33,9 @@ if [[ -z "${parallel_jobs}" ]]; then
   fi
 fi
 
-if [[ ! -x "${venv_dir}/bin/python" ]]; then
+if ! venv_python_is_healthy; then
+  # Recreate the environment if it is missing or its standard library is broken.
+  rm -rf "$venv_dir"
   uv venv --python "$python_bin" "$venv_dir"
 fi
 

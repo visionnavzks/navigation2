@@ -1,6 +1,6 @@
 # Error Codes
 
-This page is the site-local reference catalog for the standalone constrained smoother project's stable error codes.
+This page is the site-local reference catalog for the standalone kinematic smoother package's stable error codes.
 
 For the high-level C++ failure flow, also see the “失败传播路径” section in [Package Guide](package-guide.md).
 
@@ -69,23 +69,10 @@ The code stays stable as `CS_SMOOTHING_FAILED`, but the backend also reports a s
 
 When available, `error_details.failed_index` identifies the state or segment index that failed.
 
-## Pure Python SciPy Helper Codes
-
-These codes come from `include/constrained_smoother/kinematic_smoother.py`.
-
-| Code | API | Meaning | Typical Trigger | Recommended Handling |
-| --- | --- | --- | --- | --- |
-| `CS_INVALID_RAW_PATH` | `try_optimize(...)` | `raw_path` shape is not `(N, 2)` or `(N, 3)`. | Passing a flat array, ragged data, or non-pose columns. | Normalize input to an `N x 2` or `N x 3` array. |
-| `CS_EMPTY_RAW_PATH` | `try_optimize(...)` | No poses were supplied. | Empty input array or list. | Ensure at least one pose exists before calling the helper. |
-| `CS_INVALID_GEAR_DIRECTIONS` | `try_optimize(...)` | `gear_directions` length does not match segment count. | Shape differs from `(N - 1,)`. | Recompute directions so there is one entry per segment. |
-| `CS_KINEMATIC_OPTIMIZATION_FAILED` | `try_optimize(...)` | SciPy least-squares did not converge to a successful solution. | Iteration budget exhausted or model/constraints inconsistent. | Inspect `optimizer_result`, tune weights/iterations, or fall back to the reference path. |
-
 ## Safe Python API Summary
 
 ### pybind smoother wrappers
 
-- `Smoother.try_smooth(...)`
-- `Smoother.try_smooth_with_planner_esdf(...)`
 - `KinematicSmoother.try_smooth(...)`
 - `KinematicSmoother.try_smooth_with_planner_esdf(...)`
 
@@ -135,19 +122,3 @@ When smoothing runs, the web API may return these additional fields:
 ```
 
 If `candidate_rectangle_validation.valid` is `false`, the smoothed candidate was rejected after optimization, `smooth_success` remains `false`, and the web response still returns that candidate path for visualization.
-
-### pure Python SciPy helper
-
-- `KinematicSmoother.try_optimize(...)`
-
-Return shape:
-
-```python
-{
-    "ok": bool,
-    "states": np.ndarray | None,
-    "optimizer_result": OptimizeResult | None,
-    "error_code": str | None,
-    "error_message": str | None,
-}
-```

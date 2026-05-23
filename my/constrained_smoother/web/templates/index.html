@@ -3,17 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>A* + Constrained Smoother Demo</title>
+  <title>A* + Kinematic Smoother Demo</title>
   <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
   <div class="page-shell">
     <header class="topbar panel">
       <div class="topbar-copy">
-        <p class="eyebrow" data-i18n="hero.eyebrow">Standalone Nav2 Constrained Smoother</p>
+        <p class="eyebrow" data-i18n="hero.eyebrow">Standalone Nav2 Kinematic Smoother</p>
         <div class="topbar-title-row">
           <div>
-            <h1 data-i18n="hero.title">A* + Constrained Smoother Lab</h1>
+            <h1 data-i18n="hero.title">A* + Kinematic Smoother Lab</h1>
             <p class="subtitle" data-i18n="hero.subtitle">Inspect the synthetic costmap, compare raw and optimized paths, and understand what each solver parameter changes before touching the full Nav2 plugin.</p>
           </div>
           <label class="language-switch" for="language-switch">
@@ -151,31 +151,19 @@
                 <p class="param-hint" data-i18n="session.goalLateralToleranceHint">Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.</p>
               </div>
 
-              <p class="param-hint" data-i18n-html="session.reversingHint">The API now honors <strong>reversing_enabled</strong> for the kinematic smoother, but the Web Lab still keeps per-waypoint direction signs as the primary source of reversing behavior, so this compatibility flag remains hidden here.</p>
-              <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone smoother does not optimize a separate steering state. It optimizes <strong>x/y</strong> geometry first and reconstructs <strong>yaw</strong> afterward from local tangents, so cusp-like features here are geometric direction switches rather than true stop-and-steer maneuvers where the robot stays in place and only the steering angle changes.</p>
+              <p class="param-hint" data-i18n-html="session.reversingHint">The Web Lab derives reversing behavior from each waypoint's direction sign. If <strong>reversing_enabled</strong> is turned off at the API level, those signs are ignored and the full path is treated as forward-only.</p>
+              <p class="param-hint" data-i18n-html="session.knownLimitation">Known limitation: this standalone backend optimizes <strong>x / y / theta / kappa / ds</strong>, but it still does not model an explicit steering-angle actuator or a timed stop-hold state. Cusp segments are represented as zero-gear hold transitions, so they are useful for reverse maneuvers but not a full stop-and-steer controller model.</p>
               <p class="section-note" data-i18n-html="session.mapNote">The map now shows a world-frame overlay with the origin at the lower-left, <strong>X</strong> increasing to the right, and <strong>Y</strong> increasing upward. Left-drag the <strong>Start</strong> and <strong>Goal</strong> markers or any outlined obstacle block to edit the scene, left-drag empty canvas to pan, and double-click anywhere on the canvas to restore the full-map framing. Slider changes still trigger automatic replanning.</p>
             </section>
 
             <section id="panel-weights" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-weights" hidden>
               <div class="section-heading">
                 <h2 data-i18n="weights.title">Smoother Weights</h2>
-                <span id="weights-optimizer-badge" class="pill" data-i18n="solver.constrained">Constrained Smoother</span>
+                <span id="weights-optimizer-badge" class="pill" data-i18n="solver.kinematic">Kinematic Smoother</span>
               </div>
-              <div class="param-group param-group--stacked">
-                <label for="optimizer_type" data-i18n="solver.backend">Optimizer Backend</label>
-                <select id="optimizer_type">
-                  <option value="constrained_smoother" selected data-i18n="solver.constrained">Constrained Smoother</option>
-                  <option value="kinematic_smoother" data-i18n="solver.kinematic">Kinematic Smoother</option>
-                </select>
-                <p id="optimizer-mode-hint" class="param-hint">Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.</p>
-              </div>
-              <p class="param-hint" data-i18n="weights.rawWeightNote">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver; Constrained Smoother uses smooth_weight plus geometric curvature weights, while Kinematic Smoother uses model_weight plus its own kinematic curvature weights.</p>
-              <div id="smooth-weight-group" class="param-group">
-                <label data-i18n-html="weights.smoothWeightLabel">Smoothness Weight: <span id="val_smooth_weight">20</span></label>
-                <input type="range" id="smooth_weight" min="0" max="100" step="1" value="20">
-                <p class="param-hint" data-i18n="weights.smoothWeightHint">Raw weight for the geometric three-point smoothness residual used by Constrained Smoother. Higher values suppress zig-zag changes between adjacent segments, but they do not enforce a bicycle-model transition.</p>
-              </div>
-              <div id="model-weight-group" class="param-group" hidden>
+              <p id="optimizer-mode-hint" class="param-hint">Kinematic Smoother uses the C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.</p>
+              <p class="param-hint">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver.</p>
+              <div id="model-weight-group" class="param-group">
                 <label data-i18n-html="weights.modelWeightLabel">Model Weight: <span id="val_model_weight">20</span></label>
                 <input type="range" id="model_weight" min="0" max="100" step="1" value="20">
                 <p class="param-hint" data-i18n="weights.modelWeightHint">Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
@@ -209,25 +197,15 @@
                 <input type="range" id="reference_point_max_deviation_m" min="0.05" max="2.00" step="0.05" value="0.25">
                 <p class="param-hint" data-i18n="weights.referencePointMaxDeviationHint">Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.</p>
               </div>
-              <div id="constrained-curvature-weight-group" class="param-group">
-                <label data-i18n-html="weights.curvatureWeightLabel">Curvature Weight: <span id="val_curvature_weight">30.0</span></label>
-                <input type="range" id="curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
-                <p class="param-hint" data-i18n="weights.curvatureWeightHint">Discourages high-curvature turns, especially around obstacle corners.</p>
-              </div>
-              <div id="constrained-curvature-rate-weight-group" class="param-group">
-                <label data-i18n-html="weights.curvatureRateWeightLabel">Curvature-Rate Weight: <span id="val_curvature_rate_weight">5.0</span></label>
-                <input type="range" id="curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
-                <p class="param-hint" data-i18n="weights.curvatureRateWeightHint">Applies a four-point D3 finite-difference penalty. Raise it to suppress sudden curvature changes without replacing the max-curvature constraint.</p>
-              </div>
-              <div id="kinematic-curvature-weight-group" class="param-group" hidden>
+              <div id="kinematic-curvature-weight-group" class="param-group">
                 <label data-i18n-html="weights.kinematicCurvatureWeightLabel">Kinematic Curvature Weight: <span id="val_kinematic_curvature_weight">30.0</span></label>
                 <input type="range" id="kinematic_curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureWeightHint">Penalizes the explicit kappa state used by the kinematic smoother. Higher values bias the optimizer toward lower average steering curvature, not just fewer max-curvature violations.</p>
               </div>
-              <div id="kinematic-curvature-rate-weight-group" class="param-group" hidden>
+              <div id="kinematic-curvature-rate-weight-group" class="param-group">
                 <label data-i18n-html="weights.kinematicCurvatureRateWeightLabel">Kinematic Curvature-Rate Weight: <span id="val_kinematic_curvature_rate_weight">5.0</span></label>
                 <input type="range" id="kinematic_curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
-                <p class="param-hint" data-i18n="weights.kinematicCurvatureRateWeightHint">Penalizes changes in the explicit kappa state between transitions. This is different from the geometric smoother&apos;s four-point D3 proxy.</p>
+                <p class="param-hint" data-i18n="weights.kinematicCurvatureRateWeightHint">Penalizes changes in the explicit kappa state between transitions along the optimized state chain.</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="weights.maxCurvatureLabel">Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
@@ -250,7 +228,7 @@
               <div class="param-group">
                 <label data-i18n-html="planner.hingeThresholdLabel">Obstacle Surface Clearance (m): <span id="val_surface_clearance_margin_m">0.50</span></label>
                 <input type="range" id="surface_clearance_margin_m" min="0.05" max="2.00" step="0.05" value="0.50">
-                <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared obstacle surface clearance margin used by the C++ A* planner and constrained smoother. Once the checkpoint-to-obstacle surface distance exceeds this value, the ESDF hinge penalty becomes zero. The total checkpoint-center no-penalty clearance is this value plus the robot check radius.</p>
+                <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared obstacle surface clearance margin used by the C++ A* planner and kinematic smoother. Once the checkpoint-to-obstacle surface distance exceeds this value, the ESDF hinge penalty becomes zero. The total checkpoint-center no-penalty clearance is this value plus the robot check radius.</p>
               </div>
             </section>
 
@@ -297,14 +275,6 @@
               <div class="section-heading">
                 <h2 data-i18n="solver.title">Solver</h2>
                 <span class="pill" data-i18n="solver.linearSolver">Linear Solver</span>
-              </div>
-              <div class="param-group param-group--stacked">
-                <label for="linear_solver_type" data-i18n="solver.linearSolver">Linear Solver</label>
-                <select id="linear_solver_type">
-                  <option value="SPARSE_NORMAL_CHOLESKY" selected>SPARSE_NORMAL_CHOLESKY</option>
-                  <option value="DENSE_QR">DENSE_QR</option>
-                </select>
-                <p id="linear-solver-hint" class="param-hint">Chooses the Ceres linear solver backend used inside each nonlinear iteration.</p>
               </div>
               <label class="constraint-toggle" for="optimizer_debug">
                 <input type="checkbox" id="optimizer_debug">

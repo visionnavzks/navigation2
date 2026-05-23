@@ -1,4 +1,4 @@
-// A* + Constrained Smoother — interactive map frontend
+// A* + Kinematic Smoother — interactive map frontend
 document.addEventListener('DOMContentLoaded', () => {
   const formatScientific = value => Number(value).toExponential(1);
   const LANGUAGE_STORAGE_KEY = 'constrained-smoother-ui-language';
@@ -18,8 +18,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const mapDisplayModeSelect = document.getElementById('map-display-mode');
   const esdfColormapSelect = document.getElementById('esdf-colormap');
   const footprintModeSelect = document.getElementById('footprint_mode');
-  const optimizerTypeSelect = document.getElementById('optimizer_type');
-  const linearSolverTypeSelect = document.getElementById('linear_solver_type');
   const languageSwitch = document.getElementById('language-switch');
   const scenePresetSelect = document.getElementById('scene-preset');
   const runBtn = document.getElementById('run-btn');
@@ -35,8 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const zhStaticTranslations = {
-    'hero.eyebrow': '独立版 Nav2 约束平滑器',
-    'hero.title': 'A* + 约束平滑实验台',
+    'hero.eyebrow': '独立版 Nav2 运动学平滑器',
+    'hero.title': 'A* + 运动学平滑实验台',
     'hero.subtitle': '直接查看合成代价地图，对比原始路径与优化路径，并在接入完整 Nav2 插件前理解每个求解参数会改变什么。',
     'language.label': '语言',
     'hero.summary.mapLabel': '地图',
@@ -68,8 +66,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'session.goalLongitudinalToleranceHint': '允许终点在目标坐标系前后方向内先自由滑动，超出带宽后才触发 hinge 惩罚。若纵向和横向容差都为 0，则终点位置保持固定。',
     'session.goalLateralToleranceLabel': '终点横向容差 (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
     'session.goalLateralToleranceHint': '允许终点在目标坐标系侧向内先自由偏移，超出带宽后才触发 hinge 惩罚。这就是文档里的终点位置带宽残差。',
-    'session.reversingHint': '当前 API 已支持运动学平滑器的 <strong>reversing_enabled</strong>，但 Web Lab 仍以路径点自带的方向符号作为倒车语义来源，因此这个兼容开关依旧不在界面中显示。',
-    'session.knownLimitation': '已知限制：当前独立版平滑器不会单独优化转向状态。它先优化 <strong>x/y</strong> 几何，再根据局部切线重建 <strong>yaw</strong>，因此这里的尖点更像几何方向切换，而不是机器人原地不动、只改变转向角的真实停转机动。',
+    'session.reversingHint': 'Web Lab 的倒车语义来自路径点自带的方向符号。如果在 API 层关闭 <strong>reversing_enabled</strong>，这些方向符号会被忽略，整条路径将按纯前进处理。',
+    'session.knownLimitation': '已知限制：当前独立版后端优化的是 <strong>x / y / theta / kappa / ds</strong>，但仍不包含显式转向执行器或带时间的停驻状态。这里的 cusp 段表示零档位保持过渡，适合表达倒车换向，但不是完整的 stop-and-steer 控制模型。',
     'session.mapNote': '地图现在显示世界坐标系叠加层，原点位于左下角，<strong>X</strong> 向右增大，<strong>Y</strong> 向上增大。可左键拖拽 <strong>起点</strong>、<strong>终点</strong> 或任意描边障碍块来编辑场景；左键拖拽空白画布可平移；在画布任意处双击可恢复整图视角。滑块变动仍会自动重新规划。',
     'map.title': '地图概览',
     'map.grid': '栅格',
@@ -86,9 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'loupe.cellCost': '栅格代价值',
     'loupe.esdfDistance': 'ESDF 距离',
     'weights.title': '平滑权重',
-    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数；约束平滑器使用 smooth_weight 和几何曲率权重，运动学平滑器使用 model_weight 和独立的运动学曲率权重。',
-    'weights.smoothWeightLabel': '平滑权重: <span id="val_smooth_weight">20</span>',
-    'weights.smoothWeightHint': '这是约束平滑器三点几何平滑残差的原始权重。调高后，相邻线段会更均匀、更少锯齿，但它并不直接强制自行车模型状态转移。',
+    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数。当前 Web Lab 只暴露运动学后端实际会用到的权重。',
     'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
     'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
@@ -116,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'planner.penaltyWeightLabel': 'A* 惩罚权重: <span id="val_planner_penalty_weight">1.0</span>',
     'planner.penaltyWeightHint': '缩放共享二次铰链损失下 A* 对低净空栅格的绕行强度。它只影响规划器，不影响平滑器的障碍权重。',
     'planner.hingeThresholdLabel': '障碍表面净空 (m): <span id="val_surface_clearance_margin_m">0.50</span>',
-    'planner.hingeThresholdHint': 'C++ A* 规划器与约束平滑器共用的障碍表面净空边界。检查点到障碍物表面的距离超过该值后，ESDF 铰链惩罚为 0。真正的检查点中心无惩罚净空等于这个值再加上机器人检查半径。',
+    'planner.hingeThresholdHint': 'C++ A* 规划器与运动学平滑器共用的障碍表面净空边界。检查点到障碍物表面的距离超过该值后，ESDF 铰链惩罚为 0。真正的检查点中心无惩罚净空等于这个值再加上机器人检查半径。',
     'robot.title': '机器人',
     'robot.footprintModel': '足迹模型',
     'robot.footprintCapsule': '胶囊检查点',
@@ -139,7 +135,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'robot.cellWorldContext': '栅格 / 边界世界上下文',
     'solver.title': '求解器',
     'solver.backend': '优化后端',
-    'solver.constrained': '约束平滑器',
+    'solver.constrained': '运动学平滑器',
     'solver.kinematic': '运动学平滑器',
     'solver.linearSolver': '线性求解器',
     'solver.debugLogging': '在 Flask 服务端启用逐迭代求解日志',
@@ -243,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const messages = {
     en: {
-      'document.title': 'A* + Constrained Smoother Demo',
+      'document.title': 'A* + Kinematic Smoother Demo',
       'unit.degree': 'deg',
       'unit.meter': 'm',
       'unit.radian': 'rad',
@@ -260,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'common.chartReady': 'chart ready',
       'common.plotlyMissing': 'plotly missing',
       'status.parameterChangedReplanning': 'Parameter changed. Replanning…',
-      'status.manualPlanning': 'Planning with A* and constrained smoothing…',
+      'status.manualPlanning': 'Planning with A* and kinematic smoothing…',
       'status.sliderPlanning': 'Replanning after parameter change…',
       'status.dragPlanning': 'Endpoint moved. Replanning…',
       'status.obstaclePlanning': 'Obstacle moved. Replanning…',
@@ -287,7 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.dragScene': 'Drag scene',
       'selection.panning': 'Panning view',
       'selection.leftDrag': 'Left-drag',
-      'optimizer.constrained': 'Constrained Smoother',
+      'optimizer.constrained': 'Kinematic Smoother',
       'optimizer.kinematic': 'Kinematic Smoother',
       'session.goalLongitudinalToleranceLabel': 'Goal Longitudinal Tolerance (m): <span id="val_goal_longitudinal_tolerance_m">0.00</span>',
       'session.goalLongitudinalToleranceHint': 'Allows the final point to slide forward or backward inside the goal frame before the hinge penalty turns on. Set both goal tolerances to zero to keep the goal position fixed.',
@@ -298,10 +294,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'weights.enableReferencePointMaxDeviation': 'Enable reference-point max deviation',
       'weights.referencePointMaxDeviationLabel': 'Reference-Point Max Deviation (m): <span id="val_reference_point_max_deviation_m">0.25</span>',
       'weights.referencePointMaxDeviationHint': 'Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.',
-      'optimizer.mode.constrained': 'Constrained Smoother uses the existing C++ Ceres objective with curvature, cusp, and ESDF obstacle terms.',
+      'optimizer.mode.constrained': 'Kinematic Smoother uses the C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
-      'optimizer.linear.kinematic': 'Only used by Constrained Smoother. Kinematic Smoother solves a single packed state vector with a dense backend.',
+      'optimizer.linear.kinematic': 'Kinematic Smoother solves a single packed state vector; the linear-solver selector is not exposed in the Web Lab.',
       'robot.badge.capsule': 'Capsule',
       'robot.badge.point': 'Single circle',
       'robot.summary.previewPending': 'Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.',
@@ -379,7 +375,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'derived.minTurnRadiusEmpty': 'Minimum turning radius: --'
     },
     zh: {
-      'document.title': 'A* + 约束平滑演示',
+      'document.title': 'A* + 运动学平滑演示',
       'unit.degree': '度',
       'unit.meter': '米',
       'unit.radian': '弧度',
@@ -396,7 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'common.chartReady': '图表就绪',
       'common.plotlyMissing': '缺少 Plotly',
       'status.parameterChangedReplanning': '参数已变化，正在重新规划…',
-      'status.manualPlanning': '正在执行 A* 与约束平滑规划…',
+      'status.manualPlanning': '正在执行 A* 与运动学平滑规划…',
       'status.sliderPlanning': '参数变更后重新规划中…',
       'status.dragPlanning': '端点已移动，正在重新规划…',
       'status.obstaclePlanning': '障碍已移动，正在重新规划…',
@@ -422,14 +418,14 @@ document.addEventListener('DOMContentLoaded', () => {
       'selection.dragScene': '拖拽场景',
       'selection.panning': '正在平移视图',
       'selection.leftDrag': '左键拖拽',
-      'optimizer.constrained': '约束平滑器',
+      'optimizer.constrained': '运动学平滑器',
       'optimizer.kinematic': '运动学平滑器',
       'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
       'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
-      'optimizer.mode.constrained': '约束平滑器使用现有的 C++ Ceres 目标函数，包含曲率、尖点和 ESDF 障碍项。',
+      'optimizer.mode.constrained': '运动学平滑器使用 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
       'optimizer.mode.kinematic': '运动学平滑器使用新的 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
       'optimizer.linear.constrained': '选择每次非线性迭代内部使用的 Ceres 线性求解后端。',
-      'optimizer.linear.kinematic': '仅约束平滑器会使用该设置。运动学平滑器使用致密后端求解单个打包状态向量。',
+      'optimizer.linear.kinematic': '运动学平滑器求解单个打包状态向量，Web Lab 不再暴露线性求解器切换。',
       'robot.badge.capsule': '胶囊',
       'robot.badge.point': '单圆',
       'robot.summary.previewPending': '琥珀色显示的是胶囊检查点；虚线矩形仅用于最终验证。',
@@ -548,7 +544,6 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   const localizeOptimizerLabel = label => localizeKnownText(label, {
-    'Constrained Smoother': t('optimizer.constrained'),
     'Kinematic Smoother': t('optimizer.kinematic'),
   });
 
@@ -588,15 +583,12 @@ document.addEventListener('DOMContentLoaded', () => {
     point_robot_radius_m: value => Number(value).toFixed(2),
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
-    smooth_weight: value => Math.round(value).toLocaleString(),
     model_weight: value => Math.round(value).toLocaleString(),
     costmap_weight: value => Number(value).toFixed(3),
     cusp_costmap_weight: value => Number(value).toFixed(3),
     cusp_zone_length: value => Number(value).toFixed(2),
     distance_weight: value => Number(value).toFixed(1),
     reference_point_max_deviation_m: value => Number(value).toFixed(2),
-    curvature_weight: value => Number(value).toFixed(1),
-    curvature_rate_weight: value => Number(value).toFixed(1),
     kinematic_curvature_weight: value => Number(value).toFixed(1),
     kinematic_curvature_rate_weight: value => Number(value).toFixed(1),
     max_curvature: value => Number(value).toFixed(1),
@@ -612,17 +604,17 @@ document.addEventListener('DOMContentLoaded', () => {
     gradient_tol: value => formatScientific(value),
   };
   const optimizerScopedSliderIds = [
-    'smooth_weight', 'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
-    'distance_weight', 'reference_point_max_deviation_m', 'curvature_weight', 'curvature_rate_weight',
+    'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
+    'distance_weight', 'reference_point_max_deviation_m',
     'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'max_curvature',
     'reference_spacing_target_m', 'max_iterations', 'max_time',
     'path_downsampling_factor', 'path_upsampling_factor',
   ];
   const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
-  const optimizerScopedSelectIds = ['linear_solver_type'];
+  const optimizerScopedSelectIds = [];
   const optimizerScopedCheckboxIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
   const numericInputs = Object.keys(numericInputConfig);
-  const selectParamIds = ['optimizer_type', 'linear_solver_type'];
+  const selectParamIds = [];
   const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
 
   const sliders = Object.keys(sliderConfig);
@@ -701,7 +693,6 @@ document.addEventListener('DOMContentLoaded', () => {
       start: {x: DEFAULT_ENDPOINTS.start.x, y: DEFAULT_ENDPOINTS.start.y},
       goal: {x: DEFAULT_ENDPOINTS.goal.x, y: DEFAULT_ENDPOINTS.goal.y},
       headings: {start: DEFAULT_HEADINGS_DEG.start, goal: DEFAULT_HEADINGS_DEG.goal},
-      optimizerType: 'constrained_smoother',
       keepStartOrientation: true,
       keepGoalOrientation: true,
       enableReferencePointMaxDeviation: false,
@@ -711,7 +702,6 @@ document.addEventListener('DOMContentLoaded', () => {
       start: {x: 2.0, y: 2.0},
       goal: {x: 17.0, y: 17.0},
       headings: {start: 0, goal: 180},
-      optimizerType: 'kinematic_smoother',
       keepStartOrientation: true,
       keepGoalOrientation: true,
       enableReferencePointMaxDeviation: false,
@@ -759,13 +749,8 @@ document.addEventListener('DOMContentLoaded', () => {
     dragOffsetX: 0,
     dragOffsetY: 0,
     pendingAutoPlanTimer: null,
-    currentOptimizerType: optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother',
     activeScenePreset: DEFAULT_SCENE_PRESET,
     manualReferencePath: null,
-    optimizerProfiles: {
-      constrained_smoother: null,
-      kinematic_smoother: null,
-    },
     mapDisplayMode: 'costmap',
     esdfColormap: 'diverging',
     layers: {
@@ -807,78 +792,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     label.textContent = numericInputConfig[id](value);
-  }
-
-  function captureOptimizerProfile() {
-    return {
-      sliders: Object.fromEntries(optimizerScopedSliderIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      numerics: Object.fromEntries(optimizerScopedNumericIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      selects: Object.fromEntries(optimizerScopedSelectIds.map(id => [id, document.getElementById(id)?.value ?? null])),
-      checkboxes: Object.fromEntries(optimizerScopedCheckboxIds.map(id => [id, Boolean(document.getElementById(id)?.checked)])),
-    };
-  }
-
-  function applyOptimizerProfile(profile) {
-    if (!profile) {
-      return;
-    }
-
-    optimizerScopedSliderIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.sliders?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-      updateSliderReadout(id);
-    });
-
-    optimizerScopedNumericIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.numerics?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-      updateNumericReadout(id);
-    });
-
-    optimizerScopedSelectIds.forEach(id => {
-      const input = document.getElementById(id);
-      const value = profile.selects?.[id];
-      if (!input || value === null || value === undefined) {
-        return;
-      }
-      input.value = value;
-    });
-
-    optimizerScopedCheckboxIds.forEach(id => {
-      const input = document.getElementById(id);
-      if (!input || !profile.checkboxes || !Object.prototype.hasOwnProperty.call(profile.checkboxes, id)) {
-        return;
-      }
-      input.checked = Boolean(profile.checkboxes[id]);
-    });
-
-    syncReferenceDeviationUi();
-    syncDerivedParameterInfo();
-    drawCurvatureChart();
-  }
-
-  function initializeOptimizerProfiles() {
-    const initialProfile = captureOptimizerProfile();
-    state.optimizerProfiles.constrained_smoother = {
-      sliders: {...initialProfile.sliders},
-      numerics: {...initialProfile.numerics},
-      selects: {...initialProfile.selects},
-      checkboxes: {...initialProfile.checkboxes},
-    };
-    state.optimizerProfiles.kinematic_smoother = {
-      sliders: {...initialProfile.sliders},
-      numerics: {...initialProfile.numerics},
-      selects: {...initialProfile.selects},
-      checkboxes: {...initialProfile.checkboxes},
-    };
   }
 
   function syncReferenceDeviationUi() {
@@ -977,19 +890,6 @@ document.addEventListener('DOMContentLoaded', () => {
     footprintModeSelect.addEventListener('change', () => {
       updateRobotConfigUi();
       draw();
-      scheduleAutoPlan();
-    });
-  }
-
-  if (optimizerTypeSelect) {
-    optimizerTypeSelect.addEventListener('change', () => {
-      const previousOptimizerType = state.currentOptimizerType;
-      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
-        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
-      }
-      state.currentOptimizerType = optimizerTypeSelect.value;
-      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
-      updateOptimizerUi();
       scheduleAutoPlan();
     });
   }
@@ -1104,7 +1004,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   syncDerivedParameterInfo();
   updateRobotConfigUi();
-  initializeOptimizerProfiles();
   clearOptimizedPointInspector();
   clearCurvatureChart();
   resizeMapCanvas();
@@ -1201,62 +1100,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateOptimizerUi() {
-    const optimizerType = optimizerTypeSelect ? optimizerTypeSelect.value : 'constrained_smoother';
-    const isConstrainedSmoother = optimizerType === 'constrained_smoother';
-    const smoothWeightGroup = document.getElementById('smooth-weight-group');
-    const modelWeightGroup = document.getElementById('model-weight-group');
-    const constrainedCurvatureWeightGroup = document.getElementById('constrained-curvature-weight-group');
-    const constrainedCurvatureRateWeightGroup = document.getElementById('constrained-curvature-rate-weight-group');
-    const kinematicCurvatureWeightGroup = document.getElementById('kinematic-curvature-weight-group');
-    const kinematicCurvatureRateWeightGroup = document.getElementById('kinematic-curvature-rate-weight-group');
     const weightsOptimizerBadge = document.getElementById('weights-optimizer-badge');
 
-    if (linearSolverTypeSelect) {
-      linearSolverTypeSelect.disabled = !isConstrainedSmoother;
-    }
-
-    if (smoothWeightGroup) {
-      smoothWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (modelWeightGroup) {
-      modelWeightGroup.hidden = isConstrainedSmoother;
-    }
-
-    if (constrainedCurvatureWeightGroup) {
-      constrainedCurvatureWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (constrainedCurvatureRateWeightGroup) {
-      constrainedCurvatureRateWeightGroup.hidden = !isConstrainedSmoother;
-    }
-
-    if (kinematicCurvatureWeightGroup) {
-      kinematicCurvatureWeightGroup.hidden = isConstrainedSmoother;
-    }
-
-    if (kinematicCurvatureRateWeightGroup) {
-      kinematicCurvatureRateWeightGroup.hidden = isConstrainedSmoother;
-    }
-
     if (weightsOptimizerBadge) {
-      weightsOptimizerBadge.textContent = isConstrainedSmoother
-        ? t('optimizer.constrained')
-        : t('optimizer.kinematic');
+      weightsOptimizerBadge.textContent = t('optimizer.kinematic');
     }
 
-    setText(
-      'optimizer-mode-hint',
-      isConstrainedSmoother
-        ? t('optimizer.mode.constrained')
-        : t('optimizer.mode.kinematic')
-    );
-    setText(
-      'linear-solver-hint',
-      isConstrainedSmoother
-        ? t('optimizer.linear.constrained')
-        : t('optimizer.linear.kinematic')
-    );
+    setText('optimizer-mode-hint', t('optimizer.mode.kinematic'));
   }
 
   function updateRobotConfigUi() {
@@ -1504,7 +1354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('kinematic-param-resampling', `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'}`);
     setText(
       'kinematic-param-ceres-tolerances',
-      `p ${Number(optimizerConfig.param_tol ?? NaN).toExponential(1)}, f ${Number(optimizerConfig.fn_tol ?? NaN).toExponential(1)}, g ${Number(optimizerConfig.gradient_tol ?? NaN).toExponential(1)}`
+      `p ${Number(optimizerConfig.parameter_tolerance ?? NaN).toExponential(1)}, f ${Number(optimizerConfig.function_tolerance ?? NaN).toExponential(1)}, g ${Number(optimizerConfig.gradient_tolerance ?? NaN).toExponential(1)}`
     );
   }
 
@@ -1857,17 +1707,6 @@ document.addEventListener('DOMContentLoaded', () => {
     state.manualReferencePath = cloneReferencePath(preset.manualReferencePath);
     state.start = clonePoint(preset.start);
     state.goal = clonePoint(preset.goal);
-
-    if (optimizerTypeSelect && preset.optimizerType && optimizerTypeSelect.value !== preset.optimizerType) {
-      const previousOptimizerType = state.currentOptimizerType;
-      if (previousOptimizerType && state.optimizerProfiles[previousOptimizerType]) {
-        state.optimizerProfiles[previousOptimizerType] = captureOptimizerProfile();
-      }
-      optimizerTypeSelect.value = preset.optimizerType;
-      state.currentOptimizerType = preset.optimizerType;
-      applyOptimizerProfile(state.optimizerProfiles[state.currentOptimizerType]);
-      updateOptimizerUi();
-    }
 
     const startYawInput = document.getElementById('start_yaw_deg');
     const goalYawInput = document.getElementById('goal_yaw_deg');
@@ -2436,9 +2275,6 @@ document.addEventListener('DOMContentLoaded', () => {
       meta.description || t('map.description.default'),
       {
         'Fixed synthetic obstacle map used to inspect ESDF-based planner and smoother behavior.': t('map.description.default'),
-        'A draggable 20m x 20m obstacle map with rectangular lethal obstacles and a 5-cell inflated safety buffer for visualization. The C++ A* planner and constrained smoother both optimize ESDF-derived obstacle penalties.': currentLanguage === 'zh'
-          ? '一个可拖拽编辑的 20 米 × 20 米障碍地图，包含矩形致命障碍物和 5 格膨胀安全缓冲区，便于可视化。C++ A* 规划器与约束平滑器都会优化基于 ESDF 的障碍惩罚。'
-          : 'A draggable 20m x 20m obstacle map with rectangular lethal obstacles and a 5-cell inflated safety buffer for visualization. The C++ A* planner and constrained smoother both optimize ESDF-derived obstacle penalties.',
       }
     );
     const kind = localizeKnownText(meta.name || t('map.kind.default'), {

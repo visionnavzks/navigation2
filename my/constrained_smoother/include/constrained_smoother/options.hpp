@@ -16,34 +16,41 @@
 #ifndef CONSTRAINED_SMOOTHER__OPTIONS_HPP_
 #define CONSTRAINED_SMOOTHER__OPTIONS_HPP_
 
-#include <map>
+#include <algorithm>
+#include <stdexcept>
 #include <string>
 #include <vector>
-#include "ceres/ceres.h"
-#include "constrained_smoother/astar_esdf.hpp"
 
 namespace constrained_smoother
 {
 
 /**
  * @struct constrained_smoother::SmootherParams
- * @brief 几何约束平滑器的运行时配置。
+ * @brief 独立平滑器的运行时配置。
  *
- * 独立版平滑器会在二维路径点上最小化一个非线性最小二乘目标。
+ * 当前公开后端是 `KinematicSmoother`。
  * 大多数权重采用平方根形式，是因为它们会先直接乘到残差上，随后再由
  * Ceres 在目标函数中完成平方。
+ *
+ * 这组参数可以按四类来理解：
+ * 1. 运动学和参考路径权重。
+ * 2. 障碍物与足迹检查配置。
+ * 3. 路径重采样与倒车语义。
+ * 4. 起终点位置 / 朝向约束。
  */
 struct SmootherParams
 {
-  SmootherParams() {}
-
+  /// 当前请求是否真的启用了任何障碍物残差。
+  ///
+  /// 这让调用层可以在 costmap 为 null 时区分“完全不依赖障碍物”与
+  /// “必须提供地图才能继续”的两种情况。
   bool obstacleTermsEnabled() const
   {
     return std::max(costmap_weight_sqrt, cusp_costmap_weight_sqrt) > 1e-9;
   }
 
-  /// 三点平滑残差的平方根权重。
-  double smooth_weight_sqrt{0.0};
+  // --- Kinematic and reference-path weights ---
+
   /// 运动学状态转移一致性残差的平方根权重。
   double model_weight_sqrt{0.0};
   /// 障碍物净空残差的基础平方根权重。
@@ -53,35 +60,51 @@ struct SmootherParams
   /// cusp 周围用于过渡障碍物权重的弧长范围。
   double cusp_zone_length{0.0};
   /// 约束优化后控制点贴近参考路径的平方根权重。
-  double distance_weight_sqrt{0.0};
+  /// 设为 0 时，路径只受运动学与障碍物项驱动。
+  double reference_path_weight_sqrt{0.0};
   /// 每个优化点相对对应参考点的最大 x/y 偏移半径，单位米；<= 0 表示关闭。
-  double reference_point_max_deviation{0.0};
-  /// 几何版中“超出最大曲率阈值”的平方根惩罚权重。
-  double curvature_weight_sqrt{0.0};
-  /// 几何版可选四点曲率变化率代理项的平方根权重。
-  double curvature_rate_weight_sqrt{0.0};
+  double reference_point_max_deviation_m{0.0};
   /// 运动学版显式曲率状态 kappa 的平方根正则权重。
   double kinematic_curvature_weight_sqrt{0.0};
   /// 运动学版显式曲率变化率项的平方根权重。
   double kinematic_curvature_rate_weight_sqrt{0.0};
   /// 运动学版显式弧长步长 ds 贴近目标间距的平方根正则权重。
+  /// 默认保留为 1.0，用于避免步长变量在无约束时完全漂移。
   double kinematic_spacing_weight_sqrt{1.0};
   /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
-  /// 传给 Ceres 求解器的最大墙钟时间。
+  /// 传给 Ceres 求解器的最大墙钟时间，单位秒。
   double max_time{10.0};
+
+  // --- Obstacle and footprint handling ---
+
   /// 为 true 时使用精确有符号距离场后端。
+  /// 为 false 时允许调用层回退到近似距离场实现。
   bool use_exact_esdf{true};
-  /// 对障碍物距离场期望满足的最小有符号净空。
+  /// 对障碍物距离场期望满足的最小有符号净空，单位米。
   double obstacle_safe_distance{0.5};
-  /// 当 cost_check_points 为空时使用的圆形足迹采样半径。
+  /// 当 cost_check_points 为空时使用的圆形足迹采样半径，单位米。
   double cost_check_radius{0.0};
+  /// 用于障碍物足迹检查的局部坐标三元组 (x, y, weight)。
+  ///
+  /// 每 3 个数表示一个局部检查点。若该数组为空，则退回到以
+  /// `cost_check_radius` 为半径的单圆检查模型。
+  std::vector<double> cost_check_points{};
+
+  // --- Path resampling and direction semantics ---
+
   /// 在连接残差块之前应用的路径下采样步长。
+  /// 值越大，参与求解的状态数越少。
   int path_downsampling_factor{1};
   /// 重建最终路径时使用的插值倍数。
+  /// 值越大，输出路径越密。
   int path_upsampling_factor{1};
-  /// 为保持 API 兼容而保留；当前独立版求解器并未实际使用。
+  /// 为 false 时忽略输入路径第三分量的倒车语义，整条路径按前进段处理。
+  /// 这只影响 gear 推断，不会改写调用方传入的原始路径符号。
   bool reversing_enabled{true};
+
+  // --- Goal and boundary handling ---
+
   /// 终点在目标坐标系前向轴上的允许位置容差，单位米；0 表示严格固定。
   double goal_longitudinal_tolerance{0.0};
   /// 终点在目标坐标系横向轴上的允许位置容差，单位米；0 表示严格固定。
@@ -89,42 +112,72 @@ struct SmootherParams
   /// 终点朝向允许容差，单位弧度；仅在 keep_goal_orientation=true 时生效。
   double goal_orientation_tolerance{0.0};
   /// 通过锚定终点前一个点来固定终点切向方向。
+  /// 为 false 时，终点朝向可在目标位置容差内自由调整。
   bool keep_goal_orientation{true};
   /// 通过锚定第二个点来固定起点切向方向。
   bool keep_start_orientation{true};
-  /// 用于障碍物足迹检查的局部坐标三元组 (x, y, weight)。
-  std::vector<double> cost_check_points{};
 };
 
 /**
  * @struct constrained_smoother::OptimizerParams
  * @brief 传递给 Ceres 的求解器级配置。
+ *
+ * 这个结构只保存核心求解配置。面向 Python / Web 的字符串形式线性求解器
+ * 选择会在边界层转换成 `LinearSolver` 枚举，再由核心实现映射成
+ * `ceres::LinearSolverType`。
  */
 struct OptimizerParams
 {
-  OptimizerParams()
-  : debug(false),
-    linear_solver_type("SPARSE_NORMAL_CHOLESKY"),
-    max_iterations(50),
-    param_tol(1e-8),
-    fn_tol(1e-6),
-    gradient_tol(1e-10)
+  /// 当前公开的 Ceres 线性求解器选择。
+  enum class LinearSolver
   {
+    /// 适合小型稠密问题的 QR 分解后端。
+    DenseQr,
+    /// 默认后端，适合当前稀疏结构的运动学优化问题。
+    SparseNormalCholesky,
+  };
+
+  /// 把内部求解器枚举转成稳定字符串，供 pybind / Web 边界复用。
+  static const char * linearSolverToString(LinearSolver solver)
+  {
+    switch (solver) {
+      case LinearSolver::DenseQr:
+        return "DENSE_QR";
+      case LinearSolver::SparseNormalCholesky:
+        return "SPARSE_NORMAL_CHOLESKY";
+    }
+    return "SPARSE_NORMAL_CHOLESKY";
   }
 
-  const std::map<std::string, ceres::LinearSolverType> solver_types = {
-    {"DENSE_QR", ceres::DENSE_QR},
-    {"SPARSE_NORMAL_CHOLESKY", ceres::SPARSE_NORMAL_CHOLESKY}};
+  /// 从边界层字符串恢复内部枚举；非法值直接抛异常。
+  static LinearSolver linearSolverFromString(const std::string & solver_name)
+  {
+    if (solver_name == "DENSE_QR") {
+      return LinearSolver::DenseQr;
+    }
+    if (solver_name == "SPARSE_NORMAL_CHOLESKY") {
+      return LinearSolver::SparseNormalCholesky;
+    }
+    throw std::invalid_argument("Unsupported linear_solver_type: " + solver_name);
+  }
 
   /// 开启逐迭代详细日志和最终摘要输出。
-  bool debug;
-  /// solver_types 中的键，用于选择 Ceres 线性求解器后端。
-  std::string linear_solver_type;
-  int max_iterations;     // Ceres default: 50
+  bool debug{false};
+  /// Ceres 线性求解器选择。
+  /// 这项配置主要影响每次非线性迭代内部的线性子问题求解方式。
+  LinearSolver linear_solver{LinearSolver::SparseNormalCholesky};
+  /// 最大非线性迭代次数。
+  int max_iterations{50};
 
-  double param_tol;       // Ceres default: 1e-8
-  double fn_tol;          // Ceres default: 1e-6
-  double gradient_tol;    // Ceres default: 1e-10
+  /// 参数步长收敛阈值。
+  /// 当连续迭代的参数更新足够小，Ceres 可以提前停止。
+  double parameter_tolerance{1e-8};
+  /// 目标函数值收敛阈值。
+  /// 当目标函数改善幅度足够小，Ceres 可以提前停止。
+  double function_tolerance{1e-6};
+  /// 梯度收敛阈值。
+  /// 当梯度足够接近零，说明当前解已经接近局部驻点。
+  double gradient_tolerance{1e-10};
 };
 
 }  // namespace constrained_smoother

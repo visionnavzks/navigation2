@@ -18,13 +18,8 @@
 
 #include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
 #include "constrained_smoother/kinematic_smoother.hpp"
-#include "constrained_smoother/smoother_base.hpp"
-#include "constrained_smoother/smoother_path_ops.hpp"
-#include "constrained_smoother/smoother_run_base.hpp"
 #include "constrained_smoother/smoother_validator.hpp"
 #include "gtest/gtest.h"
-#include "constrained_smoother/smoother.hpp"
-#include "constrained_smoother/smoother_cost_function.hpp"
 
 namespace
 {
@@ -51,116 +46,8 @@ std::string expectFailedToSmoothPath(CallableT && callable)
 // contract tests together because the standalone project still validates most slices
 // through one executable target. If it grows further, the cleanest split boundary is:
 //   1. math / cost-function / helper tests,
-//   2. geometric smoother behavior and failure-surface tests,
-//   3. kinematic smoother behavior and failure-surface tests,
-//   4. shared error-code / costmap sanity tests.
-
-// ---- Testable subclass to expose protected methods ----
-
-class TestableSmootherCostFunction : public constrained_smoother::SmootherCostFunction
-{
-public:
-  TestableSmootherCostFunction(
-    const Eigen::Vector2d & original_pos,
-    double last_to_current_length_ratio,
-    bool reversing,
-    const constrained_smoother::Costmap2D * costmap,
-    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> &
-    esdf_interpolator,
-    const constrained_smoother::SmootherParams & params,
-    double costmap_weight)
-  : SmootherCostFunction(
-      original_pos, last_to_current_length_ratio, reversing,
-      costmap, esdf_interpolator,
-      params, costmap_weight)
-  {
-  }
-
-  inline double getCurvatureResidual(
-    const double & weight,
-    const Eigen::Vector2d & pt,
-    const Eigen::Vector2d & pt_next,
-    const Eigen::Vector2d & pt_prev) const
-  {
-    double r = 0.0;
-    addCurvatureResidual<double>(weight, pt, pt_next, pt_prev, r);
-    return r;
-  }
-};
-
-class TestSolverBackedSmootherBase : public constrained_smoother::SolverBackedSmootherBase
-{
-public:
-  using constrained_smoother::SolverBackedSmootherBase::initializeOptimizer;
-  using constrained_smoother::SolverBackedSmootherBase::isDebugEnabled;
-  using constrained_smoother::SolverBackedSmootherBase::setMaxSolverTime;
-  using constrained_smoother::SolverBackedSmootherBase::solvePreparedProblem;
-  using constrained_smoother::SolverBackedSmootherBase::validateCommonInputs;
-};
-
-struct TestRunOwner
-{
-  int prepare_calls{0};
-  int solve_calls{0};
-  int finalize_calls{0};
-};
-
-struct TestRunRequest
-{
-  int token{0};
-};
-
-class TestRunSuccess : public constrained_smoother::SmootherRunBase<TestRunSuccess, TestRunOwner, TestRunRequest>
-{
-public:
-  TestRunSuccess(TestRunOwner & owner, const TestRunRequest & request)
-  : constrained_smoother::SmootherRunBase<TestRunSuccess, TestRunOwner, TestRunRequest>(owner, request)
-  {
-  }
-
-  void prepare()
-  {
-    owner().prepare_calls += request().token;
-  }
-
-  bool solve()
-  {
-    owner().solve_calls += request().token;
-    return true;
-  }
-
-  bool finalize()
-  {
-    owner().finalize_calls += request().token;
-    return true;
-  }
-};
-
-class TestRunFailure : public constrained_smoother::SmootherRunBase<TestRunFailure, TestRunOwner, TestRunRequest>
-{
-public:
-  TestRunFailure(TestRunOwner & owner, const TestRunRequest & request)
-  : constrained_smoother::SmootherRunBase<TestRunFailure, TestRunOwner, TestRunRequest>(owner, request)
-  {
-  }
-
-  void prepare()
-  {
-    owner().prepare_calls += request().token;
-  }
-
-  bool solve()
-  {
-    owner().solve_calls += request().token;
-    return false;
-  }
-
-  bool finalize()
-  {
-    owner().finalize_calls += request().token;
-    return true;
-  }
-};
+//   2. kinematic smoother behavior and failure-surface tests,
+//   3. shared error-code / costmap sanity tests.
 
 struct QuadraticResidual
 {
@@ -172,238 +59,7 @@ struct QuadraticResidual
   }
 };
 
-// ---- Low-level math and cost-function tests ----
-
-TEST(SmootherRunBaseTest, ExecuteCallsPrepareSolveFinalizeInOrder)
-{
-  TestRunOwner owner;
-  const TestRunRequest request{2};
-
-  TestRunSuccess run(owner, request);
-
-  EXPECT_TRUE(run.execute());
-  EXPECT_EQ(owner.prepare_calls, 2);
-  EXPECT_EQ(owner.solve_calls, 2);
-  EXPECT_EQ(owner.finalize_calls, 2);
-}
-
-TEST(SmootherRunBaseTest, ExecuteShortCircuitsFinalizeWhenSolveFails)
-{
-  TestRunOwner owner;
-  const TestRunRequest request{3};
-
-  TestRunFailure run(owner, request);
-
-  EXPECT_FALSE(run.execute());
-  EXPECT_EQ(owner.prepare_calls, 3);
-  EXPECT_EQ(owner.solve_calls, 3);
-  EXPECT_EQ(owner.finalize_calls, 0);
-}
-
-TEST(SolverBackedSmootherBaseTest, ValidateCommonInputsRejectsShortPathAndOnlyRequiresCostmapForObstacleSlices)
-{
-  TestSolverBackedSmootherBase base;
-  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
-  constrained_smoother::SmootherParams params;
-  const std::vector<Eigen::Vector3d> short_path = {{0.0, 0.0, 1.0}};
-  const std::vector<Eigen::Vector3d> valid_path = {
-    {0.0, 0.0, 1.0},
-    {0.5, 0.0, 1.0},
-  };
-
-  EXPECT_THROW(
-    base.validateCommonInputs(short_path, &costmap, params, "Test smoother"),
-    constrained_smoother::InvalidPath);
-
-  EXPECT_NO_THROW(base.validateCommonInputs(valid_path, nullptr, params, "Test smoother"));
-
-  params.costmap_weight_sqrt = 1.0;
-  EXPECT_THROW(
-    base.validateCommonInputs(valid_path, nullptr, params, "Test smoother"),
-    constrained_smoother::InvalidCostmap);
-}
-
-TEST(SolverBackedSmootherBaseTest, InitializeOptimizerAndSolvePreparedProblemSucceedForSimpleProblem)
-{
-  TestSolverBackedSmootherBase base;
-  constrained_smoother::OptimizerParams params;
-  params.debug = true;
-  params.max_iterations = 20;
-  base.initializeOptimizer(params);
-  EXPECT_TRUE(base.isDebugEnabled());
-
-  double x = 1.0;
-  ceres::Problem problem;
-  problem.AddResidualBlock(
-    new ceres::AutoDiffCostFunction<QuadraticResidual, 1, 1>(new QuadraticResidual()),
-    nullptr,
-    &x);
-
-  constrained_smoother::SmoothingFailureInfo failure;
-  base.setMaxSolverTime(1.0);
-
-  EXPECT_TRUE(base.solvePreparedProblem(problem, "Test smoother", &failure));
-  EXPECT_NEAR(x, 0.0, 1e-6);
-  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::Unknown);
-}
-
-TEST(CostFunctionTest, CurvatureResidual)
-{
-  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
-  TestableSmootherCostFunction fn(
-    Eigen::Vector2d(1.0, 0.0), 1.0, false,
-    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(),
-    constrained_smoother::SmootherParams(), 0.0
-  );
-
-  Eigen::Vector2d pt(1.0, 0.0);
-  Eigen::Vector2d pt_other(0.0, 0.0);
-  EXPECT_EQ(fn.getCurvatureResidual(0.0, pt, pt_other, pt_other), 0.0);
-
-  constrained_smoother::SmootherParams params_no_min;
-  params_no_min.max_curvature = 1.0f / 0.0;
-  TestableSmootherCostFunction fn2(
-    Eigen::Vector2d(1.0, 0.0), 1.0, false,
-    &costmap, std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>>(),
-    params_no_min, 0.0
-  );
-  EXPECT_EQ(fn2.getCurvatureResidual(1.0, pt, pt_other, pt_other), 0.0);
-}
-
-TEST(CostFunctionTest, CurvatureRateResidual)
-{
-  constrained_smoother::CurvatureRateCostFunction fn(2.0);
-
-  double pt_prev[2] = {0.0, 0.0};
-  double pt[2] = {1.0, 0.0};
-  double pt_next[2] = {2.0, 0.0};
-  double pt_next2[2] = {3.0, 0.0};
-  double residual[2] = {0.0, 0.0};
-
-  EXPECT_TRUE(fn(pt_prev, pt, pt_next, pt_next2, residual));
-  EXPECT_DOUBLE_EQ(residual[0], 0.0);
-  EXPECT_DOUBLE_EQ(residual[1], 0.0);
-
-  pt_next2[1] = 1.0;
-  EXPECT_TRUE(fn(pt_prev, pt, pt_next, pt_next2, residual));
-  EXPECT_DOUBLE_EQ(residual[0], 0.0);
-  EXPECT_DOUBLE_EQ(residual[1], 2.0);
-}
-
-TEST(CostFunctionTest, GoalPositionResidualUsesGoalFrameTolerances)
-{
-  constrained_smoother::GoalPositionCostFunction goal_cost(
-    Eigen::Vector2d(0.0, 0.0),
-    Eigen::Vector2d(0.0, 1.0),
-    0.2,
-    0.1,
-    10.0);
-
-  double point_within_tolerance[2] = {0.05, 0.15};
-  double residuals_within[2] = {};
-  EXPECT_TRUE(goal_cost(point_within_tolerance, residuals_within));
-  EXPECT_DOUBLE_EQ(residuals_within[0], 0.0);
-  EXPECT_DOUBLE_EQ(residuals_within[1], 0.0);
-
-  double point_outside_tolerance[2] = {0.15, 0.25};
-  double residuals_outside[2] = {};
-  EXPECT_TRUE(goal_cost(point_outside_tolerance, residuals_outside));
-  EXPECT_NEAR(residuals_outside[0], 0.5, 1e-9);
-  EXPECT_NEAR(residuals_outside[1], 0.5, 1e-9);
-}
-
-TEST(UtilsTest, ArcCenterAndTangent)
-{
-  Eigen::Vector2d pt(1.0, 0.0);
-  Eigen::Vector2d pt_prev(0.0, 0.0);
-  Eigen::Vector2d pt_next(0.0, 0.0);
-
-  auto center = constrained_smoother::arcCenter(pt_prev, pt, pt_next, false);
-  EXPECT_EQ(center[0], std::numeric_limits<double>::infinity());
-  EXPECT_EQ(center[1], std::numeric_limits<double>::infinity());
-
-  auto tangent =
-    constrained_smoother::tangentDir(pt_prev, pt, pt_next, false).normalized();
-  EXPECT_NEAR(tangent[0], 0, 1e-10);
-  EXPECT_NEAR(std::abs(tangent[1]), 1, 1e-10);
-
-  tangent = constrained_smoother::tangentDir(pt_prev, pt, pt_next, true).normalized();
-  EXPECT_NEAR(std::abs(tangent[0]), 1, 1e-10);
-  EXPECT_NEAR(tangent[1], 0, 1e-10);
-
-  pt_prev[0] = -1.0;
-  tangent = constrained_smoother::tangentDir(pt_prev, pt, pt_next, true).normalized();
-  EXPECT_NEAR(std::abs(tangent[0]), 1, 1e-10);
-  EXPECT_NEAR(tangent[1], 0, 1e-10);
-
-  pt_prev[0] = 0.0;
-  pt_next[0] = -1.0;
-  tangent = constrained_smoother::tangentDir(pt_prev, pt, pt_next, true).normalized();
-  EXPECT_NEAR(std::abs(tangent[0]), 1, 1e-10);
-  EXPECT_NEAR(tangent[1], 0, 1e-10);
-}
-
-// ---- Extracted helper-layer tests ----
-
-TEST(SmootherPathOpsTest, InitializeOptimizationPathAnchorsEndpoints)
-{
-  std::vector<Eigen::Vector3d> path = {
-    {0.0, 0.0, 1.0},
-    {1.0, 0.0, 1.0},
-    {2.0, 0.0, 1.0},
-    {3.0, 0.0, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.keep_start_orientation = true;
-  params.keep_goal_orientation = true;
-
-  const Eigen::Vector2d start_dir(0.0, 1.0);
-  const Eigen::Vector2d end_dir(0.0, 1.0);
-  constrained_smoother::SmootherPathOps path_ops(start_dir, end_dir, params);
-
-  std::vector<Eigen::Vector3d> path_optim;
-  std::vector<bool> optimized;
-  path_ops.initializeOptimizationPath(path, path_optim, optimized);
-
-  ASSERT_EQ(path_optim.size(), path.size());
-  ASSERT_EQ(optimized.size(), path.size());
-  EXPECT_TRUE(optimized.front());
-  EXPECT_FALSE(optimized[1]);
-  EXPECT_NEAR(path_optim[1].x(), 0.0, 1e-9);
-  EXPECT_NEAR(path_optim[1].y(), 1.0, 1e-9);
-  EXPECT_NEAR(path_optim[2].x(), 3.0, 1e-9);
-  EXPECT_NEAR(path_optim[2].y(), -1.0, 1e-9);
-}
-
-TEST(SmootherPathOpsTest, PopulateOutputRestoresStraightYaw)
-{
-  const std::vector<Eigen::Vector3d> path_optim = {
-    {0.0, 0.0, 1.0},
-    {1.0, 0.0, 1.0},
-    {2.0, 0.0, 1.0},
-    {3.0, 0.0, 1.0},
-  };
-  const std::vector<bool> optimized = {true, true, true, true};
-
-  constrained_smoother::SmootherParams params;
-  params.path_upsampling_factor = 1;
-  params.keep_start_orientation = false;
-  params.keep_goal_orientation = false;
-
-  constrained_smoother::SmootherPathOps path_ops(
-    Eigen::Vector2d(1.0, 0.0),
-    Eigen::Vector2d(1.0, 0.0),
-    params);
-
-  std::vector<Eigen::Vector3d> output;
-  path_ops.populateOutput(path_optim, optimized, output);
-
-  ASSERT_EQ(output.size(), path_optim.size());
-  for (const auto & pose : output) {
-    EXPECT_NEAR(pose.z(), 0.0, 1e-9);
-  }
-}
+// ---- Low-level shared tests ----
 
 TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathInsertsCuspState)
 {
@@ -529,13 +185,10 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryB
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(1.0);
   params.model_weight_sqrt = std::sqrt(1.0);
   params.costmap_weight_sqrt = 0.0;
   params.cusp_costmap_weight_sqrt = 0.0;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = 0.0;
-  params.curvature_rate_weight_sqrt = 0.0;
+  params.reference_path_weight_sqrt = 0.0;
   params.kinematic_curvature_weight_sqrt = 0.0;
   params.kinematic_curvature_rate_weight_sqrt = 0.0;
 
@@ -573,13 +226,10 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = 0.0;
   params.model_weight_sqrt = 3.0;
   params.costmap_weight_sqrt = 0.0;
   params.cusp_costmap_weight_sqrt = 0.0;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = 0.0;
-  params.curvature_rate_weight_sqrt = 0.0;
+  params.reference_path_weight_sqrt = 0.0;
   params.kinematic_curvature_weight_sqrt = 0.0;
   params.kinematic_curvature_rate_weight_sqrt = 0.0;
 
@@ -605,7 +255,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
   EXPECT_NEAR(cost, 0.09, 1e-6);
 }
 
-TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurvatureWeights)
+TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurvatureWeight)
 {
   constrained_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
   const std::vector<Eigen::Vector3d> path = {
@@ -613,15 +263,12 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
     {std::cos(1.0), std::sin(1.0), 1.0},
   };
 
-  auto evaluate_cost = [&](double geometric_curvature_weight, double kinematic_curvature_weight) {
+  auto evaluate_cost = [&](double kinematic_curvature_weight) {
     constrained_smoother::SmootherParams params;
-    params.smooth_weight_sqrt = 0.0;
     params.model_weight_sqrt = 0.0;
     params.costmap_weight_sqrt = 0.0;
     params.cusp_costmap_weight_sqrt = 0.0;
-    params.distance_weight_sqrt = 0.0;
-    params.curvature_weight_sqrt = geometric_curvature_weight;
-    params.curvature_rate_weight_sqrt = 0.0;
+    params.reference_path_weight_sqrt = 0.0;
     params.kinematic_curvature_weight_sqrt = kinematic_curvature_weight;
     params.kinematic_curvature_rate_weight_sqrt = 0.0;
     params.keep_start_orientation = false;
@@ -658,10 +305,10 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
     return cost;
   };
 
-  const double geometric_cost = evaluate_cost(3.0, 0.0);
-  const double kinematic_cost = evaluate_cost(0.0, 3.0);
+  const double zero_cost = evaluate_cost(0.0);
+  const double kinematic_cost = evaluate_cost(3.0);
 
-  EXPECT_NEAR(geometric_cost, 0.0, 1e-9);
+  EXPECT_NEAR(zero_cost, 0.0, 1e-9);
   EXPECT_GT(kinematic_cost, 1.0);
 }
 
@@ -675,13 +322,10 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
 
   auto evaluate_cost = [&](double spacing_weight) {
     constrained_smoother::SmootherParams params;
-    params.smooth_weight_sqrt = 0.0;
     params.model_weight_sqrt = 0.0;
     params.costmap_weight_sqrt = 0.0;
     params.cusp_costmap_weight_sqrt = 0.0;
-    params.distance_weight_sqrt = 0.0;
-    params.curvature_weight_sqrt = 0.0;
-    params.curvature_rate_weight_sqrt = 0.0;
+    params.reference_path_weight_sqrt = 0.0;
     params.kinematic_curvature_weight_sqrt = 0.0;
     params.kinematic_curvature_rate_weight_sqrt = 0.0;
     params.kinematic_spacing_weight_sqrt = spacing_weight;
@@ -721,146 +365,6 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   EXPECT_NEAR(evaluate_cost(3.0), 4.5, 1e-9);
 }
 
-// ---- Geometric smoother behavior and error-surface tests ----
-
-TEST(SmootherTest, SmoothStraightPath)
-{
-  // Create a small costmap with all free space
-  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
-
-  // Create a straight path with slight perturbation
-  std::vector<Eigen::Vector3d> path;
-  for (int i = 0; i < 10; i++) {
-    double x = 0.5 + i * 0.1;
-    double y = 2.5 + (i == 5 ? 0.05 : 0.0);  // small bump at midpoint
-    path.emplace_back(x, y, 1.0);  // forward direction
-  }
-
-  Eigen::Vector2d start_dir(1.0, 0.0);
-  Eigen::Vector2d end_dir(1.0, 0.0);
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(2000000.0);
-  params.costmap_weight_sqrt = std::sqrt(0.015);
-  params.cusp_costmap_weight_sqrt = params.costmap_weight_sqrt * std::sqrt(3.0);
-  params.cusp_zone_length = 2.5;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.max_curvature = 1.0 / 0.4;
-  params.max_time = 10.0;
-
-  constrained_smoother::OptimizerParams opt_params;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, &costmap, params));
-  EXPECT_GE(path.size(), 2u);
-}
-
-TEST(SmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimizedPoint)
-{
-  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
-
-  const std::vector<Eigen::Vector3d> reference_path = {
-    {0.5, 0.5, 1.0},
-    {1.0, 1.0, 1.0},
-    {1.5, 0.5, 1.0},
-    {2.0, 0.5, 1.0},
-  };
-
-  auto run_case = [&](double max_deviation) {
-      std::vector<Eigen::Vector3d> path = reference_path;
-
-      constrained_smoother::SmootherParams params;
-      params.smooth_weight_sqrt = std::sqrt(5000.0);
-      params.costmap_weight_sqrt = 0.0;
-      params.cusp_costmap_weight_sqrt = 0.0;
-      params.distance_weight_sqrt = 0.0;
-      params.curvature_weight_sqrt = 0.0;
-      params.max_curvature = 1.0 / 0.4;
-      params.max_time = 1.0;
-      params.keep_start_orientation = false;
-      params.keep_goal_orientation = false;
-      params.reference_point_max_deviation = max_deviation;
-
-      constrained_smoother::OptimizerParams opt_params;
-      opt_params.max_iterations = 40;
-
-      constrained_smoother::Smoother smoother;
-      smoother.initialize(opt_params);
-      smoother.smooth(path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params);
-      return path;
-    };
-
-  const auto unbounded = run_case(0.0);
-  const auto bounded = run_case(0.1);
-
-  EXPECT_GT(std::abs(unbounded[1].y() - reference_path[1].y()), 0.100001);
-  EXPECT_LE(std::abs(bounded[1].y() - reference_path[1].y()), 0.100001);
-}
-
-TEST(SmootherTest, PathTooShortThrows)
-{
-  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
-  std::vector<Eigen::Vector3d> path;
-  path.emplace_back(0.0, 0.0, 1.0);
-
-  Eigen::Vector2d start_dir(1.0, 0.0);
-  Eigen::Vector2d end_dir(1.0, 0.0);
-
-  constrained_smoother::SmootherParams params;
-  constrained_smoother::OptimizerParams opt_params;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  EXPECT_THROW(
-    smoother.smooth(path, start_dir, end_dir, &costmap, params),
-    constrained_smoother::InvalidPath);
-}
-
-TEST(SmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
-{
-  std::vector<Eigen::Vector3d> path = {
-    {0.0, 0.0, 1.0},
-    {0.5, 0.0, 1.0},
-  };
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(1.0, 0.0);
-
-  constrained_smoother::SmootherParams params;
-  constrained_smoother::OptimizerParams opt_params;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  EXPECT_NO_THROW(smoother.smooth(path, start_dir, end_dir, nullptr, params));
-}
-
-TEST(SmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
-{
-  std::vector<Eigen::Vector3d> path = {
-    {0.0, 0.0, 1.0},
-    {0.5, 0.0, 1.0},
-  };
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(1.0, 0.0);
-
-  constrained_smoother::SmootherParams params;
-  params.costmap_weight_sqrt = 1.0;
-  constrained_smoother::OptimizerParams opt_params;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  EXPECT_THROW(
-    smoother.smooth(path, start_dir, end_dir, nullptr, params),
-    constrained_smoother::InvalidCostmap);
-}
-
 // ---- Stable error-code and failure-message contract tests ----
 
 TEST(ErrorTest, InvalidPathCarriesStableCode)
@@ -882,242 +386,6 @@ TEST(ErrorTest, SmoothingFailureMessageCarriesReasonAndIndex)
   EXPECT_EQ(message, "goal_orientation_constraint@7: test smoothing failure");
 }
 
-TEST(SmootherTest, PrecomputedEsdfSizeMismatchThrowsStructuredError)
-{
-  constrained_smoother::Costmap2D costmap(10, 10, 0.05, 0.0, 0.0);
-  std::vector<Eigen::Vector3d> path = {
-    Eigen::Vector3d(0.0, 0.0, 1.0),
-    Eigen::Vector3d(0.5, 0.0, 1.0),
-  };
-
-  Eigen::Vector2d start_dir(1.0, 0.0);
-  Eigen::Vector2d end_dir(1.0, 0.0);
-
-  constrained_smoother::SmootherParams params;
-  params.costmap_weight_sqrt = 1e-4;
-  constrained_smoother::OptimizerParams opt_params;
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  const std::vector<double> bad_esdf(8, 0.0);
-
-  EXPECT_THROW(
-    smoother.smooth(path, start_dir, end_dir, &costmap, params, &bad_esdf),
-    constrained_smoother::PrecomputedEsdfSizeMismatch);
-}
-
-TEST(SmootherTest, FootprintCollisionFailsPostValidation)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-  for (unsigned int y = 35; y < 45; ++y) {
-    for (unsigned int x = 36; x < 42; ++x) {
-      costmap.setCost(x, y, constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
-    }
-  }
-
-  std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 1.0},
-    {1.5, 2.0, 1.0},
-    {2.0, 2.0, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(1000.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = std::sqrt(1.0);
-  params.max_curvature = 1.0 / 0.4;
-  params.max_time = 1.0;
-  params.cost_check_radius = 0.18;
-  params.cost_check_points = {0.0, 0.0, 1.0};
-  params.keep_start_orientation = false;
-  params.keep_goal_orientation = false;
-
-  constrained_smoother::OptimizerParams opt_params;
-  opt_params.max_iterations = 20;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(1.0, 0.0);
-
-  const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
-
-  EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
-}
-
-TEST(SmootherTest, FootprintCollisionStoresFailureInfoWithoutThrowing)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-  for (unsigned int y = 35; y < 45; ++y) {
-    for (unsigned int x = 36; x < 42; ++x) {
-      costmap.setCost(x, y, constrained_smoother::Costmap2D::LETHAL_OBSTACLE);
-    }
-  }
-
-  std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 1.0},
-    {1.5, 2.0, 1.0},
-    {2.0, 2.0, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(1000.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = std::sqrt(1.0);
-  params.max_curvature = 1.0 / 0.4;
-  params.max_time = 1.0;
-  params.cost_check_radius = 0.18;
-  params.cost_check_points = {0.0, 0.0, 1.0};
-  params.keep_start_orientation = false;
-  params.keep_goal_orientation = false;
-
-  constrained_smoother::OptimizerParams opt_params;
-  opt_params.max_iterations = 20;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(1.0, 0.0);
-  constrained_smoother::SmoothingFailureInfo failure;
-
-  EXPECT_FALSE(smoother.smooth(path, start_dir, end_dir, &costmap, params, nullptr, &failure));
-  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::FootprintCollision);
-  EXPECT_GE(failure.failed_index, 0);
-  EXPECT_NE(failure.message.find("collides with obstacles"), std::string::npos);
-}
-
-TEST(SmootherTest, PathOutOfBoundsFailsPostValidation)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-
-  std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 1.0},
-    {1.5, 2.0, 1.0},
-    {2.0, 2.0, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(1000.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = std::sqrt(1.0);
-  params.max_curvature = 1.0 / 0.4;
-  params.max_time = 1.0;
-  params.cost_check_radius = 0.1;
-  params.cost_check_points = {4.0, 0.0, 1.0};
-  params.keep_start_orientation = false;
-  params.keep_goal_orientation = false;
-
-  constrained_smoother::OptimizerParams opt_params;
-  opt_params.max_iterations = 20;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(1.0, 0.0);
-
-  const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
-
-  EXPECT_NE(error_message.find("path_out_of_bounds@"), std::string::npos);
-}
-
-TEST(SmootherTest, CurvatureConstraintFailsPostValidation)
-{
-  constrained_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
-
-  std::vector<Eigen::Vector3d> path = {
-    {1.0, 1.0, 1.0},
-    {1.1, 1.0, 1.0},
-    {1.1, 1.1, 1.0},
-    {1.2, 1.1, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = 0.0;
-  params.costmap_weight_sqrt = 0.0;
-  params.cusp_costmap_weight_sqrt = 0.0;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = 0.0;
-  params.max_curvature = 1.0;
-  params.max_time = 1.0;
-
-  constrained_smoother::OptimizerParams opt_params;
-  opt_params.max_iterations = 5;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  const Eigen::Vector2d start_dir(1.0, 0.0);
-  const Eigen::Vector2d end_dir(0.0, 1.0);
-
-  const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth(path, start_dir, end_dir, &costmap, params);});
-
-  EXPECT_NE(error_message.find("curvature_constraint@"), std::string::npos);
-}
-
-TEST(SmootherTest, ZeroLengthCuspMarkerDoesNotTriggerSolverRejectedSolution)
-{
-  std::vector<Eigen::Vector3d> path = {
-    {2.0, 2.0, 1.0},
-    {4.0, 2.0, 1.0},
-    {6.5, 2.0, 1.0},
-    {9.5, 2.0, 1.0},
-    {11.0, 2.0, 1.0},
-    {11.0, 2.0, -1.0},
-    {11.2, 5.0, -1.0},
-    {11.2, 10.0, -1.0},
-    {11.2, 16.6, -1.0},
-    {14.5, 16.8, -1.0},
-    {17.0, 17.0, -1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 0.0;
-  params.cusp_costmap_weight_sqrt = 0.0;
-  params.distance_weight_sqrt = 0.0;
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
-  params.max_curvature = 2.5;
-  params.max_time = 1.0;
-  params.keep_start_orientation = true;
-  params.keep_goal_orientation = true;
-
-  constrained_smoother::OptimizerParams opt_params;
-  opt_params.max_iterations = 50;
-
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  constrained_smoother::SmoothingFailureInfo failure;
-  const bool success = smoother.smooth(
-    path,
-    Eigen::Vector2d(1.0, 0.0),
-    Eigen::Vector2d(-1.0, 0.0),
-    nullptr,
-    params,
-    nullptr,
-    &failure);
-
-  if (!success) {
-    EXPECT_NE(
-      failure.reason,
-      constrained_smoother::SmoothingFailureReason::SolverRejectedSolution);
-  }
-}
-
 // ---- Kinematic smoother behavior and error-surface tests ----
 
 TEST(KinematicSmootherTest, SmoothStraightPath)
@@ -1132,13 +400,10 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   }
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = std::sqrt(0.5);
   params.cusp_costmap_weight_sqrt = std::sqrt(0.75);
-  params.distance_weight_sqrt = std::sqrt(1.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(1.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1174,20 +439,17 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
       std::vector<Eigen::Vector3d> path = reference_path;
 
       constrained_smoother::SmootherParams params;
-      params.smooth_weight_sqrt = std::sqrt(20.0);
       params.model_weight_sqrt = std::sqrt(20.0);
       params.costmap_weight_sqrt = 0.0;
       params.cusp_costmap_weight_sqrt = 0.0;
-      params.distance_weight_sqrt = 0.0;
-      params.curvature_weight_sqrt = 0.0;
-      params.curvature_rate_weight_sqrt = 0.0;
+      params.reference_path_weight_sqrt = 0.0;
       params.kinematic_curvature_weight_sqrt = 0.0;
       params.kinematic_curvature_rate_weight_sqrt = 0.0;
       params.max_curvature = 1.0 / 0.4;
       params.max_time = 1.0;
       params.keep_start_orientation = false;
       params.keep_goal_orientation = false;
-      params.reference_point_max_deviation = max_deviation;
+      params.reference_point_max_deviation_m = max_deviation;
 
       constrained_smoother::OptimizerParams opt_params;
       opt_params.max_iterations = 60;
@@ -1220,13 +482,10 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   const auto input_size = path.size();
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 0.0;
   params.cusp_costmap_weight_sqrt = 0.0;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1305,13 +564,10 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = std::sqrt(1.0);
   params.cusp_costmap_weight_sqrt = std::sqrt(1.5);
-  params.distance_weight_sqrt = std::sqrt(1.0);
-  params.curvature_weight_sqrt = std::sqrt(10.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(1.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(10.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1350,13 +606,10 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 1e-4;
   params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1421,111 +674,6 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
   EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::Unknown);
   EXPECT_EQ(failure.failed_index, -1);
   EXPECT_TRUE(failure.message.empty());
-}
-
-TEST(SmootherValidatorTest, GeometricGoalPositionToleranceAllowsGoalSlack)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-
-  const std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 0.0},
-    {1.5, 2.0, 0.0},
-    {2.05, 2.15, M_PI / 2.0},
-  };
-  const std::vector<Eigen::Vector3d> reference_path = {
-    {1.0, 2.0, 0.0},
-    {1.5, 2.0, 0.0},
-    {2.0, 2.0, 0.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.keep_goal_orientation = true;
-  params.goal_longitudinal_tolerance = 0.2;
-  params.goal_lateral_tolerance = 0.1;
-
-  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
-  constrained_smoother::SmoothingFailureInfo failure;
-  constrained_smoother::SmootherValidator validator;
-
-  EXPECT_TRUE(validator.validateSmoothedPath(
-      {
-        path,
-        reference_path,
-        Eigen::Vector2d(1.0, 0.0),
-        Eigen::Vector2d(0.0, 1.0),
-        &costmap,
-        params,
-        esdf_values,
-      },
-      &failure));
-}
-
-TEST(SmootherValidatorTest, GeometricGoalPositionToleranceRejectsOutsideGoalBand)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-
-  const std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 0.0},
-    {1.5, 2.0, 0.0},
-    {2.15, 2.25, M_PI / 2.0},
-  };
-  const std::vector<Eigen::Vector3d> reference_path = {
-    {1.0, 2.0, 0.0},
-    {1.5, 2.0, 0.0},
-    {2.0, 2.0, 0.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.keep_goal_orientation = true;
-  params.goal_longitudinal_tolerance = 0.2;
-  params.goal_lateral_tolerance = 0.1;
-
-  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
-  constrained_smoother::SmoothingFailureInfo failure;
-  constrained_smoother::SmootherValidator validator;
-
-  EXPECT_FALSE(validator.validateSmoothedPath(
-      {
-        path,
-        reference_path,
-        Eigen::Vector2d(1.0, 0.0),
-        Eigen::Vector2d(0.0, 1.0),
-        &costmap,
-        params,
-        esdf_values,
-      },
-      &failure));
-  EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::GoalPositionConstraint);
-}
-
-TEST(SmootherTest, ThreePointPathRejectsDualEndpointOrientationAnchors)
-{
-  constrained_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
-
-  std::vector<Eigen::Vector3d> path = {
-    {0.0, 0.0, 1.0},
-    {1.0, 0.2, 1.0},
-    {2.0, 0.0, 1.0},
-  };
-
-  constrained_smoother::SmootherParams params;
-  params.keep_start_orientation = true;
-  params.keep_goal_orientation = true;
-  params.costmap_weight_sqrt = 0.0;
-  params.cusp_costmap_weight_sqrt = 0.0;
-
-  constrained_smoother::OptimizerParams opt_params;
-  constrained_smoother::Smoother smoother;
-  smoother.initialize(opt_params);
-
-  EXPECT_THROW(
-    smoother.smooth(
-      path,
-      Eigen::Vector2d(1.0, 0.0),
-      Eigen::Vector2d(0.0, 1.0),
-      &costmap,
-      params),
-    constrained_smoother::InvalidPath);
 }
 
 TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsGoalSlack)
@@ -1675,13 +823,10 @@ TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThro
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 1e-4;
   params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1721,13 +866,10 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 1e-4;
   params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1766,13 +908,10 @@ TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 1e-4;
   params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;
@@ -1805,13 +944,10 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
   };
 
   constrained_smoother::SmootherParams params;
-  params.smooth_weight_sqrt = std::sqrt(20.0);
   params.model_weight_sqrt = std::sqrt(20.0);
   params.costmap_weight_sqrt = 1e-4;
   params.cusp_costmap_weight_sqrt = 1e-4;
-  params.distance_weight_sqrt = std::sqrt(0.0);
-  params.curvature_weight_sqrt = std::sqrt(30.0);
-  params.curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
   params.max_curvature = 1.0 / 0.4;

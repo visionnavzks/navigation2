@@ -33,7 +33,7 @@ namespace constrained_smoother
 
 /// 运动学版 smoother 展开的内部状态链。
 ///
-/// 与几何版直接优化路径点不同，这里会把参考路径扩展成显式的
+/// 这里会把参考路径扩展成显式的
 /// (x, y, theta, kappa, ds) 状态序列，并保留 cusp 段的附加元数据。
 struct KinematicProcessedPath
 {
@@ -201,7 +201,7 @@ public:
       std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);
     const double spacing_weight = std::max(params.kinematic_spacing_weight_sqrt, 0.0);
     const double fix_weight = 100.0;
-    const double reference_weight = std::max(params.distance_weight_sqrt, 0.0);
+    const double reference_weight = std::max(params.reference_path_weight_sqrt, 0.0);
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
@@ -282,20 +282,20 @@ public:
     const std::vector<Eigen::Vector2d> & reference_points,
     size_t state_count,
     double max_curvature,
-    double reference_point_max_deviation)
+    double reference_point_max_deviation_m)
   {
     const double clamped_max_curvature = std::max(max_curvature, 1e-6);
     for (size_t index = 0; index < state_count; ++index) {
       double * state = variables + 5 * index;
-      if (reference_point_max_deviation > 1e-9) {
+      if (reference_point_max_deviation_m > 1e-9) {
         problem.SetParameterLowerBound(
-          state, 0, reference_points[index].x() - reference_point_max_deviation);
+          state, 0, reference_points[index].x() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, 0, reference_points[index].x() + reference_point_max_deviation);
+          state, 0, reference_points[index].x() + reference_point_max_deviation_m);
         problem.SetParameterLowerBound(
-          state, 1, reference_points[index].y() - reference_point_max_deviation);
+          state, 1, reference_points[index].y() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, 1, reference_points[index].y() + reference_point_max_deviation);
+          state, 1, reference_points[index].y() + reference_point_max_deviation_m);
       }
       problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
       problem.SetParameterUpperBound(state, 3, clamped_max_curvature);

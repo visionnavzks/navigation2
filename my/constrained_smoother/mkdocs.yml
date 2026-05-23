@@ -1,5 +1,5 @@
 site_name: Constrained Smoother
-site_description: Standalone constrained smoother design and implementation notes
+site_description: Standalone kinematic smoother design and implementation notes
 repo_url: https://github.com/ros-navigation/navigation2
 repo_name: ros-navigation/navigation2
 
@@ -45,12 +45,7 @@ extra_javascript:
 nav:
   - Overview: index.md
   - Package Guide: package-guide.md
-  - Interfaces:
-      - Geometric Smoother I/O: SMOOTHER_INPUT_OUTPUT.md
   - Design:
-      - Geometric Smoother: SMOOTHER_DESIGN.md
-      - 原理详解: PRINCIPLES_zh.md
       - Kinematic Smoother: KINEMATIC_SMOOTHER_DESIGN.md
-      - MPC Cost Notes: mpc_cost.md
   - Reference:
       - Error Codes: error-codes.md
