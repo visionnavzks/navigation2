@@ -3373,7 +3373,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.save();
     ctx.beginPath();
     ctx.arc(point.x, point.y, 7.5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255, 250, 240, 0.92)';
+    ctx.fillStyle = 'rgba(255, 250, 240, 0.2)';
     ctx.fill();
     ctx.lineWidth = 2.4;
     ctx.strokeStyle = 'rgba(191, 54, 87, 0.98)';
