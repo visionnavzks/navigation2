@@ -258,6 +258,10 @@ h1 {
     position: relative;
 }
 
+.param-field-wide {
+    grid-column: 1 / -1;
+}
+
 .param-field span {
     font-weight: 700;
     color: var(--ink);
@@ -278,8 +282,32 @@ h1 {
     color: var(--muted);
 }
 
+.param-inline-note[data-mode="negative"] {
+    color: var(--warning);
+}
+
 .param-inline-note[data-mode="error"] {
     color: #b42318;
+}
+
+.param-range-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.param-range {
+    width: 100%;
+    accent-color: var(--warning);
+}
+
+.param-range-scale {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.74rem;
 }
 
 .param-label-wrap {

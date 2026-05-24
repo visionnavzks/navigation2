@@ -33,6 +33,7 @@ const statsEls = {
     limitsConfig: document.getElementById('limits-config'),
     weightsConfig: document.getElementById('weights-config'),
     terminalWeightsConfig: document.getElementById('terminal-weights-config'),
+    realTerminalWeightsConfig: document.getElementById('real-terminal-weights-config'),
     solverConfig: document.getElementById('solver-config'),
 };
 
@@ -40,11 +41,15 @@ const dtRefInput = paramForm?.querySelector('[data-param-group="reference"][data
 const dsInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="ds"]');
 const cruiseSpeedInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="cruise_speed"]');
 const dtRefPreview = document.getElementById('dt-ref-preview');
+const extraPointsInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="extra_points"]');
+const extraPointsPreview = document.getElementById('extra-points-preview');
 
 const PARAM_HELP_TEXTS = {
     ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，跟踪更细，但优化变量更多、求解更慢。',
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
     dt_ref: '名义时间步长，单位 s。留空时会按 ds / cruise_speed 自动推导；填写后，优化中的 dt 会围绕该值变化，w_dt 越大，实际 dt 越不愿意偏离它。',
+    selection_length: '从当前状态投影点开始，最多截取多少米参考路径用于本次优化。0 表示一直取到当前路径终点。',
+    extra_points: '对齐后的参考轨迹点数调整量。正值会额外插入优化点，负值会减少一些点，但最终至少保留 2 个点。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
     arc_1_angle: '第一段圆弧的转角，输入单位 rad。正值表示逆时针，负值表示顺时针。0.785 rad 大约等于 45 deg。',
@@ -71,10 +76,13 @@ const PARAM_HELP_TEXTS = {
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
     w_pos: '位置跟踪权重。越大，优化越优先贴近参考路径的 x/y 位置，但控制代价和光滑性可能被压制。',
-    w_pos_terminal: '终端位置权重。越大，优化越强调最后一个点在 x/y 位置上贴近参考终点。',
-    w_theta: '终端航向误差权重。它只作用在最后一个点的航向误差，不再与速度或位置共用权重。',
+    w_pos_terminal: '过程终点位置权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
+    w_theta: '过程终点航向权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
     w_speed: '速度跟踪权重。越大，优化速度曲线越接近参考速度。',
-    w_speed_terminal: '终端速度权重。越大，优化越强调最后一个点的速度贴近参考终点速度。',
+    w_speed_terminal: '过程终点速度权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
+    w_pos_terminal_real: '真实路径终点位置权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
+    w_theta_terminal_real: '真实路径终点航向权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
+    w_speed_terminal_real: '真实路径终点速度权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_accel: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用加速度参考，所以它目前不会改变结果。',
     w_kappa: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用曲率参考，所以它目前不会改变结果。',
     w_dt: '时间弹性权重。越大，dt 越接近 dt_ref；越小，优化越愿意拉伸或压缩时间分配。',
@@ -214,6 +222,22 @@ function updateDtRefPreview(resolvedDtRef = null) {
         dtRefPreview.textContent = '自动计算值不可用';
         dtRefPreview.dataset.mode = 'error';
     }
+}
+
+function updateExtraPointsPreview() {
+    if (!extraPointsInput || !extraPointsPreview) {
+        return;
+    }
+
+    const extraPoints = Number.parseInt(extraPointsInput.value, 10);
+    if (Number.isInteger(extraPoints)) {
+        extraPointsPreview.textContent = `当前调整: ${extraPoints >= 0 ? '+' : ''}${extraPoints}`;
+        extraPointsPreview.dataset.mode = extraPoints === 0 ? 'manual' : extraPoints > 0 ? 'auto' : 'negative';
+        return;
+    }
+
+    extraPointsPreview.textContent = '当前调整: --';
+    delete extraPointsPreview.dataset.mode;
 }
 
 function collectParameterPayload() {
@@ -951,6 +975,7 @@ function renderPlotlyCharts(data) {
         : data.reference.s;
     const xTitle = chartAxisMode === 'time' ? 'time [s]' : 'distance [m]';
     const dtRef = data.reference.dt_ref;
+    const dtMax = data.config.limits.dt_max;
 
     const traces = [
         {
@@ -1029,6 +1054,15 @@ function renderPlotlyCharts(data) {
             mode: 'lines',
             name: 'dt_ref',
             line: { color: '#0b4f6c', width: 2, dash: 'dot' },
+            xaxis: 'x4',
+            yaxis: 'y4',
+        },
+        {
+            x: [controlAxis[0] ?? 0, controlAxis[controlAxis.length - 1] ?? 1],
+            y: [dtMax, dtMax],
+            mode: 'lines',
+            name: 'dt_max',
+            line: { color: '#d97706', width: 2, dash: 'dash' },
             xaxis: 'x4',
             yaxis: 'y4',
         },
@@ -1150,10 +1184,18 @@ function renderConfig(data) {
     const weights = config.weights;
     const solver = config.solver;
     const processWeightKeys = ['w_pos', 'w_speed', 'w_accel', 'w_kappa', 'w_dt', 'w_jerk', 'w_dkappa'];
-    const terminalWeightKeys = ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
+    const processTerminalWeightKeys = ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
+    const realTerminalWeightKeys = ['w_pos_terminal_real', 'w_speed_terminal_real', 'w_theta_terminal_real'];
+    const extraPoints = Number.parseInt(reference.params?.extra_points ?? 0, 10) || 0;
+    const selectionLength = Number.parseFloat(reference.params?.selection_length ?? 0) || 0;
+    const activeReferenceLength = Array.isArray(data.reference?.s) && data.reference.s.length > 0
+        ? Number(data.reference.s[data.reference.s.length - 1])
+        : 0;
 
     statsEls.referenceConfig.innerHTML = `
         <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
+        <div class="config-stack">selection_length = ${selectionLength > 0 ? `${formatNumber(selectionLength, 2)} m` : 'to end'}, active = ${formatNumber(activeReferenceLength, 2)} m</div>
+        <div class="config-stack">extra_points = ${extraPoints}</div>
         <div class="config-stack">segments (${reference.segment_count})</div>
         ${reference.segment_descriptions.map((segment) => `<div class="config-stack">${segment}</div>`).join('')}
     `;
@@ -1174,7 +1216,13 @@ function renderConfig(data) {
         .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
         .join('');
 
-    statsEls.terminalWeightsConfig.innerHTML = terminalWeightKeys
+    statsEls.terminalWeightsConfig.innerHTML = processTerminalWeightKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
+        .map((key) => [key, weights[key]])
+        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
+        .join('');
+
+    statsEls.realTerminalWeightsConfig.innerHTML = realTerminalWeightKeys
         .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
         .map((key) => [key, weights[key]])
         .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
@@ -1515,6 +1563,7 @@ if (initialHeadingSlider) {
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => {
         updateDtRefPreview();
+        updateExtraPointsPreview();
         scheduleAutoReplan(input);
     });
 });
@@ -1523,4 +1572,5 @@ updateAxisButtonStyles();
 initParameterTooltips();
 updateInitialHeadingControls(null);
 updateDtRefPreview();
+updateExtraPointsPreview();
 runRandomDemo();

@@ -22,6 +22,8 @@ DEMO_CRUISE_SPEED = 1.0
 DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
     "ds": DEMO_REFERENCE_DS,
     "cruise_speed": DEMO_CRUISE_SPEED,
+    "selection_length": 0.0,
+    "extra_points": 0,
     "line_1_length": 1.8,
     "arc_1_radius": 1.8,
     "arc_1_angle": math.pi / 4.0,
@@ -58,6 +60,28 @@ def _merged_sampling_config(sampling_config: Dict[str, float] | None = None) -> 
     return {**DEMO_SAMPLING_DEFAULTS, **(sampling_config or {})}
 
 
+def _resolve_extra_points(extra_points: float | int | None) -> int:
+    if extra_points is None:
+        return 0
+
+    resolved_extra_points = float(extra_points)
+    if not resolved_extra_points.is_integer():
+        raise ValueError("extra_points must be an integer")
+
+    resolved_extra_points_int = int(resolved_extra_points)
+    return resolved_extra_points_int
+
+
+def _resolve_selection_length(selection_length: float | None) -> float | None:
+    if selection_length is None:
+        return None
+
+    resolved_selection_length = float(selection_length)
+    if resolved_selection_length <= 0.0:
+        return None
+    return resolved_selection_length
+
+
 def default_demo_segments(reference_config: Dict[str, float] | None = None) -> List[LineSegment | ArcSegment]:
     config = _merged_reference_config(reference_config)
     return [
@@ -78,6 +102,17 @@ def default_demo_reference(reference_config: Dict[str, float] | None = None) -> 
         ds=float(config["ds"]),
         cruise_speed=float(config["cruise_speed"]),
         dt_ref=float(dt_ref) if dt_ref is not None else None,
+    )
+
+
+def _reference_terminal_state(reference: ReferenceTrajectory) -> VehicleState:
+    return VehicleState(
+        x=float(reference.x[-1]),
+        y=float(reference.y[-1]),
+        theta=float(reference.theta[-1]),
+        v=float(reference.v[-1]),
+        a=float(reference.a[-1]),
+        kappa=float(reference.kappa[-1]),
     )
 
 
@@ -129,6 +164,9 @@ def describe_demo_configuration(
             "w_theta": controller.w_theta,
             "w_speed": controller.w_speed,
             "w_speed_terminal": controller.w_speed_terminal,
+            "w_pos_terminal_real": controller.w_pos_terminal_real,
+            "w_theta_terminal_real": controller.w_theta_terminal_real,
+            "w_speed_terminal_real": controller.w_speed_terminal_real,
             "w_accel": controller.w_accel,
             "w_kappa": controller.w_kappa,
             "w_dt": controller.w_dt,
@@ -324,20 +362,63 @@ def _sample_reference_at_s(reference: ReferenceTrajectory, query_s: np.ndarray) 
     return samples
 
 
-def _build_aligned_query_s(original_s: np.ndarray, projection_s: float) -> np.ndarray:
+def _resample_reference(reference: ReferenceTrajectory, sample_count: int) -> ReferenceTrajectory:
+    sample_count = int(sample_count)
+    if sample_count < 2:
+        raise ValueError("sample_count must be at least 2")
+    if sample_count == reference.size:
+        return reference
+
+    original_s = np.array(reference.s, dtype=float)
+    total_length = float(original_s[-1] - original_s[0])
+    if total_length > 1e-9:
+        query_s = np.linspace(float(original_s[0]), float(original_s[-1]), sample_count, dtype=float)
+        samples = _sample_reference_at_s(reference, query_s)
+        s = query_s - query_s[0]
+    else:
+        base_axis = np.linspace(0.0, 1.0, reference.size, dtype=float)
+        query_axis = np.linspace(0.0, 1.0, sample_count, dtype=float)
+        samples = {
+            "x": np.interp(query_axis, base_axis, reference.x),
+            "y": np.interp(query_axis, base_axis, reference.y),
+            "theta": np.interp(query_axis, base_axis, reference.theta),
+            "v": np.interp(query_axis, base_axis, reference.v),
+            "a": np.interp(query_axis, base_axis, reference.a),
+            "kappa": np.interp(query_axis, base_axis, reference.kappa),
+        }
+        s = np.zeros(sample_count, dtype=float)
+
+    return ReferenceTrajectory(
+        x=np.array(samples["x"], dtype=float),
+        y=np.array(samples["y"], dtype=float),
+        theta=np.array(samples["theta"], dtype=float),
+        v=np.array(samples["v"], dtype=float),
+        a=np.array(samples["a"], dtype=float),
+        kappa=np.array(samples["kappa"], dtype=float),
+        s=np.array(s, dtype=float),
+        dt_ref=reference.dt_ref,
+    )
+
+
+def _build_aligned_query_s(
+    original_s: np.ndarray,
+    projection_s: float,
+    selection_length: float | None = None,
+) -> np.ndarray:
     shifted_s = projection_s + original_s
     end_s = float(original_s[-1])
+    selection_end_s = end_s if selection_length is None else min(end_s, projection_s + float(selection_length))
 
     if projection_s > end_s:
         return shifted_s
 
     tol = 1e-9
-    query_s = shifted_s[shifted_s <= end_s + tol]
+    query_s = shifted_s[shifted_s <= selection_end_s + tol]
     if query_s.size == 0:
         query_s = np.array([projection_s], dtype=float)
 
-    if projection_s >= 0.0 and query_s[-1] < end_s - tol:
-        query_s = np.concatenate((query_s, np.array([end_s], dtype=float)))
+    if projection_s >= 0.0 and query_s[-1] < selection_end_s - tol:
+        query_s = np.concatenate((query_s, np.array([selection_end_s], dtype=float)))
 
     if query_s.size == 1:
         query_s = np.concatenate((query_s, np.array([query_s[0]], dtype=float)))
@@ -392,8 +473,18 @@ def project_state_onto_reference(reference: ReferenceTrajectory, state: VehicleS
     return best_projection
 
 
-def align_reference_to_projection(reference: ReferenceTrajectory, state: VehicleState) -> ReferenceTrajectory:
-    aligned_reference, _ = align_reference_to_projection_with_constraints(reference, state)
+def align_reference_to_projection(
+    reference: ReferenceTrajectory,
+    state: VehicleState,
+    extra_points: int = 0,
+    selection_length: float | None = None,
+) -> ReferenceTrajectory:
+    aligned_reference, _ = align_reference_to_projection_with_constraints(
+        reference,
+        state,
+        extra_points=extra_points,
+        selection_length=selection_length,
+    )
     return aligned_reference
 
 
@@ -401,7 +492,11 @@ def align_reference_to_projection_with_constraints(
     reference: ReferenceTrajectory,
     state: VehicleState,
     stop_constraints: Dict[str, float] | None = None,
+    extra_points: int = 0,
+    selection_length: float | None = None,
 ) -> Tuple[ReferenceTrajectory, Dict[str, object]]:
+    resolved_extra_points = _resolve_extra_points(extra_points)
+    resolved_selection_length = _resolve_selection_length(selection_length)
     projection = project_state_onto_reference(reference, state)
     end_s = float(reference.s[-1])
     if float(projection["s"]) > end_s:
@@ -409,7 +504,7 @@ def align_reference_to_projection_with_constraints(
             _build_stopping_reference(
                 state=state,
                 reference=reference,
-                sample_count=reference.size,
+                sample_count=reference.size + resolved_extra_points,
                 dt_ref=reference.dt_ref,
                 stop_constraints=stop_constraints,
             ),
@@ -425,12 +520,15 @@ def align_reference_to_projection_with_constraints(
         )
 
     original_s = np.array(reference.s, dtype=float)
-    query_s = _build_aligned_query_s(original_s, float(projection["s"]))
+    query_s = _build_aligned_query_s(
+        original_s,
+        float(projection["s"]),
+        selection_length=resolved_selection_length,
+    )
     aligned_s = query_s - query_s[0]
     aligned_samples = _sample_reference_at_s(reference, query_s)
 
-    return (
-        ReferenceTrajectory(
+    aligned_reference = ReferenceTrajectory(
             x=aligned_samples["x"],
             y=aligned_samples["y"],
             theta=aligned_samples["theta"],
@@ -439,7 +537,13 @@ def align_reference_to_projection_with_constraints(
             kappa=aligned_samples["kappa"],
             s=aligned_s,
             dt_ref=reference.dt_ref,
-        ),
+        )
+    if resolved_extra_points != 0:
+        target_sample_count = max(aligned_reference.size + resolved_extra_points, 2)
+        aligned_reference = _resample_reference(aligned_reference, target_sample_count)
+
+    return (
+        aligned_reference,
         {
             "mode": "aligned_projection",
             "is_stopping_reference": False,
@@ -454,7 +558,11 @@ def run_random_demo(
     sampling_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     rng = np.random.default_rng(seed)
-    base_reference = default_demo_reference(reference_config=reference_config)
+    merged_reference = _merged_reference_config(reference_config)
+    extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
+    selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    base_reference = default_demo_reference(reference_config=merged_reference)
+    real_terminal_state = _reference_terminal_state(base_reference)
     initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
     controller = TEBMPCController(params=params)
     stop_constraints = {
@@ -466,8 +574,10 @@ def run_random_demo(
         base_reference,
         initial_state,
         stop_constraints=stop_constraints,
+        extra_points=extra_points,
+        selection_length=selection_length,
     )
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 
@@ -477,7 +587,11 @@ def solve_demo(
     params: Dict[str, float] | None = None,
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
-    base_reference = default_demo_reference(reference_config=reference_config)
+    merged_reference = _merged_reference_config(reference_config)
+    extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
+    selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    base_reference = default_demo_reference(reference_config=merged_reference)
+    real_terminal_state = _reference_terminal_state(base_reference)
     controller = TEBMPCController(params=params)
     stop_constraints = {
         "max_lat_accel": controller.max_lat_accel,
@@ -488,8 +602,10 @@ def solve_demo(
         base_reference,
         initial_state,
         stop_constraints=stop_constraints,
+        extra_points=extra_points,
+        selection_length=selection_length,
     )
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 
@@ -500,17 +616,23 @@ def demo_problem(
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     initial_state = VehicleState(x=0.0, y=-0.3, theta=0.05, v=0.5, a=0.0, kappa=0.0)
     controller = TEBMPCController(params=params)
+    merged_reference = _merged_reference_config(reference_config)
+    extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
+    selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    real_terminal_state = _reference_terminal_state(default_demo_reference(reference_config=merged_reference))
     stop_constraints = {
         "max_lat_accel": controller.max_lat_accel,
         "max_kappa": controller.max_kappa,
         "max_dkappa": controller.max_dkappa,
     }
     reference, reference_meta = align_reference_to_projection_with_constraints(
-        default_demo_reference(reference_config=reference_config),
+        default_demo_reference(reference_config=merged_reference),
         initial_state,
         stop_constraints=stop_constraints,
+        extra_points=extra_points,
+        selection_length=selection_length,
     )
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
 

@@ -43,6 +43,10 @@ class ArcSegment:
 PathSegment = Union[LineSegment, ArcSegment]
 
 
+def _normalize_angle_difference(angle: float) -> float:
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
 def _resolve_dt_ref(ds: float, cruise_speed: float, dt_ref: float | None) -> float:
     if dt_ref is not None:
         resolved_dt_ref = float(dt_ref)
@@ -54,6 +58,22 @@ def _resolve_dt_ref(ds: float, cruise_speed: float, dt_ref: float | None) -> flo
     if nominal_speed <= 0.0:
         raise ValueError("cruise_speed must be non-zero when dt_ref is omitted")
     return float(ds) / nominal_speed
+
+
+def _reference_targets_real_terminal(
+    reference: "ReferenceTrajectory",
+    real_terminal_state: VehicleState | None,
+    tol: float = 1e-6,
+) -> bool:
+    if real_terminal_state is None:
+        return False
+
+    return (
+        abs(float(reference.x[-1]) - real_terminal_state.x) <= tol
+        and abs(float(reference.y[-1]) - real_terminal_state.y) <= tol
+        and abs(float(reference.v[-1]) - real_terminal_state.v) <= tol
+        and abs(_normalize_angle_difference(float(reference.theta[-1]) - real_terminal_state.theta)) <= tol
+    )
 
 
 @dataclass(frozen=True)
@@ -187,14 +207,17 @@ class TEBMPCController:
         legacy_terminal_default = float(legacy_w_terminal) if legacy_w_terminal is not None else None
         self.w_pos = float(self.params.get("w_pos", 0.0))
         self.w_pos_terminal = float(
-            self.params.get("w_pos_terminal", legacy_terminal_default if legacy_terminal_default is not None else 60.0)
+            self.params.get("w_pos_terminal", legacy_terminal_default if legacy_terminal_default is not None else 30.0)
         )
         self.w_theta = float(self.params.get("w_theta", legacy_terminal_default if legacy_terminal_default is not None else 15.0))
         self.w_speed = float(self.params.get("w_speed", 0.0))
         self.w_speed_terminal = float(
-            self.params.get("w_speed_terminal", legacy_terminal_default if legacy_terminal_default is not None else 60.0)
+            self.params.get("w_speed_terminal", legacy_terminal_default if legacy_terminal_default is not None else 0.0)
         )
-        self.w_accel = float(self.params.get("w_accel", 1.5))
+        self.w_pos_terminal_real = float(self.params.get("w_pos_terminal_real", 60.0))
+        self.w_theta_terminal_real = float(self.params.get("w_theta_terminal_real", 15.0))
+        self.w_speed_terminal_real = float(self.params.get("w_speed_terminal_real", 60.0))
+        self.w_accel = float(self.params.get("w_accel", 0.0))
         self.w_kappa = float(self.params.get("w_kappa", 2.0))
         self.w_dt = float(self.params.get("w_dt", 10.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
@@ -203,7 +226,12 @@ class TEBMPCController:
         self.ipopt_tol = float(self.params.get("ipopt_tol", 1e-6))
         self.ipopt_print_level = int(self.params.get("ipopt_print_level", 0))
 
-    def solve(self, initial_state: VehicleState, reference: ReferenceTrajectory) -> Dict[str, np.ndarray | float | Dict[str, float]]:
+    def solve(
+        self,
+        initial_state: VehicleState,
+        reference: ReferenceTrajectory,
+        real_terminal_state: VehicleState | None = None,
+    ) -> Dict[str, np.ndarray | float | Dict[str, float]]:
         if reference.size < 2:
             raise ValueError("Reference trajectory must contain at least 2 samples")
 
@@ -232,9 +260,17 @@ class TEBMPCController:
             cost_control += self.w_jerk * jerk[i] ** 2
             cost_control += self.w_dkappa * dkappa[i] ** 2
 
-        terminal_cost = self.w_pos_terminal * ((x[-1] - reference.x[-1]) ** 2 + (y[-1] - reference.y[-1]) ** 2)
-        terminal_cost += self.w_speed_terminal * (v[-1] - reference.v[-1]) ** 2
-        terminal_cost += self.w_theta * (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
+        if _reference_targets_real_terminal(reference, real_terminal_state):
+            terminal_cost = self.w_pos_terminal_real * (
+                (x[-1] - real_terminal_state.x) ** 2 + (y[-1] - real_terminal_state.y) ** 2
+            )
+            terminal_cost += self.w_speed_terminal_real * (v[-1] - real_terminal_state.v) ** 2
+            terminal_cost += self.w_theta_terminal_real * (1.0 - ca.cos(theta[-1] - real_terminal_state.theta))
+        else:
+            terminal_cost = self.w_pos_terminal * ((x[-1] - reference.x[-1]) ** 2 + (y[-1] - reference.y[-1]) ** 2)
+            terminal_cost += self.w_speed_terminal * (v[-1] - reference.v[-1]) ** 2
+            terminal_cost += self.w_theta * (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
+
         opti.minimize(cost_track + cost_control + terminal_cost)
 
         for i in range(n - 1):

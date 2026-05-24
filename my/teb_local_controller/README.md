@@ -254,6 +254,8 @@ $$
 ### 时间相关
 
 - `dt_ref = 0.1`（控制器参数默认值；若 `build_reference_trajectory()` 未显式传入 `dt_ref`，则参考轨迹会按 `ds / cruise_speed` 自动推导）
+- `selection_length = 0.0`（从当前投影点开始选取多少米参考路径用于优化；`0` 表示一直取到当前路径终点）
+- `extra_points = 0`（对齐后的参考轨迹点数调整量；正值增加点，负值减少点，最终至少保留 2 个点）
 - `dt_min = 0.03`
 - `dt_max = 0.35`
 
@@ -269,15 +271,20 @@ $$
 ### 权重
 
 - `w_pos = 0.0`
-- `w_pos_terminal = 60.0`
-- `w_theta = 15.0`
+- `w_pos_terminal = 30.0`（过程终点）
+- `w_theta = 15.0`（过程终点）
 - `w_speed = 0.0`
-- `w_speed_terminal = 60.0`
-- `w_accel = 1.5`
+- `w_speed_terminal = 0.0`（过程终点）
+- `w_pos_terminal_real = 60.0`（真实路径终点）
+- `w_theta_terminal_real = 15.0`（真实路径终点）
+- `w_speed_terminal_real = 60.0`（真实路径终点）
+- `w_accel = 0.0`
 - `w_kappa = 2.0`
 - `w_dt = 10.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
+
+说明：`w_*_terminal` 与 `w_*_terminal_real` 是两组互斥参数，不叠加。若当前优化目标就是原始路径真正终点，则只使用 `w_*_terminal_real`；若当前优化终点不是原始路径真正终点，则只使用 `w_*_terminal`。
 
 ### IPOPT
 
