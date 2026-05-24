@@ -505,6 +505,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "kinematic_spacing_weight_sqrt",
     &constrained_smoother::SmootherParams::kinematic_spacing_weight_sqrt)
     .def_readwrite(
+    "kinematic_max_spacing",
+    &constrained_smoother::SmootherParams::kinematic_max_spacing)
+    .def_readwrite(
     "path_length_weight_sqrt",
     &constrained_smoother::SmootherParams::path_length_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)

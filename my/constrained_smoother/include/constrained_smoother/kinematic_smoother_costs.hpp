@@ -98,7 +98,7 @@ public:
 
   /**
    * @brief 创建用于 Ceres 自动微分的代价函数对象
-   *        模板参数：6 个残差，两个参数块各 5 个分量（current 和 next）
+   *        模板参数：7 个残差，两个参数块各 5 个分量（current 和 next）
    */
   ceres::CostFunction * AutoDiff()
   {
@@ -109,13 +109,13 @@ public:
    * @brief 计算相邻两点的运动学过渡残差
    * @param current  当前点状态 [x, y, theta, kappa, ds]
    * @param next     下一点状态 [x, y, theta, kappa, ds]（ds 分量不使用）
-   * @param residuals 输出残差数组，长度为 6
+   * @param residuals 输出残差数组，长度为 7
    */
   template<typename T>
   bool operator()(const T * const current, const T * const next, T * residuals) const
   {
     // 将输出残差映射为 Eigen 向量，便于操作，初始化为零
-    Eigen::Map<Eigen::Matrix<T, 6, 1>> residual(residuals);
+    Eigen::Map<Eigen::Matrix<T, 7, 1>> residual(residuals);
     residual.setZero();
 
     // 解包当前点状态
@@ -173,7 +173,9 @@ public:
     residual[4] = T(curvature_rate_weight_) * (next_kappa - kappa) / denom;
 
     // 残差[5]：步长误差——约束相邻点间距接近目标步长，归一化后无量纲
-    residual[5] = T(spacing_weight_) * (ds - T(target_spacing_)) / T(target_spacing_);
+    // 对目标步长做下限保护，避免极端配置导致除零或梯度异常放大。
+    const T spacing_ref = T(std::max(target_spacing_, 1e-3));
+    residual[5] = T(spacing_weight_) * (ds - spacing_ref) / spacing_ref;
 
     // 残差[6]：长度惩罚——对每一段 ds 直接施加代价，使总路径长度更短
     residual[6] = T(length_weight_) * ds;

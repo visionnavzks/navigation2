@@ -99,6 +99,9 @@ public:
     if (!validateKinematicSegmentConsistency(request, failure)) {
       return false;
     }
+    if (!validateKinematicCurvatureConstraint(request, failure)) {
+      return false;
+    }
     if (!validateKinematicObstacleClearance(request, failure)) {
       return false;
     }
@@ -388,6 +391,70 @@ private:
           SmoothingFailureReason::MotionDirectionConstraint,
           "Kinematic smoother returned a path whose motion direction violates the input gear and endpoint constraints",
           static_cast<int>(index));
+      }
+    }
+
+    return true;
+  }
+
+  bool validateKinematicCurvatureConstraint(
+    const KinematicRequest & request,
+    SmoothingFailureInfo * failure) const
+  {
+    const double max_curvature = std::max(request.params.max_curvature, 1e-6);
+    constexpr double curvature_tolerance = 1e-4;
+
+    auto report_curvature_violation =
+      [&](size_t index, double actual_curvature) {
+        const double turning_radius =
+          actual_curvature > 1e-9 ? 1.0 / actual_curvature : std::numeric_limits<double>::infinity();
+        const std::string message = describeCurvatureViolation(
+          actual_curvature,
+          max_curvature,
+          turning_radius);
+        if (failure != nullptr) {
+          failure->reason = SmoothingFailureReason::CurvatureConstraint;
+          failure->message = message;
+          failure->failed_index = static_cast<int>(index);
+          failure->actual_curvature = actual_curvature;
+          failure->max_curvature = max_curvature;
+          failure->turning_radius = turning_radius;
+          return false;
+        }
+        return throwOrStoreSmoothingFailure(
+          failure,
+          SmoothingFailureReason::CurvatureConstraint,
+          message,
+          static_cast<int>(index));
+      };
+
+    // 1) 检查显式状态曲率 kappa 是否越界。
+    for (size_t index = 0; index < request.state_count; ++index) {
+      const double * state = request.variables.data() + 5 * index;
+      const double abs_kappa = std::abs(state[3]);
+      if (abs_kappa > max_curvature + curvature_tolerance) {
+        return report_curvature_violation(index, abs_kappa);
+      }
+    }
+
+    // 2) 再检查由相邻姿态形成的几何曲率，覆盖“kappa 合法但输出轨迹几何超限”的情形。
+    const double displacement_tol = displacementTolerance(request.costmap);
+    for (size_t index = 0; index + 1 < request.state_count; ++index) {
+      if (request.is_cusp_segment[index]) {
+        continue;
+      }
+      const double * current = request.variables.data() + 5 * index;
+      const double * next = request.variables.data() + 5 * (index + 1);
+      const double dx = next[0] - current[0];
+      const double dy = next[1] - current[1];
+      const double displacement = std::hypot(dx, dy);
+      if (displacement <= displacement_tol) {
+        continue;
+      }
+      const double delta_theta = angleDifference(next[2], current[2]);
+      const double geometric_curvature = std::abs(delta_theta) / displacement;
+      if (geometric_curvature > max_curvature + curvature_tolerance) {
+        return report_curvature_violation(index, geometric_curvature);
       }
     }
 

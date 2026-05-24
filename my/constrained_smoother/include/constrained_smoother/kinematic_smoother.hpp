@@ -107,6 +107,7 @@ public:
       processed.reference_points,
       processed.state_count,
       request.params.max_curvature,
+      request.params.kinematic_max_spacing,
       request.params.reference_point_max_deviation_m);
 
     // 记录本次参与优化的 knot 数，供外层诊断 / UI 使用。

@@ -957,6 +957,8 @@ class PlanRequestConfig:
     reference_point_deviation_limit_m: float
     kinematic_curvature_weight: float
     kinematic_curvature_rate_weight: float
+    kinematic_spacing_weight: float
+    kinematic_max_spacing_m: float
     path_length_weight: float
     max_curvature: float
     max_time: float
@@ -1021,6 +1023,8 @@ class PlanRequestConfig:
             ),
             kinematic_curvature_weight=float(req.get("kinematic_curvature_weight", 30.0)),
             kinematic_curvature_rate_weight=float(req.get("kinematic_curvature_rate_weight", 5.0)),
+            kinematic_spacing_weight=max(0.0, float(req.get("kinematic_spacing_weight", 1.0))),
+            kinematic_max_spacing_m=max(0.0, float(req.get("kinematic_max_spacing_m", 0.0))),
             path_length_weight=float(req.get("path_length_weight", 0.1)),
             max_curvature=float(req.get("max_curvature", 2.5)),
             max_time=max(0.01, float(req.get("max_time", 10.0))),
@@ -1088,6 +1092,8 @@ class PlanRequestConfig:
         smoother_params.kinematic_curvature_rate_weight_sqrt = math.sqrt(
             self.kinematic_curvature_rate_weight
         )
+        smoother_params.kinematic_spacing_weight_sqrt = math.sqrt(self.kinematic_spacing_weight)
+        smoother_params.kinematic_max_spacing = self.kinematic_max_spacing_m
         smoother_params.path_length_weight_sqrt = math.sqrt(self.path_length_weight)
         smoother_params.max_curvature = self.max_curvature
         smoother_params.max_time = self.max_time
@@ -1601,6 +1607,8 @@ def _build_plan_response_payload(
         "reference_point_max_deviation_m": round(config.reference_point_max_deviation_m, 3),
         "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
         "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
+        "kinematic_spacing_weight": round(config.kinematic_spacing_weight, 3),
+        "kinematic_max_spacing_m": round(config.kinematic_max_spacing_m, 3),
         "path_length_weight": round(config.path_length_weight, 3),
         "max_curvature": round(config.max_curvature, 4),
         "max_time_s": round(config.max_time, 3),

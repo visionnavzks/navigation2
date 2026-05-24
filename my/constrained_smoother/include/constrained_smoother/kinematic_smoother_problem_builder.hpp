@@ -288,6 +288,7 @@ public:
     const std::vector<Eigen::Vector2d> & reference_points,
     size_t state_count,
     double max_curvature,
+    double max_spacing,
     double reference_point_max_deviation_m)
   {
     // 显式参数边界：
@@ -308,6 +309,9 @@ public:
       problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
       problem.SetParameterUpperBound(state, 3, clamped_max_curvature);
       problem.SetParameterLowerBound(state, 4, 0.0);
+      if (max_spacing > 1e-9) {
+        problem.SetParameterUpperBound(state, 4, max_spacing);
+      }
     }
   }
 
