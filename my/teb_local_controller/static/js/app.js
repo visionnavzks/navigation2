@@ -11,6 +11,11 @@ const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
 const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
 const initialHeadingSlider = document.getElementById('initial-heading-slider');
 const initialHeadingValue = document.getElementById('initial-heading-value');
+const initialSpeedSlider = document.getElementById('initial-speed-slider');
+const initialSpeedValue = document.getElementById('initial-speed-value');
+const initialSpeedMin = document.getElementById('initial-speed-min');
+const initialSpeedMid = document.getElementById('initial-speed-mid');
+const initialSpeedMax = document.getElementById('initial-speed-max');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -292,15 +297,70 @@ function updateInitialHeadingControls(initialState) {
     initialHeadingValue.textContent = `${formatNumber(normalizedTheta, 3)} rad / ${formatNumber(radiansToDegrees(normalizedTheta), 0)} deg`;
 }
 
-function scheduleInitialHeadingReplan() {
+function resolveInitialSpeedRange(initialState, samplingConfig) {
+    const minCandidate = Number.parseFloat(samplingConfig?.speed_min);
+    const maxCandidate = Number.parseFloat(samplingConfig?.speed_max);
+
+    let minSpeed = Number.isFinite(minCandidate) ? minCandidate : 0.0;
+    let maxSpeed = Number.isFinite(maxCandidate) ? maxCandidate : 1.2;
+    if (maxSpeed < minSpeed) {
+        [minSpeed, maxSpeed] = [maxSpeed, minSpeed];
+    }
+
+    if (initialState && Number.isFinite(initialState.v)) {
+        minSpeed = Math.min(minSpeed, initialState.v);
+        maxSpeed = Math.max(maxSpeed, initialState.v);
+    }
+
+    if (Math.abs(maxSpeed - minSpeed) < 1e-6) {
+        maxSpeed = minSpeed + 1.0;
+    }
+
+    return { minSpeed, maxSpeed };
+}
+
+function updateInitialSpeedControls(initialState, samplingConfig = null) {
+    if (!initialSpeedSlider || !initialSpeedValue || !initialSpeedMin || !initialSpeedMid || !initialSpeedMax) {
+        return;
+    }
+
+    const { minSpeed, maxSpeed } = resolveInitialSpeedRange(initialState, samplingConfig);
+    const midSpeed = (minSpeed + maxSpeed) * 0.5;
+    initialSpeedSlider.min = String(minSpeed);
+    initialSpeedSlider.max = String(maxSpeed);
+    initialSpeedMin.textContent = `${formatNumber(minSpeed, 2)} m/s`;
+    initialSpeedMid.textContent = `${formatNumber(midSpeed, 2)} m/s`;
+    initialSpeedMax.textContent = `${formatNumber(maxSpeed, 2)} m/s`;
+
+    if (!initialState) {
+        initialSpeedSlider.disabled = true;
+        initialSpeedSlider.value = String(minSpeed);
+        initialSpeedValue.textContent = '--';
+        return;
+    }
+
+    initialSpeedSlider.disabled = false;
+    initialSpeedSlider.value = String(initialState.v);
+    initialSpeedValue.textContent = `${formatNumber(initialState.v, 3)} m/s`;
+}
+
+function scheduleInitialStateReplan(message) {
     if (autoReplanTimer !== null) {
         clearTimeout(autoReplanTimer);
     }
-    setStatus('起点朝向已变更，正在等待基于当前状态自动重规划...', 'idle');
+    setStatus(message, 'idle');
     autoReplanTimer = window.setTimeout(() => {
         autoReplanTimer = null;
         runRandomDemo({ preserveInitialState: true, autoTriggered: true });
     }, 220);
+}
+
+function scheduleInitialHeadingReplan() {
+    scheduleInitialStateReplan('起点朝向已变更，正在等待基于当前状态自动重规划...');
+}
+
+function scheduleInitialSpeedReplan() {
+    scheduleInitialStateReplan('起点速度已变更，正在等待基于当前状态自动重规划...');
 }
 
 function ensureGlobalParamTooltip() {
@@ -1175,6 +1235,7 @@ function renderStats(data) {
     ].map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
     updateInitialHeadingControls(initialState);
+    updateInitialSpeedControls(initialState, data.config?.sampling);
 }
 
 function renderConfig(data) {
@@ -1439,6 +1500,32 @@ function handleInitialHeadingInput() {
     scheduleInitialHeadingReplan();
 }
 
+function handleInitialSpeedInput() {
+    if (!currentData?.initial_state || !initialSpeedSlider) {
+        return;
+    }
+
+    const sliderSpeed = Number.parseFloat(initialSpeedSlider.value);
+    if (Number.isNaN(sliderSpeed)) {
+        return;
+    }
+
+    currentData.initial_state = {
+        ...currentData.initial_state,
+        v: sliderSpeed,
+    };
+    activeHoverKey = 'initial-0';
+    renderPathView(currentData, activeHoverKey);
+    renderStats(currentData);
+
+    const currentInitialItem = currentScene?.itemMap.get('initial-0') || null;
+    if (currentInitialItem && activeHoverKey === 'initial-0') {
+        renderHoverDetails(currentInitialItem);
+    }
+
+    scheduleInitialSpeedReplan();
+}
+
 function clearCanvasHover() {
     if (isDraggingInitialState) {
         return;
@@ -1560,6 +1647,9 @@ axisButtons.forEach((button) => {
 if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
 }
+if (initialSpeedSlider) {
+    initialSpeedSlider.addEventListener('input', handleInitialSpeedInput);
+}
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => {
         updateDtRefPreview();
@@ -1571,6 +1661,7 @@ updateLegendToggleStyles();
 updateAxisButtonStyles();
 initParameterTooltips();
 updateInitialHeadingControls(null);
+updateInitialSpeedControls(null, null);
 updateDtRefPreview();
 updateExtraPointsPreview();
 runRandomDemo();
