@@ -21,6 +21,11 @@ const initialAccelValue = document.getElementById('initial-accel-value');
 const initialAccelMin = document.getElementById('initial-accel-min');
 const initialAccelMid = document.getElementById('initial-accel-mid');
 const initialAccelMax = document.getElementById('initial-accel-max');
+const initialKappaSlider = document.getElementById('initial-kappa-slider');
+const initialKappaValue = document.getElementById('initial-kappa-value');
+const initialKappaMin = document.getElementById('initial-kappa-min');
+const initialKappaMid = document.getElementById('initial-kappa-mid');
+const initialKappaMax = document.getElementById('initial-kappa-max');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -390,6 +395,54 @@ function updateInitialAccelControls(initialState, samplingConfig = null) {
     initialAccelValue.textContent = `${formatNumber(initialState.a, 3)} m/s²`;
 }
 
+function resolveInitialKappaRange(initialState, samplingConfig) {
+    const minCandidate = Number.parseFloat(samplingConfig?.kappa_min);
+    const maxCandidate = Number.parseFloat(samplingConfig?.kappa_max);
+
+    let minKappa = Number.isFinite(minCandidate) ? minCandidate : -0.2;
+    let maxKappa = Number.isFinite(maxCandidate) ? maxCandidate : 0.2;
+    if (maxKappa < minKappa) {
+        [minKappa, maxKappa] = [maxKappa, minKappa];
+    }
+
+    if (initialState && Number.isFinite(initialState.kappa)) {
+        minKappa = Math.min(minKappa, initialState.kappa);
+        maxKappa = Math.max(maxKappa, initialState.kappa);
+    }
+
+    if (Math.abs(maxKappa - minKappa) < 1e-9) {
+        minKappa -= 0.1;
+        maxKappa += 0.1;
+    }
+
+    return { minKappa, maxKappa };
+}
+
+function updateInitialKappaControls(initialState, samplingConfig = null) {
+    if (!initialKappaSlider || !initialKappaValue || !initialKappaMin || !initialKappaMid || !initialKappaMax) {
+        return;
+    }
+
+    const { minKappa, maxKappa } = resolveInitialKappaRange(initialState, samplingConfig);
+    const midKappa = (minKappa + maxKappa) * 0.5;
+    initialKappaSlider.min = String(minKappa);
+    initialKappaSlider.max = String(maxKappa);
+    initialKappaMin.textContent = `${formatNumber(minKappa, 3)} 1/m`;
+    initialKappaMid.textContent = `${formatNumber(midKappa, 3)} 1/m`;
+    initialKappaMax.textContent = `${formatNumber(maxKappa, 3)} 1/m`;
+
+    if (!initialState) {
+        initialKappaSlider.disabled = true;
+        initialKappaSlider.value = String(midKappa);
+        initialKappaValue.textContent = '--';
+        return;
+    }
+
+    initialKappaSlider.disabled = false;
+    initialKappaSlider.value = String(initialState.kappa);
+    initialKappaValue.textContent = `${formatNumber(initialState.kappa, 3)} 1/m`;
+}
+
 function scheduleInitialStateReplan(message) {
     if (autoReplanTimer !== null) {
         clearTimeout(autoReplanTimer);
@@ -411,6 +464,10 @@ function scheduleInitialSpeedReplan() {
 
 function scheduleInitialAccelReplan() {
     scheduleInitialStateReplan('起点加速度已变更，正在等待基于当前状态自动重规划...');
+}
+
+function scheduleInitialKappaReplan() {
+    scheduleInitialStateReplan('起点曲率已变更，正在等待基于当前状态自动重规划...');
 }
 
 function ensureGlobalParamTooltip() {
@@ -1287,6 +1344,7 @@ function renderStats(data) {
     updateInitialHeadingControls(initialState);
     updateInitialSpeedControls(initialState, data.config?.sampling);
     updateInitialAccelControls(initialState, data.config?.sampling);
+    updateInitialKappaControls(initialState, data.config?.sampling);
 }
 
 function renderConfig(data) {
@@ -1603,6 +1661,32 @@ function handleInitialAccelInput() {
     scheduleInitialAccelReplan();
 }
 
+function handleInitialKappaInput() {
+    if (!currentData?.initial_state || !initialKappaSlider) {
+        return;
+    }
+
+    const sliderKappa = Number.parseFloat(initialKappaSlider.value);
+    if (Number.isNaN(sliderKappa)) {
+        return;
+    }
+
+    currentData.initial_state = {
+        ...currentData.initial_state,
+        kappa: sliderKappa,
+    };
+    activeHoverKey = 'initial-0';
+    renderPathView(currentData, activeHoverKey);
+    renderStats(currentData);
+
+    const currentInitialItem = currentScene?.itemMap.get('initial-0') || null;
+    if (currentInitialItem && activeHoverKey === 'initial-0') {
+        renderHoverDetails(currentInitialItem);
+    }
+
+    scheduleInitialKappaReplan();
+}
+
 function clearCanvasHover() {
     if (isDraggingInitialState) {
         return;
@@ -1730,6 +1814,9 @@ if (initialSpeedSlider) {
 if (initialAccelSlider) {
     initialAccelSlider.addEventListener('input', handleInitialAccelInput);
 }
+if (initialKappaSlider) {
+    initialKappaSlider.addEventListener('input', handleInitialKappaInput);
+}
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => {
         updateDtRefPreview();
@@ -1743,6 +1830,7 @@ initParameterTooltips();
 updateInitialHeadingControls(null);
 updateInitialSpeedControls(null, null);
 updateInitialAccelControls(null, null);
+updateInitialKappaControls(null, null);
 updateDtRefPreview();
 updateExtraPointsPreview();
 runRandomDemo();
