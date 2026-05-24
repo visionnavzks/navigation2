@@ -14,7 +14,6 @@
 
 #include <vector>
 #include <cmath>
-#include <typeinfo>
 
 namespace py = pybind11;
 
@@ -82,6 +81,76 @@ const constrained_smoother::Costmap2D * copy_optional_costmap(const py::handle &
   }
 
   return &py::cast<const constrained_smoother::Costmap2D &>(handle);
+}
+
+bool run_smooth_request(
+  constrained_smoother::KinematicSmoother & smoother,
+  std::vector<Eigen::Vector3d> & path,
+  const Eigen::Vector2d & start_dir,
+  const Eigen::Vector2d & end_dir,
+  const constrained_smoother::Costmap2D * costmap,
+  const constrained_smoother::SmootherParams & params,
+  const std::vector<double> * precomputed_esdf,
+  constrained_smoother::SmoothingFailureInfo * failure)
+{
+  const constrained_smoother::SmootherRequest request{
+    path,
+    start_dir,
+    end_dir,
+    costmap,
+    params,
+    precomputed_esdf,
+    failure,
+  };
+  return smoother.smooth(request);
+}
+
+struct SmoothBindingInput
+{
+  std::vector<Eigen::Vector3d> path;
+  Eigen::Vector2d start_dir;
+  Eigen::Vector2d end_dir;
+  const constrained_smoother::Costmap2D * costmap;
+};
+
+PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFailureInfo & failure);
+
+template<typename ErrorT>
+py::dict make_error_result(const ErrorT & error);
+
+py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & error);
+py::dict make_error_result(
+  const constrained_smoother::SmoothingFailureInfo & failure,
+  const py::object & path = py::none());
+
+py::dict make_ok_result(const std::vector<Eigen::Vector3d> & path);
+
+SmoothBindingInput parse_smooth_input(
+  const py::handle & path_handle,
+  const py::handle & start_dir_handle,
+  const py::handle & end_dir_handle,
+  const py::handle & costmap_handle)
+{
+  return SmoothBindingInput{
+    copy_path3d(path_handle, "path"),
+    copy_vector2d(start_dir_handle, "start_dir"),
+    copy_vector2d(end_dir_handle, "end_dir"),
+    copy_optional_costmap(costmap_handle),
+  };
+}
+
+SmoothBindingInput parse_smooth_input(
+  const py::handle & path_handle,
+  const py::handle & start_dir_handle,
+  const py::handle & end_dir_handle,
+  const constrained_smoother::Costmap2D & costmap)
+{
+  return SmoothBindingInput{
+    copy_path3d(path_handle, "path"),
+    copy_vector2d(start_dir_handle, "start_dir"),
+    copy_vector2d(end_dir_handle, "end_dir"),
+    &costmap,
+  };
 }
 
 // ---- Failure parsing / folding helpers ----
@@ -181,7 +250,7 @@ py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & erro
 
 py::dict make_error_result(
   const constrained_smoother::SmoothingFailureInfo & failure,
-  const py::object & path = py::none())
+  const py::object & path)
 {
   py::dict result;
   result["ok"] = false;
@@ -246,20 +315,69 @@ PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFa
   return nullptr;
 }
 
-// ---- Exception-safe result wrapper for try_* style APIs ----
+py::dict make_ok_result(const std::vector<Eigen::Vector3d> & path)
+{
+  py::dict result;
+  result["ok"] = true;
+  result["path"] = path;
+  result["error_code"] = py::none();
+  result["error_message"] = py::none();
+  result["error_reason"] = py::none();
+  result["error_details"] = py::none();
+  return result;
+}
+
+PyObject * run_smooth_or_raise(
+  constrained_smoother::KinematicSmoother & smoother,
+  SmoothBindingInput && input,
+  const constrained_smoother::SmootherParams & params,
+  const std::vector<double> * precomputed_esdf)
+{
+  constrained_smoother::SmoothingFailureInfo failure;
+  if (!run_smooth_request(
+      smoother,
+      input.path,
+      input.start_dir,
+      input.end_dir,
+      input.costmap,
+      params,
+      precomputed_esdf,
+      &failure))
+  {
+    return make_python_smoothing_failure(failure);
+  }
+
+  return py::cast(input.path).release().ptr();
+}
+
+py::dict run_try_smooth_result(
+  constrained_smoother::KinematicSmoother & smoother,
+  SmoothBindingInput && input,
+  const constrained_smoother::SmootherParams & params,
+  const std::vector<double> * precomputed_esdf)
+{
+  constrained_smoother::SmoothingFailureInfo failure;
+  if (!run_smooth_request(
+      smoother,
+      input.path,
+      input.start_dir,
+      input.end_dir,
+      input.costmap,
+      params,
+      precomputed_esdf,
+      &failure))
+  {
+    return make_error_result(failure, py::cast(input.path));
+  }
+
+  return make_ok_result(input.path);
+}
 
 template<typename Fn>
-py::dict invoke_with_result(Fn && fn)
+py::dict invoke_try_smooth(Fn && fn)
 {
   try {
-    py::dict result;
-    result["ok"] = true;
-    result["path"] = fn();
-    result["error_code"] = py::none();
-    result["error_message"] = py::none();
-    result["error_reason"] = py::none();
-    result["error_details"] = py::none();
-    return result;
+    return fn();
   } catch (const constrained_smoother::InvalidPath & error) {
     return make_error_result(error);
   } catch (const constrained_smoother::FailedToSmoothPath & error) {
@@ -268,23 +386,9 @@ py::dict invoke_with_result(Fn && fn)
     return make_error_result(error);
   } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
     return make_error_result(error);
+  } catch (const py::error_already_set &) {
+    throw;
   } catch (const std::exception & error) {
-    if (const auto * invalid_path = dynamic_cast<const constrained_smoother::InvalidPath *>(&error)) {
-      return make_error_result(*invalid_path);
-    }
-    if (const auto * failed = dynamic_cast<const constrained_smoother::FailedToSmoothPath *>(&error)) {
-      return make_error_result(*failed);
-    }
-    if (const auto * invalid_costmap = dynamic_cast<const constrained_smoother::InvalidCostmap *>(&error)) {
-      return make_error_result(*invalid_costmap);
-    }
-    if (
-      const auto * size_mismatch =
-      dynamic_cast<const constrained_smoother::PrecomputedEsdfSizeMismatch *>(&error))
-    {
-      return make_error_result(*size_mismatch);
-    }
-
     py::dict result;
     result["ok"] = false;
     result["path"] = py::none();
@@ -498,15 +602,11 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> PyObject *
       {
-        std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-        const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-        const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-        const auto * costmap = copy_optional_costmap(costmap_handle);
-        constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
-          return make_python_smoothing_failure(failure);
-        }
-        return py::cast(path).release().ptr();
+        return run_smooth_or_raise(
+          self,
+          parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
+          params,
+          nullptr);
       },
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
@@ -522,42 +622,13 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> py::dict
       {
-        try {
-          std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-          const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-          const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-          const auto * costmap = copy_optional_costmap(costmap_handle);
-          constrained_smoother::SmoothingFailureInfo failure;
-          if (!self.smooth(path, start_dir, end_dir, costmap, params, nullptr, &failure)) {
-            return make_error_result(failure, py::cast(path));
-          }
-
-          py::dict result;
-          result["ok"] = true;
-          result["path"] = path;
-          result["error_code"] = py::none();
-          result["error_message"] = py::none();
-          result["error_reason"] = py::none();
-          result["error_details"] = py::none();
-          return result;
-        } catch (const constrained_smoother::InvalidPath & error) {
-          return make_error_result(error);
-        } catch (const constrained_smoother::InvalidCostmap & error) {
-          return make_error_result(error);
-        } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
-          return make_error_result(error);
-        } catch (const py::error_already_set &) {
-          throw;
-        } catch (const std::exception & error) {
-          py::dict result;
-          result["ok"] = false;
-          result["path"] = py::none();
-          result["error_code"] = py::none();
-          result["error_message"] = py::str(error.what());
-          result["error_reason"] = py::none();
-          result["error_details"] = py::none();
-          return result;
-        }
+        return invoke_try_smooth([&]() -> py::dict {
+          return run_try_smooth_result(
+            self,
+            parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
+            params,
+            nullptr);
+        });
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap") = py::none(), py::arg("params"),
@@ -573,14 +644,11 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const constrained_smoother::SmootherParams & params,
       const constrained_smoother::AStarPlanner & planner) -> PyObject *
       {
-        std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-        const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-        const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-        constrained_smoother::SmoothingFailureInfo failure;
-        if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-          return make_python_smoothing_failure(failure);
-        }
-        return py::cast(path).release().ptr();
+        return run_smooth_or_raise(
+          self,
+          parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap),
+          params,
+          &planner.getESDF());
       },
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
@@ -597,41 +665,13 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const constrained_smoother::SmootherParams & params,
       const constrained_smoother::AStarPlanner & planner) -> py::dict
       {
-        try {
-          std::vector<Eigen::Vector3d> path = copy_path3d(path_handle, "path");
-          const Eigen::Vector2d start_dir = copy_vector2d(start_dir_handle, "start_dir");
-          const Eigen::Vector2d end_dir = copy_vector2d(end_dir_handle, "end_dir");
-          constrained_smoother::SmoothingFailureInfo failure;
-          if (!self.smooth(path, start_dir, end_dir, &costmap, params, &planner.getESDF(), &failure)) {
-            return make_error_result(failure, py::cast(path));
-          }
-
-          py::dict result;
-          result["ok"] = true;
-          result["path"] = path;
-          result["error_code"] = py::none();
-          result["error_message"] = py::none();
-          result["error_reason"] = py::none();
-          result["error_details"] = py::none();
-          return result;
-        } catch (const constrained_smoother::InvalidPath & error) {
-          return make_error_result(error);
-        } catch (const constrained_smoother::InvalidCostmap & error) {
-          return make_error_result(error);
-        } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
-          return make_error_result(error);
-        } catch (const py::error_already_set &) {
-          throw;
-        } catch (const std::exception & error) {
-          py::dict result;
-          result["ok"] = false;
-          result["path"] = py::none();
-          result["error_code"] = py::none();
-          result["error_message"] = py::str(error.what());
-          result["error_reason"] = py::none();
-          result["error_details"] = py::none();
-          return result;
-        }
+        return invoke_try_smooth([&]() -> py::dict {
+          return run_try_smooth_result(
+            self,
+            parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap),
+            params,
+            &planner.getESDF());
+        });
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),

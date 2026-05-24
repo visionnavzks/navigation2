@@ -1,6 +1,7 @@
 #ifndef CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 #define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 
+#include <string>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -23,13 +24,6 @@ namespace constrained_smoother
  * 这个版本把每个状态显式表示为
  * (x, y, theta, kappa, ds)，并通过相邻状态之间的运动学过渡残差来约束
  * 路径演化。方向切换处会显式插入 cusp 段，并在求解后进行硬性后验校验。
- *
- * 当前实现同样分成三层：
- * - `KinematicSmoother` 持有跨多次调用复用的长期状态，例如 ESDF 缓存、
- *   validator 和最近一次优化状态数。
- * - 内部 `Run` 表示单次 `smooth()` 调用的生命周期。
- * - `KinematicSmootherProblemBuilder` 负责 ESDF 准备、状态展开、问题拼接和
- *   输出解包。
  */
 class KinematicSmoother
 {
@@ -39,11 +33,18 @@ public:
 
   /**
    * @brief 初始化后续求解共用的 Ceres 配置。
+   *
+   * 该配置会在每次 smooth() 中复用；仅 max_solver_time 会按请求动态覆盖。
    */
   void initialize(const OptimizerParams & params)
   {
     debug_ = params.debug;
-    solver_options_.linear_solver_type = resolveLinearSolverType(params.linear_solver);
+    // 当前仅公开两种线性求解器：DenseQr（小规模稠密）与
+    // SparseNormalCholesky（当前默认，适合本问题稀疏结构）。
+    solver_options_.linear_solver_type =
+      params.linear_solver == OptimizerParams::LinearSolver::DenseQr
+      ? ceres::DENSE_QR
+      : ceres::SPARSE_NORMAL_CHOLESKY;
     solver_options_.max_num_iterations = params.max_iterations;
     solver_options_.function_tolerance = params.function_tolerance;
     solver_options_.gradient_tolerance = params.gradient_tolerance;
@@ -55,25 +56,113 @@ public:
   }
 
   /// 返回最近一次运动学优化中参与求解的状态数量。
-  size_t getLastOptimizedKnotCount() const
+  [[nodiscard]] size_t getLastOptimizedKnotCount() const
   {
     return last_optimized_knot_count_;
+  }
+
+  /// 使用结构化请求入口执行一次完整平滑。
+  ///
+  /// 生命周期约定：request 内部引用（path/start_dir/end_dir/params 等）
+  /// 必须在本次调用结束前保持有效。
+  /// 输入约定：request.path 的第三维在输入时表示方向符号（+1/-1）。
+  /// 输出约定：若成功，request.path 会被原地改写，第三维变为 yaw（弧度）。
+  /// 失败语义：
+  /// - 若 request.failure 非空，失败原因会写入该结构。
+  /// - 返回 false 表示优化失败或后验校验拒绝结果。
+  [[nodiscard]] bool smooth(const SmootherRequest & request)
+  {
+    // 1) 基础输入约束：至少两点；启用障碍项时必须有 costmap。
+    constexpr const char * smoother_name = "Kinematic smoother";
+    if (request.path.size() < 2) {
+      throw InvalidPath(std::string(smoother_name) + ": Path must have at least 2 points");
+    }
+    if (request.params.obstacleTermsEnabled() && request.costmap == nullptr) {
+      throw InvalidCostmap(std::string(smoother_name) + ": Costmap must not be null");
+    }
+
+    // 2) 本次调用可覆盖全局默认的求解时间预算。
+    solver_options_.max_solver_time_in_seconds = request.params.max_time;
+
+    // 3) 构建并初始化问题：ESDF、状态展开、残差与边界约束。
+    KinematicSmootherProblemBuilder builder(esdf_values_);
+    builder.initializeEsdfValues(request.costmap, request.params, request.precomputed_esdf);
+
+    // processed 保存展开后的状态链、gear/cusp 元数据和边界姿态信息。
+    const auto processed = KinematicSmootherProblemBuilder::buildProcessedPath(
+      request.path,
+      request.start_dir,
+      request.end_dir,
+      request.params,
+      request.costmap);
+    // variables 是 Ceres 优化变量的连续存储，按 (x, y, theta, kappa, ds) 扁平化。
+    std::vector<double> variables = processed.initial_variables;
+
+    // problem 在本次调用内构建并求解，不跨调用复用。
+    ceres::Problem problem;
+    builder.buildProblem(processed, request.costmap, request.params, variables, problem);
+
+    KinematicSmootherProblemBuilder::applyBounds(
+      problem,
+      variables.data(),
+      processed.reference_points,
+      processed.state_count,
+      request.params.max_curvature,
+      request.params.reference_point_max_deviation_m);
+
+    // 记录本次参与优化的 knot 数，供外层诊断 / UI 使用。
+    last_optimized_knot_count_ = processed.state_count;
+
+    // 4) 调用 Ceres 求解，失败原因统一写入 failure（如提供）。
+    if (!solveProblemOrReportFailure(
+        problem,
+        solver_options_,
+        debug_,
+        smoother_name,
+        request.failure))
+    {
+      return false;
+    }
+
+    // 5) 将内部变量解包为公共路径表示，并执行后验硬校验。
+    request.path = KinematicSmootherProblemBuilder::unpackPath(variables, processed.state_count);
+
+    // 6) 后验硬校验：过滤数值上收敛但不满足工程约束的结果。
+    // 字段顺序需与 SmootherValidator::KinematicRequest 定义严格一致。
+    // 这里显式传入优化变量、参考链和 ESDF 缓存，避免校验阶段重新推导。
+    return validator_.validateKinematicSolution(
+      {
+        variables,
+        processed.reference_points,
+        processed.gears,
+        processed.is_cusp_segment,
+        processed.state_count,
+        processed.start_theta,
+        processed.end_theta,
+        request.costmap,
+        request.params,
+        esdf_values_,
+      },
+      request.failure);
   }
 
   /**
    * @brief 使用内部生成的 ESDF 对路径做运动学平滑。
    */
-  bool smooth(
+  [[nodiscard]] bool smooth(
     std::vector<Eigen::Vector3d> & path,
     const Eigen::Vector2d & start_dir,
     const Eigen::Vector2d & end_dir,
     const Costmap2D * costmap,
     const SmootherParams & params)
   {
-    return smooth(path, start_dir, end_dir, costmap, params, nullptr, nullptr);
+    // 便捷入口：无预计算 ESDF、无结构化 failure 输出。
+    // 适合最常见调用路径；失败时通常走异常链路。
+    // 语义等价于完整入口中 precomputed_esdf=nullptr 且 failure=nullptr。
+    return smooth({path, start_dir, end_dir, costmap, params, nullptr, nullptr});
   }
 
-  bool smooth(
+  [[nodiscard]] bool smooth(
     std::vector<Eigen::Vector3d> & path,
     const Eigen::Vector2d & start_dir,
     const Eigen::Vector2d & end_dir,
@@ -82,171 +171,25 @@ public:
     const std::vector<double> * precomputed_esdf,
     SmoothingFailureInfo * failure = nullptr)
   {
-    const SmootherRequest request{path, start_dir, end_dir, costmap, params, precomputed_esdf, failure};
-    return Run(*this, request).execute();
-  };
+    // 完整入口：允许复用上游 ESDF，并把失败细节回传给调用方。
+    // 对 Web/Python 边界层建议优先使用这个重载，以便稳定拿到失败原因。
+    // 注意：path 会被原地修改为优化结果。
+    // precomputed_esdf 维度若与 costmap 不匹配会触发异常（或写入 failure）。
+    return smooth({path, start_dir, end_dir, costmap, params, precomputed_esdf, failure});
+  }
 
 private:
-  using ProcessedPath = KinematicProcessedPath;
-
-  /// 运动学版 smoother 的单次执行对象。
-  ///
-  /// 它持有一次优化的展开状态、变量数组和问题对象，并把 prepare / solve /
-  /// finalize 三段生命周期与顶层长期状态分离开。
-  class Run
-  {
-  public:
-    Run(KinematicSmoother & smoother, const SmootherRequest & request)
-    : owner_(smoother), request_(request)
-    {
-    }
-
-    bool execute()
-    {
-      prepare();
-      if (!solve()) {
-        return false;
-      }
-      return finalize();
-    }
-
-    /// 第 1 阶段：准备 ESDF、展开状态链，并构建运动学优化问题。
-    void prepare()
-    {
-      auto builder = owner().makeProblemBuilder();
-      owner().validateCommonInputs(
-        request().path,
-        request().costmap,
-        request().params,
-        "Kinematic smoother");
-      owner().setMaxSolverTime(request().params.max_time);
-      builder.initializeEsdfValues(
-        request().costmap, request().params, request().precomputed_esdf);
-      processed_ = KinematicSmootherProblemBuilder::buildProcessedPath(
-        request().path,
-        request().start_dir,
-        request().end_dir,
-        request().params,
-        request().costmap);
-      variables_ = processed_.initial_variables;
-      builder.buildProblem(
-        processed_, request().costmap, request().params, variables_, problem_);
-      KinematicSmootherProblemBuilder::applyBounds(
-        problem_,
-        variables_.data(),
-        processed_.reference_points,
-        processed_.state_count,
-        request().params.max_curvature,
-        request().params.reference_point_max_deviation_m);
-      owner().last_optimized_knot_count_ = processed_.state_count;
-    }
-
-    /// 第 2 阶段：调用共享求解器执行运动学状态优化。
-    bool solve() const
-    {
-      return owner().solvePreparedProblem(problem_, "Kinematic smoother", request().failure);
-    }
-
-    /// 第 3 阶段：执行硬性后验校验，并把状态链回写成公共路径表示。
-    bool finalize()
-    {
-      request().path =
-        KinematicSmootherProblemBuilder::unpackPath(variables_, processed_.state_count);
-
-      if (!owner().validator_.validateKinematicSolution(
-          {
-            variables_,
-            processed_.reference_points,
-            processed_.gears,
-            processed_.is_cusp_segment,
-            processed_.state_count,
-            processed_.start_theta,
-            processed_.end_theta,
-            request().costmap,
-            request().params,
-            owner().esdf_values_,
-          }, request().failure))
-      {
-        return false;
-      }
-      return true;
-    }
-
-  private:
-    KinematicSmoother & owner()
-    {
-      return owner_;
-    }
-
-    const KinematicSmoother & owner() const
-    {
-      return owner_;
-    }
-
-    const SmootherRequest & request() const
-    {
-      return request_;
-    }
-
-    KinematicSmoother & owner_;
-    const SmootherRequest & request_;
-
-    ProcessedPath processed_{};
-    std::vector<double> variables_{};
-    mutable ceres::Problem problem_{};
-  };
-
+  // 与本实例生命周期绑定的 ESDF 缓存，用于构建器与后验校验共享读取。
   std::vector<double> esdf_values_{};
+  // 后验硬约束校验器：用于拒绝数值收敛但工程不可交付的结果。
   SmootherValidator validator_{};
+  // 最近一次参与优化的状态点数量。
   size_t last_optimized_knot_count_{0};
 
-  template<typename PathT>
-  void validateCommonInputs(
-    const PathT & path,
-    const Costmap2D * costmap,
-    const SmootherParams & params,
-    const char * smoother_name) const
-  {
-    if (path.size() < 2) {
-      throw InvalidPath(std::string(smoother_name) + ": Path must have at least 2 points");
-    }
-    if (params.obstacleTermsEnabled() && costmap == nullptr) {
-      throw InvalidCostmap(std::string(smoother_name) + ": Costmap must not be null");
-    }
-  }
-
-  void setMaxSolverTime(double max_time)
-  {
-    solver_options_.max_solver_time_in_seconds = max_time;
-  }
-
-  bool solvePreparedProblem(
-    ceres::Problem & problem,
-    const char * smoother_name,
-    SmoothingFailureInfo * failure) const
-  {
-    return solveProblemOrReportFailure(problem, solver_options_, debug_, smoother_name, failure);
-  }
-
-  /// 返回绑定到当前 KinematicSmoother 长期状态的运动学问题构建器。
-  ///
-  /// 这让 Run 只依赖一个稳定的构建入口，而不直接操作长期 ESDF 存储细节。
-  KinematicSmootherProblemBuilder makeProblemBuilder()
-  {
-    return KinematicSmootherProblemBuilder(esdf_values_);
-  }
-
-  static ceres::LinearSolverType resolveLinearSolverType(OptimizerParams::LinearSolver solver)
-  {
-    switch (solver) {
-      case OptimizerParams::LinearSolver::DenseQr:
-        return ceres::DENSE_QR;
-      case OptimizerParams::LinearSolver::SparseNormalCholesky:
-        return ceres::SPARSE_NORMAL_CHOLESKY;
-    }
-  }
-
+  // 初始化阶段固定配置：是否打印详细求解日志。
   bool debug_{false};
+  // Ceres 通用求解配置；每次 smooth() 会补充 max_solver_time。
+  // 该对象由 initialize() 建立基线，避免每次请求重复设置静态项。
   ceres::Solver::Options solver_options_{};
 };
 

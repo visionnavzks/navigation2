@@ -484,7 +484,6 @@ DEFAULT_OBSTACLE_RECTS = [
 ]
 CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in DEFAULT_OBSTACLE_RECTS]
 STATE_LOCK = Lock()
-ESDF_GRID = None
 HAS_COMPUTE_ESDF = hasattr(pcs, "compute_esdf")
 
 
@@ -564,6 +563,14 @@ def _path_length(points):
         curr = points[idx]
         total += math.hypot(curr[0] - prev[0], curr[1] - prev[1])
     return total
+
+
+def _split_path_xyz(path):
+    """Split a (x, y, yaw) path list into x/y/yaw arrays for downstream consumers."""
+    xs = [pose[0] for pose in path]
+    ys = [pose[1] for pose in path]
+    yaws = [pose[2] for pose in path]
+    return xs, ys, yaws
 
 
 def _normalize_angle_rad(angle):
@@ -1244,6 +1251,19 @@ def _validate_smoothed_path_rectangles(grid, xs, ys, thetas, robot_length_m, rob
     }
 
 
+def _validate_path_rectangles(grid, path, robot_length_m, robot_width_m):
+    """Wrapper that validates a path expressed as (x, y, yaw) tuples."""
+    xs, ys, thetas = _split_path_xyz(path)
+    return _validate_smoothed_path_rectangles(
+        grid,
+        xs,
+        ys,
+        thetas,
+        robot_length_m,
+        robot_width_m,
+    )
+
+
 COSTMAP_GRID = None
 COSTMAP_METADATA = None
 ESDF_GRID = None
@@ -1270,9 +1290,6 @@ def _compute_esdf_grid(costmap):
     ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
 
 
-PCS_COSTMAP = None
-
-
 def _normalize_obstacle_rects(rect_payloads):
     """Validate and clamp incoming obstacle rectangles in cell coordinates."""
     normalized = []
@@ -1295,13 +1312,12 @@ def _normalize_obstacle_rects(rect_payloads):
 
 def _rebuild_costmap_state(obstacle_rects):
     """Regenerate all costmap-derived globals from the obstacle list."""
-    global CURRENT_OBSTACLE_RECTS, COSTMAP_GRID, COSTMAP_METADATA, PCS_COSTMAP, ESDF_GRID
+    global CURRENT_OBSTACLE_RECTS, COSTMAP_GRID, COSTMAP_METADATA, ESDF_GRID
 
     CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in obstacle_rects]
     COSTMAP_GRID = _build_costmap(CURRENT_OBSTACLE_RECTS)
     COSTMAP_METADATA = _summarize_costmap(COSTMAP_GRID, CURRENT_OBSTACLE_RECTS)
-    PCS_COSTMAP = _grid_to_pcs_costmap(COSTMAP_GRID)
-    ESDF_GRID = _compute_esdf_grid(PCS_COSTMAP)
+    ESDF_GRID = _compute_esdf_grid(_grid_to_pcs_costmap(COSTMAP_GRID))
 
 
 def _serialize_costmap_state():
@@ -1315,6 +1331,349 @@ def _serialize_costmap_state():
         "data": COSTMAP_GRID.flatten().tolist(),
         "esdf": ESDF_GRID.flatten().tolist() if ESDF_GRID is not None else None,
         "metadata": COSTMAP_METADATA,
+    }
+
+
+def _run_planner_stage(config, costmap_grid, esdf_grid, planner_costmap, footprint_model):
+    """Build the reference path stage using either manual input or A*."""
+    start_yaw_rad = config.start_yaw_rad
+    goal_yaw_rad = config.goal_yaw_rad
+    start_dir, end_dir = config.heading_vectors()
+
+    if config.manual_reference_path is not None:
+        planner_stage_result = _run_manual_reference_stage(
+            config.manual_reference_path,
+            start_yaw_rad,
+            goal_yaw_rad,
+            config.keep_start_orientation,
+            config.keep_goal_orientation,
+        )
+    else:
+        planner_stage_result = _run_astar_stage(
+            costmap_grid,
+            esdf_grid,
+            planner_costmap,
+            footprint_model,
+            config.planner_penalty_weight,
+            config.start_x,
+            config.start_y,
+            config.goal_x,
+            config.goal_y,
+            config.reference_spacing_target_m,
+            start_yaw_rad,
+            goal_yaw_rad,
+            config.keep_start_orientation,
+            config.keep_goal_orientation,
+        )
+
+    return {
+        "planner_stage_result": planner_stage_result,
+        "start_yaw_rad": start_yaw_rad,
+        "goal_yaw_rad": goal_yaw_rad,
+        "start_dir": start_dir,
+        "end_dir": end_dir,
+    }
+
+
+def _run_smoother_stage(
+    config,
+    planner_stage_result,
+    planner_costmap,
+    smoother_params,
+    optimizer_params,
+    start_dir,
+    end_dir,
+):
+    """Run the kinematic smoother and normalize the fallback metadata."""
+    optimizer_label = "Kinematic Smoother"
+    smoother = pcs.KinematicSmoother()
+    smoother.initialize(optimizer_params)
+
+    smooth_t0 = time.time()
+    smooth_message = ""
+    smooth_error = None
+    candidate_smoothed = None
+
+    try:
+        if planner_stage_result["planner"] is None:
+            smooth_result = smoother.try_smooth(
+                planner_stage_result["eigen_path"],
+                start_dir,
+                end_dir,
+                planner_costmap,
+                smoother_params,
+            )
+        else:
+            smooth_result = smoother.try_smooth_with_planner_esdf(
+                planner_stage_result["eigen_path"],
+                start_dir,
+                end_dir,
+                planner_costmap,
+                smoother_params,
+                planner_stage_result["planner"],
+            )
+
+        smooth_time = (time.time() - smooth_t0) * 1000.0
+        if bool(smooth_result["ok"]):
+            candidate_smoothed = smooth_result["path"]
+        elif _failure_has_displayable_candidate_path(smooth_result):
+            candidate_smoothed = smooth_result["path"]
+
+        smooth_success = bool(smooth_result["ok"])
+        if smooth_success:
+            smoother_stage = _make_pipeline_stage(
+                "smoother",
+                optimizer_label,
+                "ok",
+                f"Optimizer produced a smoothed candidate with {len(candidate_smoothed)} pose(s).",
+                elapsed_ms=smooth_time,
+                path_key="smoothed_candidate",
+            )
+        else:
+            smooth_error = _build_smoother_error_payload(smooth_result)
+            smooth_message = smooth_error["message"]
+            smoother_stage = _make_pipeline_stage(
+                "smoother",
+                optimizer_label,
+                "fallback",
+                smooth_message or "Optimizer failed; using the reference path.",
+                elapsed_ms=smooth_time,
+                error_code=smooth_error.get("code"),
+                path_key="smoothed_candidate" if candidate_smoothed is not None else "reference_fallback",
+            )
+    except Exception as exc:
+        smooth_time = (time.time() - smooth_t0) * 1000.0
+        smooth_success = False
+        smooth_error = _error_payload(exc, default_status=422, default_source="smoother")
+        smooth_message = smooth_error["message"]
+        smoother_stage = _make_pipeline_stage(
+            "smoother",
+            optimizer_label,
+            "fallback",
+            smooth_message or "Optimizer raised an exception; using the reference path.",
+            elapsed_ms=smooth_time,
+            error_code=smooth_error.get("code"),
+            path_key="reference_fallback",
+        )
+
+    return {
+        "optimizer_label": optimizer_label,
+        "smooth_time_ms": smooth_time,
+        "smooth_success": smooth_success,
+        "smooth_message": smooth_message,
+        "smooth_error": smooth_error,
+        "candidate_smoothed": candidate_smoothed,
+        "smoother_stage": smoother_stage,
+        "optimized_knot_count": int(smoother.get_last_optimized_knot_count()),
+    }
+
+
+def _run_validation_stage(
+    config,
+    costmap_grid,
+    reference_with_yaw,
+    candidate_smoothed,
+    smooth_success,
+    smooth_error,
+    smooth_message,
+):
+    """Validate candidate/fallback paths and produce frontend pipeline stages."""
+    candidate_rectangle_validation = None
+    smoothed = candidate_smoothed if candidate_smoothed is not None else reference_with_yaw
+
+    if candidate_smoothed is not None:
+        candidate_rectangle_validation = _validate_path_rectangles(
+            costmap_grid,
+            candidate_smoothed,
+            config.robot_length_m,
+            config.robot_width_m,
+        )
+        candidate_rectangle_validation["validated_path"] = "smoothed_candidate"
+        if not candidate_rectangle_validation["valid"]:
+            smooth_success = False
+            smooth_error = _build_validation_error_payload(candidate_rectangle_validation)
+            smooth_message = smooth_error["message"]
+
+    final_rectangle_validation = _validate_path_rectangles(
+        costmap_grid,
+        smoothed,
+        config.robot_length_m,
+        config.robot_width_m,
+    )
+    final_rectangle_validation["validated_path"] = (
+        "smoothed_path" if smoothed is candidate_smoothed else "reference_fallback"
+    )
+
+    if not final_rectangle_validation["valid"]:
+        validation_stage = _make_pipeline_stage(
+            "validate",
+            "Rectangle Validate",
+            "error",
+            final_rectangle_validation["message"],
+            error_code=final_rectangle_validation["error_code"],
+            path_key=final_rectangle_validation["validated_path"],
+        )
+        response_stage = _make_pipeline_stage(
+            "web",
+            "Web",
+            "error",
+            "Returned path failed final rectangle validation on the web.",
+            error_code=final_rectangle_validation["error_code"],
+            path_key=final_rectangle_validation["validated_path"],
+        )
+    elif candidate_rectangle_validation and not candidate_rectangle_validation["valid"]:
+        validation_stage = _make_pipeline_stage(
+            "validate",
+            "Rectangle Validate",
+            "error",
+            candidate_rectangle_validation["message"],
+            error_code=candidate_rectangle_validation["error_code"],
+            path_key="smoothed_path",
+        )
+        response_stage = _make_pipeline_stage(
+            "web",
+            "Web",
+            "error",
+            "Showing the smoothed candidate on the web even though candidate validation failed.",
+            error_code=(smooth_error or {}).get("code"),
+            path_key="smoothed_path",
+        )
+    else:
+        validation_stage = _make_pipeline_stage(
+            "validate",
+            "Rectangle Validate",
+            "ok",
+            final_rectangle_validation["message"],
+            path_key=final_rectangle_validation["validated_path"],
+        )
+        response_stage = _make_pipeline_stage(
+            "web",
+            "Web",
+            "ok" if smooth_success else "fallback",
+            "Showing the smoothed path on the web."
+            if smooth_success
+            else "Showing the reference fallback path on the web.",
+            error_code=None if smooth_success else (smooth_error or {}).get("code"),
+            path_key=final_rectangle_validation["validated_path"],
+        )
+
+    return {
+        "smoothed_path": smoothed,
+        "smooth_success": smooth_success,
+        "smooth_message": smooth_message,
+        "smooth_error": smooth_error,
+        "candidate_rectangle_validation": candidate_rectangle_validation,
+        "final_rectangle_validation": final_rectangle_validation,
+        "validation_stage": validation_stage,
+        "response_stage": response_stage,
+    }
+
+
+def _build_plan_response_payload(
+    config,
+    footprint_model,
+    raw_path,
+    sparse_path,
+    smoothed,
+    pipeline,
+    optimizer_label,
+    optimized_knot_count,
+    astar_time,
+    smooth_time,
+    smooth_success,
+    smooth_message,
+    smooth_error,
+    candidate_rectangle_validation,
+    goal_orientation_diagnostics,
+    final_rectangle_validation,
+):
+    """Build the stable JSON payload returned by /api/plan."""
+    optimizer_config = {
+        "optimizer_type": config.optimizer_type,
+        "model_weight": round(config.model_weight, 3),
+        "costmap_weight": round(config.costmap_weight, 3),
+        "cusp_costmap_weight": round(config.cusp_costmap_weight, 3),
+        "cusp_zone_length_m": round(config.cusp_zone_length, 3),
+        "reference_path_weight": round(config.reference_path_weight, 3),
+        "reference_point_max_deviation_m": round(config.reference_point_max_deviation_m, 3),
+        "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
+        "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
+        "max_curvature": round(config.max_curvature, 4),
+        "max_time_s": round(config.max_time, 3),
+        "max_iterations": int(config.max_iterations),
+        "parameter_tolerance": config.parameter_tolerance,
+        "function_tolerance": config.function_tolerance,
+        "gradient_tolerance": config.gradient_tolerance,
+        "path_downsampling_factor": int(config.path_downsample),
+        "path_upsampling_factor": int(config.path_upsample),
+        "keep_start_orientation": bool(config.keep_start_orientation),
+        "keep_goal_orientation": bool(config.keep_goal_orientation),
+    }
+
+    astar_x = [point[0] for point in raw_path]
+    astar_y = [point[1] for point in raw_path]
+    ref_x = [point[0] for point in sparse_path]
+    ref_y = [point[1] for point in sparse_path]
+    opt_x, opt_y, opt_theta = _split_path_xyz(smoothed)
+    raw_length = _path_length(raw_path)
+    ref_length = _path_length(sparse_path)
+    opt_length = _path_length(smoothed)
+
+    return {
+        # High-level pipeline and fallback status.
+        "success": True,
+        "pipeline": pipeline,
+        "smooth_success": smooth_success,
+        "astar_time_ms": round(astar_time, 2),
+        "smooth_time_ms": round(smooth_time, 2),
+        "smooth_message": smooth_message,
+        "smooth_error": smooth_error,
+        "candidate_rectangle_validation": candidate_rectangle_validation,
+        "goal_orientation_diagnostics": goal_orientation_diagnostics,
+        "optimizer_config": optimizer_config,
+
+        # Raw planner / reference / returned path geometry.
+        "astar_x": astar_x,
+        "astar_y": astar_y,
+        "ref_x": ref_x,
+        "ref_y": ref_y,
+        "opt_x": opt_x,
+        "opt_y": opt_y,
+        "opt_theta": opt_theta,
+
+        # Path cardinality and length metrics.
+        "num_astar_pts": len(raw_path),
+        "num_ref_pts": len(sparse_path),
+        "num_opt_knots": optimized_knot_count,
+        "num_opt_pts": len(smoothed),
+        "num_returned_pts": len(smoothed),
+        "raw_path_length_m": round(raw_length, 3),
+        "ref_path_length_m": round(ref_length, 3),
+        "opt_path_length_m": round(opt_length, 3),
+        "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
+
+        # Planner / optimizer configuration echoed back to the frontend.
+        "reference_spacing_target_m": round(config.reference_spacing_target_m, 3),
+        "planner_penalty_weight": round(config.planner_penalty_weight, 3),
+        "optimizer_type": config.optimizer_type,
+        "optimizer_label": optimizer_label,
+        "start_yaw_deg": round(config.start_yaw_deg, 2),
+        "goal_yaw_deg": round(config.goal_yaw_deg, 2),
+        "keep_start_orientation": config.keep_start_orientation,
+        "keep_goal_orientation": config.keep_goal_orientation,
+        "hinge_loss_threshold_m": round(config.surface_clearance_margin_m, 3),
+        "surface_clearance_margin_m": round(config.surface_clearance_margin_m, 3),
+        "point_robot_radius_m": round(config.point_robot_radius_m, 3),
+        "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
+        "footprint_mode": footprint_model["mode"],
+        "robot_length_m": round(config.robot_length_m, 3),
+        "robot_width_m": round(config.robot_width_m, 3),
+        "robot_check_points": len(footprint_model["serialized_points"]),
+        "collision_check_radius_m": round(footprint_model["check_radius"], 3),
+        "collision_check_points_local": footprint_model["serialized_points"],
+
+        # Final post-validation status for the path actually returned.
+        "final_rectangle_validation": final_rectangle_validation,
     }
 
 
@@ -1378,211 +1737,61 @@ def plan_and_smooth():
             esdf_grid = ESDF_GRID.copy() if ESDF_GRID is not None else None
             planner_costmap = _grid_to_pcs_costmap(costmap_grid)
 
-        start_yaw_rad = config.start_yaw_rad
-        goal_yaw_rad = config.goal_yaw_rad
-        s_dir, e_dir = config.heading_vectors()
-
-        # ---- Stage 1: planner builds the reference path and sparse control chain ----
-        if config.manual_reference_path is not None:
-            planner_stage_result = _run_manual_reference_stage(
-                config.manual_reference_path,
-                start_yaw_rad,
-                goal_yaw_rad,
-                config.keep_start_orientation,
-                config.keep_goal_orientation,
-            )
-        else:
-            planner_stage_result = _run_astar_stage(
-                costmap_grid,
-                esdf_grid,
-                planner_costmap,
-                footprint_model,
-                config.planner_penalty_weight,
-                config.start_x,
-                config.start_y,
-                config.goal_x,
-                config.goal_y,
-                config.reference_spacing_target_m,
-                start_yaw_rad,
-                goal_yaw_rad,
-                config.keep_start_orientation,
-                config.keep_goal_orientation,
-            )
-        planner = planner_stage_result["planner"]
+        planner_stage = _run_planner_stage(
+            config,
+            costmap_grid,
+            esdf_grid,
+            planner_costmap,
+            footprint_model,
+        )
+        planner_stage_result = planner_stage["planner_stage_result"]
         raw_path = planner_stage_result["raw_path"]
         sparse_path = planner_stage_result["sparse_path"]
-        eigen_path = planner_stage_result["eigen_path"]
         reference_with_yaw = planner_stage_result["reference_with_yaw"]
         astar_time = planner_stage_result["astar_time_ms"]
 
         smoother_params = config.build_smoother_params(footprint_model)
         opt_params = config.build_optimizer_params()
 
-        # ---- Stage 2: smoother optimizes against the planner path, but may fall back ----
-        optimizer_label = "Kinematic Smoother"
-        smoother = pcs.KinematicSmoother()
-        smoother.initialize(opt_params)
+        smoother_stage = _run_smoother_stage(
+            config,
+            planner_stage_result,
+            planner_costmap,
+            smoother_params,
+            opt_params,
+            planner_stage["start_dir"],
+            planner_stage["end_dir"],
+        )
 
-        smooth_t0 = time.time()
-        smooth_message = ""
-        smooth_error = None
-        candidate_smoothed = None
-
-        try:
-            if planner is None:
-                smooth_result = smoother.try_smooth(
-                    eigen_path,
-                    s_dir,
-                    e_dir,
-                    planner_costmap,
-                    smoother_params,
-                )
-            else:
-                smooth_result = smoother.try_smooth_with_planner_esdf(
-                    eigen_path,
-                    s_dir,
-                    e_dir,
-                    planner_costmap,
-                    smoother_params,
-                    planner,
-                )
-            smooth_time = (time.time() - smooth_t0) * 1000.0
-            if bool(smooth_result["ok"]):
-                candidate_smoothed = smooth_result["path"]
-            elif _failure_has_displayable_candidate_path(smooth_result):
-                candidate_smoothed = smooth_result["path"]
-            smooth_success = bool(smooth_result["ok"])
-            if smooth_success:
-                smoother_stage = _make_pipeline_stage(
-                    "smoother",
-                    optimizer_label,
-                    "ok",
-                    f"Optimizer produced a smoothed candidate with {len(candidate_smoothed)} pose(s).",
-                    elapsed_ms=smooth_time,
-                    path_key="smoothed_candidate",
-                )
-            else:
-                smooth_error = _build_smoother_error_payload(smooth_result)
-                smooth_message = smooth_error["message"]
-                smoother_stage = _make_pipeline_stage(
-                    "smoother",
-                    optimizer_label,
-                    "fallback",
-                    smooth_message or "Optimizer failed; using the reference path.",
-                    elapsed_ms=smooth_time,
-                    error_code=smooth_error.get("code"),
-                    path_key="smoothed_candidate" if candidate_smoothed is not None else "reference_fallback",
-                )
-        except Exception as exc:
-            smooth_time = (time.time() - smooth_t0) * 1000.0
-            smooth_success = False
-            smooth_error = _error_payload(exc, default_status=422, default_source="smoother")
-            smooth_message = smooth_error["message"]
-            smoother_stage = _make_pipeline_stage(
-                "smoother",
-                optimizer_label,
-                "fallback",
-                smooth_message or "Optimizer raised an exception; using the reference path.",
-                elapsed_ms=smooth_time,
-                error_code=smooth_error.get("code"),
-                path_key="reference_fallback",
-            )
-
-        optimized_knot_count = int(smoother.get_last_optimized_knot_count())
-
-        # ---- Stage 3: rectangle validation decides whether to keep the candidate path ----
-        candidate_rectangle_validation = None
-        smoothed = candidate_smoothed if candidate_smoothed is not None else reference_with_yaw
-
-        if candidate_smoothed is not None:
-            candidate_rectangle_validation = _validate_smoothed_path_rectangles(
-                costmap_grid,
-                [pose[0] for pose in candidate_smoothed],
-                [pose[1] for pose in candidate_smoothed],
-                [pose[2] for pose in candidate_smoothed],
-                config.robot_length_m,
-                config.robot_width_m,
-            )
-            candidate_rectangle_validation["validated_path"] = "smoothed_candidate"
-            if not candidate_rectangle_validation["valid"]:
-                smooth_success = False
-                smooth_error = _build_validation_error_payload(candidate_rectangle_validation)
-                smooth_message = smooth_error["message"]
-
-        final_rectangle_validation = _validate_smoothed_path_rectangles(
+        validation_stage = _run_validation_stage(
+            config,
             costmap_grid,
-            [pose[0] for pose in smoothed],
-            [pose[1] for pose in smoothed],
-            [pose[2] for pose in smoothed],
-            config.robot_length_m,
-            config.robot_width_m,
-        )
-        final_rectangle_validation["validated_path"] = (
-            "smoothed_path" if smoothed is candidate_smoothed else "reference_fallback"
+            reference_with_yaw,
+            smoother_stage["candidate_smoothed"],
+            smoother_stage["smooth_success"],
+            smoother_stage["smooth_error"],
+            smoother_stage["smooth_message"],
         )
 
-        if not final_rectangle_validation["valid"]:
-            validation_stage = _make_pipeline_stage(
-                "validate",
-                "Rectangle Validate",
-                "error",
-                final_rectangle_validation["message"],
-                error_code=final_rectangle_validation["error_code"],
-                path_key=final_rectangle_validation["validated_path"],
-            )
-            response_stage = _make_pipeline_stage(
-                "web",
-                "Web",
-                "error",
-                "Returned path failed final rectangle validation on the web.",
-                error_code=final_rectangle_validation["error_code"],
-                path_key=final_rectangle_validation["validated_path"],
-            )
-        elif candidate_rectangle_validation and not candidate_rectangle_validation["valid"]:
-            validation_stage = _make_pipeline_stage(
-                "validate",
-                "Rectangle Validate",
-                "error",
-                candidate_rectangle_validation["message"],
-                error_code=candidate_rectangle_validation["error_code"],
-                path_key="smoothed_path",
-            )
-            response_stage = _make_pipeline_stage(
-                "web",
-                "Web",
-                "error",
-                "Showing the smoothed candidate on the web even though candidate validation failed.",
-                error_code=(smooth_error or {}).get("code"),
-                path_key="smoothed_path",
-            )
-        else:
-            validation_stage = _make_pipeline_stage(
-                "validate",
-                "Rectangle Validate",
-                "ok",
-                final_rectangle_validation["message"],
-                path_key=final_rectangle_validation["validated_path"],
-            )
-            response_stage = _make_pipeline_stage(
-                "web",
-                "Web",
-                "ok" if smooth_success else "fallback",
-                "Showing the smoothed path on the web."
-                if smooth_success
-                else "Showing the reference fallback path on the web.",
-                error_code=None if smooth_success else (smooth_error or {}).get("code"),
-                path_key=final_rectangle_validation["validated_path"],
-            )
+        optimizer_label = smoother_stage["optimizer_label"]
+        smooth_time = smoother_stage["smooth_time_ms"]
+        optimized_knot_count = smoother_stage["optimized_knot_count"]
+        smoothed = validation_stage["smoothed_path"]
+        smooth_success = validation_stage["smooth_success"]
+        smooth_message = validation_stage["smooth_message"]
+        smooth_error = validation_stage["smooth_error"]
+        candidate_rectangle_validation = validation_stage["candidate_rectangle_validation"]
+        final_rectangle_validation = validation_stage["final_rectangle_validation"]
 
         pipeline = _build_pipeline_payload([
             planner_stage_result["stage"],
-            smoother_stage,
-            validation_stage,
-            response_stage,
+            smoother_stage["smoother_stage"],
+            validation_stage["validation_stage"],
+            validation_stage["response_stage"],
         ])
         goal_orientation_diagnostics = _build_goal_orientation_diagnostics(
             smoothed,
-            goal_yaw_rad,
+            planner_stage["goal_yaw_rad"],
             KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD,
         )
         if (
@@ -1594,96 +1803,24 @@ def plan_and_smooth():
                 "goal_orientation": goal_orientation_diagnostics,
             })
 
-        optimizer_config = {
-            "optimizer_type": config.optimizer_type,
-            "model_weight": round(config.model_weight, 3),
-            "costmap_weight": round(config.costmap_weight, 3),
-            "cusp_costmap_weight": round(config.cusp_costmap_weight, 3),
-            "cusp_zone_length_m": round(config.cusp_zone_length, 3),
-            "reference_path_weight": round(config.reference_path_weight, 3),
-            "reference_point_max_deviation_m": round(config.reference_point_max_deviation_m, 3),
-            "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
-            "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
-            "max_curvature": round(config.max_curvature, 4),
-            "max_time_s": round(config.max_time, 3),
-            "max_iterations": int(config.max_iterations),
-            "parameter_tolerance": config.parameter_tolerance,
-            "function_tolerance": config.function_tolerance,
-            "gradient_tolerance": config.gradient_tolerance,
-            "path_downsampling_factor": int(config.path_downsample),
-            "path_upsampling_factor": int(config.path_upsample),
-            "keep_start_orientation": bool(config.keep_start_orientation),
-            "keep_goal_orientation": bool(config.keep_goal_orientation),
-        }
-
-        # ---- Final response assembly for the frontend ----
-        astar_x = [p[0] for p in raw_path]
-        astar_y = [p[1] for p in raw_path]
-        ref_x = [p[0] for p in sparse_path]
-        ref_y = [p[1] for p in sparse_path]
-        opt_x = [p[0] for p in smoothed]
-        opt_y = [p[1] for p in smoothed]
-        opt_theta = [p[2] for p in smoothed]
-        raw_length = _path_length(raw_path)
-        ref_length = _path_length(sparse_path)
-        opt_length = _path_length(smoothed)
-
-        return jsonify({
-            # High-level pipeline and fallback status.
-            "success": True,
-            "pipeline": pipeline,
-            "smooth_success": smooth_success,
-            "astar_time_ms": round(astar_time, 2),
-            "smooth_time_ms": round(smooth_time, 2),
-            "smooth_message": smooth_message,
-            "smooth_error": smooth_error,
-            "candidate_rectangle_validation": candidate_rectangle_validation,
-            "goal_orientation_diagnostics": goal_orientation_diagnostics,
-            "optimizer_config": optimizer_config,
-
-            # Raw planner / reference / returned path geometry.
-            "astar_x": astar_x,
-            "astar_y": astar_y,
-            "ref_x": ref_x,
-            "ref_y": ref_y,
-            "opt_x": opt_x,
-            "opt_y": opt_y,
-            "opt_theta": opt_theta,
-
-            # Path cardinality and length metrics.
-            "num_astar_pts": len(raw_path),
-            "num_ref_pts": len(sparse_path),
-            "num_opt_knots": optimized_knot_count,
-            "num_opt_pts": len(smoothed),
-            "num_returned_pts": len(smoothed),
-            "raw_path_length_m": round(raw_length, 3),
-            "ref_path_length_m": round(ref_length, 3),
-            "opt_path_length_m": round(opt_length, 3),
-            "opt_vs_ref_delta_m": round(opt_length - ref_length, 3),
-
-            # Planner / optimizer configuration echoed back to the frontend.
-            "reference_spacing_target_m": round(config.reference_spacing_target_m, 3),
-            "planner_penalty_weight": round(config.planner_penalty_weight, 3),
-            "optimizer_type": config.optimizer_type,
-            "optimizer_label": optimizer_label,
-            "start_yaw_deg": round(config.start_yaw_deg, 2),
-            "goal_yaw_deg": round(config.goal_yaw_deg, 2),
-            "keep_start_orientation": config.keep_start_orientation,
-            "keep_goal_orientation": config.keep_goal_orientation,
-            "hinge_loss_threshold_m": round(config.surface_clearance_margin_m, 3),
-            "surface_clearance_margin_m": round(config.surface_clearance_margin_m, 3),
-            "point_robot_radius_m": round(config.point_robot_radius_m, 3),
-            "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
-            "footprint_mode": footprint_model["mode"],
-            "robot_length_m": round(config.robot_length_m, 3),
-            "robot_width_m": round(config.robot_width_m, 3),
-            "robot_check_points": len(footprint_model["serialized_points"]),
-            "collision_check_radius_m": round(footprint_model["check_radius"], 3),
-            "collision_check_points_local": footprint_model["serialized_points"],
-
-            # Final post-validation status for the path actually returned.
-            "final_rectangle_validation": final_rectangle_validation,
-        })
+        return jsonify(_build_plan_response_payload(
+            config,
+            footprint_model,
+            raw_path,
+            sparse_path,
+            smoothed,
+            pipeline,
+            optimizer_label,
+            optimized_knot_count,
+            astar_time,
+            smooth_time,
+            smooth_success,
+            smooth_message,
+            smooth_error,
+            candidate_rectangle_validation,
+            goal_orientation_diagnostics,
+            final_rectangle_validation,
+        ))
 
     except Exception as e:
         traceback.print_exc()

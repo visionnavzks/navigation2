@@ -27,6 +27,7 @@
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/kinematic_smoother_costs.hpp"
 #include "constrained_smoother/options.hpp"
+#include "constrained_smoother/utils.hpp"
 
 namespace constrained_smoother
 {
@@ -232,15 +233,10 @@ public:
       false);
     problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
 
-    double goal_position_theta = processed.end_theta;
-    if (!params.keep_goal_orientation && processed.reference_points.size() >= 2) {
-      const Eigen::Vector2d goal_delta =
-        processed.reference_points.back() -
-        processed.reference_points[processed.reference_points.size() - 2];
-      if (goal_delta.norm() > 1e-6) {
-        goal_position_theta = std::atan2(goal_delta.y(), goal_delta.x());
-      }
-    }
+    const double goal_position_theta = goalPositionFrameHeading(
+      processed.reference_points,
+      processed.end_theta,
+      params.keep_goal_orientation);
 
     auto * goal_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
       processed.reference_points.back(),

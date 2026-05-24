@@ -284,14 +284,10 @@ private:
     const double * goal_state = request.variables.data() + 5 * (request.state_count - 1);
     const double goal_dx = goal_state[0] - request.reference_points.back().x();
     const double goal_dy = goal_state[1] - request.reference_points.back().y();
-    double goal_position_theta = request.end_theta;
-    if (!request.params.keep_goal_orientation && request.reference_points.size() >= 2) {
-      const Eigen::Vector2d goal_delta =
-        request.reference_points.back() - request.reference_points[request.reference_points.size() - 2];
-      if (goal_delta.norm() > EPSILON) {
-        goal_position_theta = std::atan2(goal_delta.y(), goal_delta.x());
-      }
-    }
+    const double goal_position_theta = goalPositionFrameHeading(
+      request.reference_points,
+      request.end_theta,
+      request.params.keep_goal_orientation);
     const double cos_goal = std::cos(goal_position_theta);
     const double sin_goal = std::sin(goal_position_theta);
     const double goal_lon = cos_goal * goal_dx + sin_goal * goal_dy;

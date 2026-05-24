@@ -15,7 +15,9 @@
 #ifndef CONSTRAINED_SMOOTHER__UTILS_HPP_
 #define CONSTRAINED_SMOOTHER__UTILS_HPP_
 
+#include <cmath>
 #include <limits>
+#include <vector>
 #include "Eigen/Core"
 
 #define EPSILON 0.0001
@@ -32,6 +34,23 @@
 
 namespace constrained_smoother
 {
+
+inline double goalPositionFrameHeading(
+  const std::vector<Eigen::Vector2d> & reference_points,
+  double end_theta,
+  bool keep_goal_orientation)
+{
+  if (keep_goal_orientation || reference_points.size() < 2) {
+    return end_theta;
+  }
+
+  const Eigen::Vector2d goal_delta = reference_points.back() - reference_points[reference_points.size() - 2];
+  if (goal_delta.norm() <= EPSILON) {
+    return end_theta;
+  }
+
+  return std::atan2(goal_delta.y(), goal_delta.x());
+}
 
 /**
  * @brief Center of an arc between three points
