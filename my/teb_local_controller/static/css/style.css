@@ -200,11 +200,6 @@ h1 {
     gap: 16px;
 }
 
-.side-panel {
-    max-height: calc(100vh - 178px);
-    overflow: auto;
-}
-
 .control-actions {
     display: grid;
     grid-template-columns: 1fr 1fr;
