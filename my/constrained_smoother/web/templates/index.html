@@ -198,8 +198,8 @@
                 <p class="param-hint" data-i18n="weights.referencePointMaxDeviationHint">Adds a per-point x/y box bound around each reference point. Leave it disabled to preserve the current unconstrained behavior.</p>
               </div>
               <div id="kinematic-curvature-weight-group" class="param-group">
-                <label data-i18n-html="weights.kinematicCurvatureWeightLabel">Kinematic Curvature Weight: <span id="val_kinematic_curvature_weight">30.0</span></label>
-                <input type="range" id="kinematic_curvature_weight" min="0" max="200.0" step="1.0" value="30.0">
+                <label data-i18n-html="weights.kinematicCurvatureWeightLabel">Kinematic Curvature Weight: <span id="val_kinematic_curvature_weight">1.0</span></label>
+                <input type="range" id="kinematic_curvature_weight" min="0" max="200.0" step="1.0" value="1.0">
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureWeightHint">Penalizes the explicit kappa state used by the kinematic smoother. Higher values bias the optimizer toward lower average steering curvature, not just fewer max-curvature violations.</p>
               </div>
               <div id="kinematic-curvature-rate-weight-group" class="param-group">

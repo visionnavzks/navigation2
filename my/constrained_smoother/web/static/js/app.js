@@ -78,7 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'map.inflationRadius': '膨胀半径',
     'map.freeCells': '空闲栅格',
     'map.inflatedCells': '膨胀栅格',
-    'map.lethalCells': '致命栅格',
+    'map.lethalCells': '致命障碍栅格',
     'loupe.title': '光标检查器',
     'loupe.liveHover': '实时悬停',
     'loupe.cellCost': '栅格代价值',
@@ -102,7 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.curvatureWeightHint': '抑制高曲率转弯，尤其是靠近障碍物角点时。',
     'weights.curvatureRateWeightLabel': '曲率变化率权重: <span id="val_curvature_rate_weight">5.0</span>',
     'weights.curvatureRateWeightHint': '使用四点 D3 有限差分惩罚。调高它可以抑制曲率突变，但不会替代最大曲率约束。',
-    'weights.kinematicCurvatureWeightLabel': '运动学曲率权重: <span id="val_kinematic_curvature_weight">30.0</span>',
+    'weights.kinematicCurvatureWeightLabel': '运动学曲率权重: <span id="val_kinematic_curvature_weight">1.0</span>',
     'weights.kinematicCurvatureWeightHint': '惩罚运动学平滑器里的显式 kappa 状态。调高后会更偏向较小的平均转向曲率，而不只是减少超过最大曲率阈值的片段。',
     'weights.kinematicCurvatureRateWeightLabel': '运动学曲率变化率权重: <span id="val_kinematic_curvature_rate_weight">5.0</span>',
     'weights.kinematicCurvatureRateWeightHint': '惩罚相邻状态之间显式 kappa 的变化率。这和几何平滑器里的四点 D3 代理项不是同一个残差。',
@@ -162,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.title': '图层',
     'layers.toggleVisibility': '切换显示',
     'layers.costmap': '代价地图',
-    'layers.costmapHint': '空闲、膨胀与致命栅格',
+    'layers.costmapHint': '空闲、膨胀与致命障碍栅格',
     'layers.mapAxes': '地图坐标轴',
     'layers.mapAxesHint': '世界坐标叠加层',
     'layers.startGoal': '起点 / 终点',
@@ -2305,11 +2305,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const xs = pathData.opt_x;
     const ys = pathData.opt_y;
     const pointCount = Math.min(xs.length, ys.length);
+    const displacementTolerance = state.costmap
+      ? Math.max(state.costmap.resolution * 0.5, 1e-3)
+      : 1e-3;
     const arcLengths = new Array(pointCount).fill(0);
     const segmentArcLengths = [];
     const segmentLengths = [];
-    const curvatures = new Array(pointCount).fill(0);
-    const dkDs = new Array(pointCount).fill(0);
+    const curvatures = new Array(pointCount).fill(null);
+    const dkDs = new Array(pointCount).fill(null);
+    const segmentMotionSigns = new Array(Math.max(0, pointCount - 1)).fill(1);
+    const segmentCurvatures = new Array(Math.max(0, pointCount - 1)).fill(null);
+    const cuspPointIndices = new Set();
+    const cuspLeftCurvature = new Array(pointCount).fill(null);
+    const cuspRightCurvature = new Array(pointCount).fill(null);
 
     for (let idx = 1; idx < pointCount; idx += 1) {
       const segmentLength = Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
@@ -2318,37 +2326,140 @@ document.addEventListener('DOMContentLoaded', () => {
       segmentArcLengths.push(arcLengths[idx - 1] + segmentLength * 0.5);
     }
 
-    for (let idx = 1; idx < pointCount - 1; idx += 1) {
-      const prevVecX = xs[idx] - xs[idx - 1];
-      const prevVecY = ys[idx] - ys[idx - 1];
-      const nextVecX = xs[idx + 1] - xs[idx];
-      const nextVecY = ys[idx + 1] - ys[idx];
-      const prevLen = Math.hypot(prevVecX, prevVecY);
-      const nextLen = Math.hypot(nextVecX, nextVecY);
-      if (prevLen <= 1e-6 || nextLen <= 1e-6) {
-        curvatures[idx] = 0;
+    if (Array.isArray(pathData.opt_theta) && pathData.opt_theta.length >= pointCount) {
+      let previousSign = 1;
+      for (let segmentIndex = 0; segmentIndex < pointCount - 1; segmentIndex += 1) {
+        const dx = xs[segmentIndex + 1] - xs[segmentIndex];
+        const dy = ys[segmentIndex + 1] - ys[segmentIndex];
+        const segmentLength = Math.hypot(dx, dy);
+        if (segmentLength <= displacementTolerance) {
+          segmentMotionSigns[segmentIndex] = previousSign;
+          continue;
+        }
+
+        const heading = Number(pathData.opt_theta[segmentIndex]);
+        const headingX = Math.cos(heading);
+        const headingY = Math.sin(heading);
+        const projection = dx * headingX + dy * headingY;
+
+        if (projection > 1e-6) {
+          segmentMotionSigns[segmentIndex] = 1;
+        } else if (projection < -1e-6) {
+          segmentMotionSigns[segmentIndex] = -1;
+        } else {
+          segmentMotionSigns[segmentIndex] = previousSign;
+        }
+        previousSign = segmentMotionSigns[segmentIndex];
+
+        const theta0 = Number(pathData.opt_theta[segmentIndex]);
+        const theta1 = Number(pathData.opt_theta[segmentIndex + 1]);
+        if (!Number.isFinite(theta0) || !Number.isFinite(theta1)) {
+          continue;
+        }
+
+        const dTheta = normalizeAngleRad(theta1 - theta0);
+        const signedDs = segmentLength * segmentMotionSigns[segmentIndex];
+        if (Math.abs(signedDs) <= displacementTolerance) {
+          continue;
+        }
+        segmentCurvatures[segmentIndex] = dTheta / signedDs;
+      }
+
+      let previousMovingSegmentIndex = null;
+      for (let segmentIndex = 0; segmentIndex < pointCount - 1; segmentIndex += 1) {
+        const moving = segmentLengths[segmentIndex] > displacementTolerance;
+        if (!moving) {
+          continue;
+        }
+
+        if (previousMovingSegmentIndex !== null) {
+          const leftSign = segmentMotionSigns[previousMovingSegmentIndex];
+          const rightSign = segmentMotionSigns[segmentIndex];
+          if (leftSign !== rightSign) {
+            const cuspPointIndex = segmentIndex;
+            cuspPointIndices.add(cuspPointIndex);
+            cuspLeftCurvature[cuspPointIndex] = segmentCurvatures[previousMovingSegmentIndex];
+            cuspRightCurvature[cuspPointIndex] = segmentCurvatures[segmentIndex];
+          }
+        }
+
+        previousMovingSegmentIndex = segmentIndex;
+      }
+    }
+
+    const findPrevValidSegment = pointIndex => {
+      for (let segmentIndex = pointIndex - 1; segmentIndex >= 0; segmentIndex -= 1) {
+        if (
+          segmentLengths[segmentIndex] > displacementTolerance &&
+          Number.isFinite(segmentCurvatures[segmentIndex])
+        ) {
+          return segmentIndex;
+        }
+      }
+      return null;
+    };
+
+    const findNextValidSegment = pointIndex => {
+      for (let segmentIndex = pointIndex; segmentIndex < pointCount - 1; segmentIndex += 1) {
+        if (
+          segmentLengths[segmentIndex] > displacementTolerance &&
+          Number.isFinite(segmentCurvatures[segmentIndex])
+        ) {
+          return segmentIndex;
+        }
+      }
+      return null;
+    };
+
+    for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+      if (cuspPointIndices.has(pointIndex)) {
         continue;
       }
-      const cross = prevVecX * nextVecY - prevVecY * nextVecX;
-      const dot = prevVecX * nextVecX + prevVecY * nextVecY;
-      const turnAngle = Math.atan2(cross, dot);
-      const avgSegment = Math.max((prevLen + nextLen) * 0.5, 1e-6);
-      curvatures[idx] = turnAngle / avgSegment;
+
+      const leftSegmentIndex = findPrevValidSegment(pointIndex);
+      const rightSegmentIndex = findNextValidSegment(pointIndex);
+
+      const leftCurvature = leftSegmentIndex === null ? null : segmentCurvatures[leftSegmentIndex];
+      const rightCurvature = rightSegmentIndex === null ? null : segmentCurvatures[rightSegmentIndex];
+
+      if (Number.isFinite(leftCurvature) && Number.isFinite(rightCurvature)) {
+        const leftSign = segmentMotionSigns[leftSegmentIndex];
+        const rightSign = segmentMotionSigns[rightSegmentIndex];
+        if (leftSign === rightSign) {
+          curvatures[pointIndex] = leftSegmentIndex === rightSegmentIndex
+            ? leftCurvature
+            : 0.5 * (leftCurvature + rightCurvature);
+        }
+      } else if (Number.isFinite(leftCurvature)) {
+        curvatures[pointIndex] = leftCurvature;
+      } else if (Number.isFinite(rightCurvature)) {
+        curvatures[pointIndex] = rightCurvature;
+      }
     }
 
     for (let idx = 0; idx < pointCount; idx += 1) {
       const prevIndex = Math.max(0, idx - 1);
       const nextIndex = Math.min(pointCount - 1, idx + 1);
       const deltaS = arcLengths[nextIndex] - arcLengths[prevIndex];
-      if (nextIndex === prevIndex || deltaS <= 1e-6) {
-        dkDs[idx] = 0;
+      const prevCurvature = curvatures[prevIndex];
+      const nextCurvature = curvatures[nextIndex];
+      if (
+        nextIndex === prevIndex ||
+        deltaS <= 1e-6 ||
+        !Number.isFinite(prevCurvature) ||
+        !Number.isFinite(nextCurvature) ||
+        cuspPointIndices.has(prevIndex) ||
+        cuspPointIndices.has(nextIndex) ||
+        cuspPointIndices.has(idx)
+      ) {
         continue;
       }
-      dkDs[idx] = (curvatures[nextIndex] - curvatures[prevIndex]) / deltaS;
+      dkDs[idx] = (nextCurvature - prevCurvature) / deltaS;
     }
 
     const computeSignedStats = values => {
-      if (!values.length) {
+      const finiteValues = values.filter(value => Number.isFinite(value));
+      if (!finiteValues.length) {
         return {
           signedMin: 0,
           signedMax: 0,
@@ -2362,7 +2473,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let peakAbs = 0;
       let absSum = 0;
 
-      values.forEach(value => {
+      finiteValues.forEach(value => {
         signedMin = Math.min(signedMin, value);
         signedMax = Math.max(signedMax, value);
         const absValue = Math.abs(value);
@@ -2374,12 +2485,13 @@ document.addEventListener('DOMContentLoaded', () => {
         signedMin,
         signedMax,
         peakAbs,
-        meanAbs: absSum / values.length,
+        meanAbs: absSum / finiteValues.length,
       };
     };
 
     const computeRangeStats = values => {
-      if (!values.length) {
+      const finiteValues = values.filter(value => Number.isFinite(value));
+      if (!finiteValues.length) {
         return {
           min: 0,
           max: 0,
@@ -2391,7 +2503,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let max = Number.NEGATIVE_INFINITY;
       let sum = 0;
 
-      values.forEach(value => {
+      finiteValues.forEach(value => {
         min = Math.min(min, value);
         max = Math.max(max, value);
         sum += value;
@@ -2400,7 +2512,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return {
         min,
         max,
-        mean: sum / values.length,
+        mean: sum / finiteValues.length,
       };
     };
 
@@ -2414,6 +2526,9 @@ document.addEventListener('DOMContentLoaded', () => {
       segmentLengths,
       curvatures,
       dkDs,
+      cuspIndices: Array.from(cuspPointIndices.values()),
+      cuspLeftCurvature,
+      cuspRightCurvature,
       curvatureStats,
       dkDsStats,
       dsStats,
@@ -2567,16 +2682,68 @@ document.addEventListener('DOMContentLoaded', () => {
       }));
     }
 
+    const cuspLeftXs = [];
+    const cuspRightXs = [];
+    const cuspLeftYs = [];
+    const cuspRightYs = [];
+    profile.cuspIndices.forEach(cuspIndex => {
+      const cuspArcLength = profile.arcLengths[cuspIndex];
+      if (!Number.isFinite(cuspArcLength)) {
+        return;
+      }
+      const leftCurvature = profile.cuspLeftCurvature[cuspIndex];
+      const rightCurvature = profile.cuspRightCurvature[cuspIndex];
+      if (Number.isFinite(leftCurvature)) {
+        cuspLeftXs.push(cuspArcLength);
+        cuspLeftYs.push(leftCurvature);
+      }
+      if (Number.isFinite(rightCurvature)) {
+        cuspRightXs.push(cuspArcLength);
+        cuspRightYs.push(rightCurvature);
+      }
+    });
+
+    const curvatureTraces = [{
+      x: profile.arcLengths,
+      y: profile.curvatures,
+      type: 'scatter',
+      mode: 'lines',
+      line: {color: 'rgba(191, 54, 87, 0.95)', width: 2.5},
+      hovertemplate: 's=%{x:.2f} m<br>k=%{y:.3f} 1/m<extra></extra>',
+    }];
+
+    if (cuspLeftXs.length > 0) {
+      curvatureTraces.push({
+        x: cuspLeftXs,
+        y: cuspLeftYs,
+        type: 'scatter',
+        mode: 'markers',
+        marker: {
+          symbol: 'triangle-left',
+          size: 9,
+          color: 'rgba(31, 111, 235, 0.95)',
+        },
+        hovertemplate: 's=%{x:.2f} m<br>k_left=%{y:.3f} 1/m<extra></extra>',
+      });
+    }
+    if (cuspRightXs.length > 0) {
+      curvatureTraces.push({
+        x: cuspRightXs,
+        y: cuspRightYs,
+        type: 'scatter',
+        mode: 'markers',
+        marker: {
+          symbol: 'triangle-right',
+          size: 9,
+          color: 'rgba(20, 122, 106, 0.95)',
+        },
+        hovertemplate: 's=%{x:.2f} m<br>k_right=%{y:.3f} 1/m<extra></extra>',
+      });
+    }
+
     window.Plotly.react(
       curvatureChart,
-      [{
-        x: profile.arcLengths,
-        y: profile.curvatures,
-        type: 'scatter',
-        mode: 'lines',
-        line: {color: 'rgba(191, 54, 87, 0.95)', width: 2.5},
-        hovertemplate: 's=%{x:.2f} m<br>k=%{y:.3f} 1/m<extra></extra>',
-      }],
+      curvatureTraces,
       curvatureLayout,
       config
     );
