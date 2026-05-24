@@ -268,9 +268,9 @@ $$
 
 ### 权重
 
-- `w_pos = 30.0`
+- `w_pos = 0.0`
 - `w_theta = 15.0`
-- `w_speed = 4.0`
+- `w_speed = 0.0`
 - `w_accel = 1.5`
 - `w_kappa = 2.0`
 - `w_dt = 10.0`
