@@ -130,7 +130,7 @@ public:
     // 6) 后验硬校验：过滤数值上收敛但不满足工程约束的结果。
     // 字段顺序需与 SmootherValidator::KinematicRequest 定义严格一致。
     // 这里显式传入优化变量、参考链和 ESDF 缓存，避免校验阶段重新推导。
-    return validator_.validateKinematicSolution(
+    const bool accepted = validator_.validateKinematicSolution(
       {
         variables,
         processed.reference_points,
@@ -144,6 +144,17 @@ public:
         esdf_values_,
       },
       request.failure);
+
+    if (!accepted) {
+      return false;
+    }
+
+    // 7) 校验通过后按运动学状态做段内插值，让 path_upsampling_factor 真正生效。
+    request.path = KinematicSmootherProblemBuilder::upsamplePathKinematic(
+      variables,
+      processed,
+      request.params);
+    return true;
   }
 
 private:

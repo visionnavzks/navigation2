@@ -108,29 +108,31 @@ public:
     processed.start_theta = std::atan2(start_dir.y(), start_dir.x());
     processed.end_theta = std::atan2(end_dir.y(), end_dir.x());
 
+    const std::vector<Eigen::Vector3d> sampled_path = downsampleInputPath(path, params);
+
     std::vector<double> gear_directions;
-    gear_directions.reserve(path.size() - 1);
-    for (size_t index = 0; index + 1 < path.size(); ++index) {
+    gear_directions.reserve(sampled_path.size() - 1);
+    for (size_t index = 0; index + 1 < sampled_path.size(); ++index) {
       if (params.reversing_enabled) {
-        gear_directions.push_back(path[index].z() < 0.0 ? -1.0 : 1.0);
+        gear_directions.push_back(sampled_path[index].z() < 0.0 ? -1.0 : 1.0);
       } else {
         gear_directions.push_back(1.0);
       }
     }
 
-    processed.reference_points.emplace_back(path.front().x(), path.front().y());
-    for (size_t index = 0; index + 1 < path.size(); ++index) {
+    processed.reference_points.emplace_back(sampled_path.front().x(), sampled_path.front().y());
+    for (size_t index = 0; index + 1 < sampled_path.size(); ++index) {
       const double current_gear = gear_directions[index];
       const double next_gear = index + 1 < gear_directions.size() ? gear_directions[index + 1] : current_gear;
 
       processed.gears.push_back(current_gear);
       processed.is_cusp_segment.push_back(false);
-      processed.reference_points.emplace_back(path[index + 1].x(), path[index + 1].y());
+      processed.reference_points.emplace_back(sampled_path[index + 1].x(), sampled_path[index + 1].y());
 
-      if (index + 2 < path.size() && current_gear != next_gear) {
+      if (index + 2 < sampled_path.size() && current_gear != next_gear) {
         processed.gears.push_back(0.0);
         processed.is_cusp_segment.push_back(true);
-        processed.reference_points.emplace_back(path[index + 1].x(), path[index + 1].y());
+        processed.reference_points.emplace_back(sampled_path[index + 1].x(), sampled_path[index + 1].y());
       }
     }
 
@@ -329,7 +331,112 @@ public:
     return path;
   }
 
+  static std::vector<Eigen::Vector3d> upsamplePathKinematic(
+    const std::vector<double> & variables,
+    const KinematicProcessedPath & processed,
+    const SmootherParams & params)
+  {
+    const int upsample_factor = std::max(params.path_upsampling_factor, 1);
+    std::vector<Eigen::Vector3d> path = unpackPath(variables, processed.state_count);
+    if (upsample_factor <= 1 || processed.state_count < 2) {
+      return path;
+    }
+
+    std::vector<Eigen::Vector3d> upsampled;
+    upsampled.reserve(
+      static_cast<size_t>(upsample_factor) * (processed.state_count - 1) + 1);
+    upsampled.push_back(path.front());
+
+    for (size_t index = 0; index + 1 < processed.state_count; ++index) {
+      const bool is_cusp_segment =
+        index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index];
+      const double gear = index < processed.gears.size() ? processed.gears[index] : 1.0;
+
+      const double x = variables[5 * index + 0];
+      const double y = variables[5 * index + 1];
+      const double theta = normalizeAngle(variables[5 * index + 2]);
+      const double kappa = variables[5 * index + 3];
+      const double ds = std::max(variables[5 * index + 4], 0.0);
+      const double next_kappa = variables[5 * (index + 1) + 3];
+
+      const Eigen::Vector3d & next_pose = path[index + 1];
+
+      if (is_cusp_segment || std::abs(gear) < 1e-9 || ds <= 1e-6) {
+        upsampled.push_back(next_pose);
+        continue;
+      }
+
+      const double direction = gear >= 0.0 ? 1.0 : -1.0;
+      const double step = ds / static_cast<double>(upsample_factor);
+
+      double interp_x = x;
+      double interp_y = y;
+      double interp_theta = theta;
+
+      for (int step_index = 1; step_index < upsample_factor; ++step_index) {
+        const double t0 = static_cast<double>(step_index - 1) / static_cast<double>(upsample_factor);
+        const double t1 = static_cast<double>(step_index) / static_cast<double>(upsample_factor);
+        const double kappa0 = kappa + (next_kappa - kappa) * t0;
+        const double kappa1 = kappa + (next_kappa - kappa) * t1;
+
+        const double theta_mid = interp_theta + direction * step * 0.5 * kappa0;
+        interp_x += direction * step * std::cos(theta_mid);
+        interp_y += direction * step * std::sin(theta_mid);
+        interp_theta = normalizeAngle(interp_theta + direction * step * 0.5 * (kappa0 + kappa1));
+        upsampled.emplace_back(interp_x, interp_y, interp_theta);
+      }
+
+      upsampled.push_back(next_pose);
+    }
+
+    return upsampled;
+  }
+
 private:
+  static std::vector<Eigen::Vector3d> downsampleInputPath(
+    const std::vector<Eigen::Vector3d> & path,
+    const SmootherParams & params)
+  {
+    const int downsample_factor = std::max(params.path_downsampling_factor, 1);
+    if (downsample_factor <= 1 || path.size() <= 2) {
+      return path;
+    }
+
+    std::vector<Eigen::Vector3d> sampled;
+    sampled.reserve(path.size());
+    sampled.push_back(path.front());
+
+    size_t last_kept_index = 0;
+    auto direction_sign = [&](size_t index) {
+      if (!params.reversing_enabled) {
+        return 1.0;
+      }
+      return path[index].z() < 0.0 ? -1.0 : 1.0;
+    };
+
+    for (size_t index = 1; index + 1 < path.size(); ++index) {
+      const double prev_sign = direction_sign(index - 1);
+      const double current_sign = direction_sign(index);
+      const double next_sign = direction_sign(index + 1);
+      const bool around_cusp = (current_sign != prev_sign) || (current_sign != next_sign);
+
+      if (around_cusp || static_cast<int>(index - last_kept_index) >= downsample_factor) {
+        sampled.push_back(path[index]);
+        last_kept_index = index;
+      }
+    }
+
+    if (!sampled.back().isApprox(path.back(), 1e-9)) {
+      sampled.push_back(path.back());
+    }
+
+    if (sampled.size() < 2) {
+      sampled = {path.front(), path.back()};
+    }
+
+    return sampled;
+  }
+
   static double normalizeAngle(double angle)
   {
     return std::atan2(std::sin(angle), std::cos(angle));
