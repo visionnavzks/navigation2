@@ -763,7 +763,7 @@ document.addEventListener('DOMContentLoaded', () => {
     pendingAutoPlanTimer: null,
     activeScenePreset: DEFAULT_SCENE_PRESET,
     manualReferencePath: null,
-    mapDisplayMode: 'costmap',
+    mapDisplayMode: 'esdf',
     esdfColormap: 'diverging',
     layers: {
       costmap: true,
