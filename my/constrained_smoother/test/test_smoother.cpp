@@ -128,24 +128,38 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathHonorsDisabledRevers
 TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
 {
   constrained_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_cost(
-    1.0, false, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0);
+    1.0, false, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0);
   const double current_state[5] = {0.0, 0.0, 0.0, 2.0, 1.0};
   const double next_state[5] = {0.0, 0.0, 0.0, 2.0, 0.0};
-  double curvature_residuals[6] = {};
+  double curvature_residuals[7] = {};
 
   EXPECT_TRUE(curvature_cost(current_state, next_state, curvature_residuals));
   EXPECT_DOUBLE_EQ(curvature_residuals[3], 6.0);
   EXPECT_DOUBLE_EQ(curvature_residuals[4], 0.0);
+  EXPECT_DOUBLE_EQ(curvature_residuals[6], 0.0);
 
   constrained_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_rate_cost(
-    1.0, false, 0.0, 0.0, 4.0, 0.0, 0.0, 1.0);
+    1.0, false, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 1.0);
   const double rate_current_state[5] = {0.0, 0.0, 0.0, 1.0, 4.0};
   const double rate_next_state[5] = {0.0, 0.0, 0.0, 3.0, 0.0};
-  double curvature_rate_residuals[6] = {};
+  double curvature_rate_residuals[7] = {};
 
   EXPECT_TRUE(curvature_rate_cost(rate_current_state, rate_next_state, curvature_rate_residuals));
   EXPECT_DOUBLE_EQ(curvature_rate_residuals[3], 0.0);
   EXPECT_DOUBLE_EQ(curvature_rate_residuals[4], 4.0);
+  EXPECT_DOUBLE_EQ(curvature_rate_residuals[6], 0.0);
+}
+
+TEST(KinematicSmootherCostTest, TransitionCostUsesExplicitLengthPenalty)
+{
+  constrained_smoother::kinematic_smoother_detail::TransitionCostFunctor length_cost(
+    1.0, false, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 1.0);
+  const double current_state[5] = {0.0, 0.0, 0.0, 0.0, 1.5};
+  const double next_state[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
+  double residuals[7] = {};
+
+  EXPECT_TRUE(length_cost(current_state, next_state, residuals));
+  EXPECT_DOUBLE_EQ(residuals[6], 3.0);
 }
 
 TEST(KinematicSmootherCostTest, BoundaryCostUsesGoalFrameTolerances)
@@ -419,7 +433,7 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
-  EXPECT_NO_THROW(smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
+  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
   EXPECT_GE(path.size(), 2u);
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
 }
@@ -456,7 +470,7 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
 
       constrained_smoother::KinematicSmoother smoother;
       smoother.initialize(opt_params);
-      smoother.smooth(
+      (void)smoother.smooth(
       {path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params, nullptr, nullptr});
       return path;
     };
@@ -503,7 +517,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
-  EXPECT_NO_THROW(smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
+  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
   EXPECT_GE(path.size(), 2u);
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), input_size);
 }
@@ -523,7 +537,7 @@ TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
   constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
 
-  EXPECT_NO_THROW(smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr}));
+  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr}));
 }
 
 TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
@@ -543,7 +557,7 @@ TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
   smoother.initialize(opt_params);
 
   EXPECT_THROW(
-    smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr}),
+    (void)smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr}),
     constrained_smoother::InvalidCostmap);
 }
 
@@ -591,7 +605,7 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
-  EXPECT_NO_THROW(smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
+  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
   EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
 }
 
@@ -628,7 +642,7 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   const Eigen::Vector2d end_dir(-1.0, 0.0);
 
   const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
+    [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("motion_direction_constraint@"), std::string::npos);
 }
@@ -888,7 +902,7 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
+    [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
 }
@@ -929,7 +943,7 @@ TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
+    [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
 }
@@ -966,7 +980,7 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   const std::string error_message = expectFailedToSmoothPath(
-    [&]() {smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
+    [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("path_out_of_bounds@"), std::string::npos);
 }

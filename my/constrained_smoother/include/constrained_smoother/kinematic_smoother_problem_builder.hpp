@@ -202,6 +202,7 @@ public:
     const double curvature_rate_weight =
       std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);
     const double spacing_weight = std::max(params.kinematic_spacing_weight_sqrt, 0.0);
+    const double length_weight = std::max(params.path_length_weight_sqrt, 0.0);
     const double fix_weight = 100.0;
     const double reference_weight = std::max(params.reference_path_weight_sqrt, 0.0);
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
@@ -215,6 +216,7 @@ public:
         curvature_weight,
         curvature_rate_weight,
         spacing_weight,
+        length_weight,
         fix_weight,
         processed.target_spacing);
       problem.AddResidualBlock(

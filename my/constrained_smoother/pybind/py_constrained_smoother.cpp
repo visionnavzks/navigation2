@@ -125,6 +125,9 @@ py::dict make_error_result(
 
 py::dict make_ok_result(const std::vector<Eigen::Vector3d> & path);
 
+template<typename Fn>
+py::dict invoke_try_smooth(Fn && fn);
+
 SmoothBindingInput parse_smooth_input(
   const py::handle & path_handle,
   const py::handle & start_dir_handle,
@@ -136,20 +139,6 @@ SmoothBindingInput parse_smooth_input(
     copy_vector2d(start_dir_handle, "start_dir"),
     copy_vector2d(end_dir_handle, "end_dir"),
     copy_optional_costmap(costmap_handle),
-  };
-}
-
-SmoothBindingInput parse_smooth_input(
-  const py::handle & path_handle,
-  const py::handle & start_dir_handle,
-  const py::handle & end_dir_handle,
-  const constrained_smoother::Costmap2D & costmap)
-{
-  return SmoothBindingInput{
-    copy_path3d(path_handle, "path"),
-    copy_vector2d(start_dir_handle, "start_dir"),
-    copy_vector2d(end_dir_handle, "end_dir"),
-    &costmap,
   };
 }
 
@@ -373,6 +362,40 @@ py::dict run_try_smooth_result(
   return make_ok_result(input.path);
 }
 
+PyObject * run_smooth_binding(
+  constrained_smoother::KinematicSmoother & smoother,
+  const py::handle & path_handle,
+  const py::handle & start_dir_handle,
+  const py::handle & end_dir_handle,
+  const py::handle & costmap_handle,
+  const constrained_smoother::SmootherParams & params,
+  const std::vector<double> * precomputed_esdf)
+{
+  return run_smooth_or_raise(
+    smoother,
+    parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
+    params,
+    precomputed_esdf);
+}
+
+py::dict run_try_smooth_binding(
+  constrained_smoother::KinematicSmoother & smoother,
+  const py::handle & path_handle,
+  const py::handle & start_dir_handle,
+  const py::handle & end_dir_handle,
+  const py::handle & costmap_handle,
+  const constrained_smoother::SmootherParams & params,
+  const std::vector<double> * precomputed_esdf)
+{
+  return invoke_try_smooth([&]() -> py::dict {
+    return run_try_smooth_result(
+      smoother,
+      parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
+      params,
+      precomputed_esdf);
+  });
+}
+
 template<typename Fn>
 py::dict invoke_try_smooth(Fn && fn)
 {
@@ -481,6 +504,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "kinematic_spacing_weight_sqrt",
     &constrained_smoother::SmootherParams::kinematic_spacing_weight_sqrt)
+    .def_readwrite(
+    "path_length_weight_sqrt",
+    &constrained_smoother::SmootherParams::path_length_weight_sqrt)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
     .def_readwrite("use_exact_esdf", &constrained_smoother::SmootherParams::use_exact_esdf)
@@ -602,9 +628,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> PyObject *
       {
-        return run_smooth_or_raise(
+        return run_smooth_binding(
           self,
-          parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
+          path_handle,
+          start_dir_handle,
+          end_dir_handle,
+          costmap_handle,
           params,
           nullptr);
       },
@@ -622,13 +651,14 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const py::handle & costmap_handle,
       const constrained_smoother::SmootherParams & params) -> py::dict
       {
-        return invoke_try_smooth([&]() -> py::dict {
-          return run_try_smooth_result(
-            self,
-            parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap_handle),
-            params,
-            nullptr);
-        });
+        return run_try_smooth_binding(
+          self,
+          path_handle,
+          start_dir_handle,
+          end_dir_handle,
+          costmap_handle,
+          params,
+          nullptr);
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap") = py::none(), py::arg("params"),
@@ -644,9 +674,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const constrained_smoother::SmootherParams & params,
       const constrained_smoother::AStarPlanner & planner) -> PyObject *
       {
-        return run_smooth_or_raise(
+        return run_smooth_binding(
           self,
-          parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap),
+          path_handle,
+          start_dir_handle,
+          end_dir_handle,
+          py::cast(costmap),
           params,
           &planner.getESDF());
       },
@@ -665,13 +698,14 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       const constrained_smoother::SmootherParams & params,
       const constrained_smoother::AStarPlanner & planner) -> py::dict
       {
-        return invoke_try_smooth([&]() -> py::dict {
-          return run_try_smooth_result(
-            self,
-            parse_smooth_input(path_handle, start_dir_handle, end_dir_handle, costmap),
-            params,
-            &planner.getESDF());
-        });
+        return run_try_smooth_binding(
+          self,
+          path_handle,
+          start_dir_handle,
+          end_dir_handle,
+          py::cast(costmap),
+          params,
+          &planner.getESDF());
       },
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),

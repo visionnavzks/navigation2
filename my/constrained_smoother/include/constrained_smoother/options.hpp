@@ -71,6 +71,8 @@ struct SmootherParams
   /// 运动学版显式弧长步长 ds 贴近目标间距的平方根正则权重。
   /// 默认保留为 1.0，用于避免步长变量在无约束时完全漂移。
   double kinematic_spacing_weight_sqrt{1.0};
+  /// 总长度惩罚的平方根权重；值越大，越倾向于压缩整条路径的总弧长。
+  double path_length_weight_sqrt{0.0};
   /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
   /// 传给 Ceres 求解器的最大墙钟时间，单位秒。

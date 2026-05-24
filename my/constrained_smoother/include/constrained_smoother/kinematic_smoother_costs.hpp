@@ -47,13 +47,14 @@ namespace kinematic_smoother_detail
  *   采用梯形曲率积分（当前曲率与下一曲率的均值）预测朝向角变化，
  *   采用中间朝向角预测位置（Euler midpoint 近似）。
  *
- * 输出 6 个残差：
+ * 输出 7 个残差：
  *   [0] 位置 x 误差（运动学模型约束）
  *   [1] 位置 y 误差（运动学模型约束）
  *   [2] 朝向角误差（运动学模型约束）
  *   [3] 平均曲率惩罚（鼓励路径趋向直行）
  *   [4] 曲率变化率惩罚（鼓励曲率平滑，以弧长归一化）
  *   [5] 步长误差（约束相邻点间距接近目标步长）
+ *   [6] 总长度惩罚（直接压缩 ds，鼓励整条路径更短）
  *
  * 尖点（cusp）段特殊处理：
  *   尖点处为前进/倒退切换点，此段强制相邻点保持相同位置和朝向，
@@ -69,6 +70,7 @@ public:
    * @param curvature_weight     曲率大小惩罚权重（鼓励路径趋直）
    * @param curvature_rate_weight 曲率变化率惩罚权重（鼓励曲率连续平滑）
    * @param spacing_weight       步长误差惩罚权重
+   * @param length_weight        总长度惩罚权重（直接压缩 ds）
    * @param fix_weight           尖点段强固定约束权重
    * @param target_spacing       期望的相邻点弧长步长（米）
    */
@@ -79,6 +81,7 @@ public:
     double curvature_weight,
     double curvature_rate_weight,
     double spacing_weight,
+      double length_weight,
     double fix_weight,
     double target_spacing)
   : gear_(gear),
@@ -87,6 +90,7 @@ public:
     curvature_weight_(curvature_weight),
     curvature_rate_weight_(curvature_rate_weight),
     spacing_weight_(spacing_weight),
+    length_weight_(length_weight),
     fix_weight_(fix_weight),
     target_spacing_(target_spacing)
   {
@@ -98,7 +102,7 @@ public:
    */
   ceres::CostFunction * AutoDiff()
   {
-    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 6, 5, 5>(this);
+    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(this);
   }
 
   /**
@@ -134,6 +138,7 @@ public:
       residual[1] = T(fix_weight_) * (next_y - y);                      // 强制 y 不变
       residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);      // 强制朝向不变
       residual[5] = T(spacing_weight_) * T(10.0) * ds;                  // 强惩罚非零步长
+      residual[6] = T(length_weight_) * ds;                             // 直接压缩总长度
       return true;
     }
 
@@ -169,6 +174,9 @@ public:
 
     // 残差[5]：步长误差——约束相邻点间距接近目标步长，归一化后无量纲
     residual[5] = T(spacing_weight_) * (ds - T(target_spacing_)) / T(target_spacing_);
+
+    // 残差[6]：长度惩罚——对每一段 ds 直接施加代价，使总路径长度更短
+    residual[6] = T(length_weight_) * ds;
     return true;
   }
 
@@ -224,6 +232,7 @@ private:
   double curvature_weight_;      ///< 曲率大小惩罚权重
   double curvature_rate_weight_; ///< 曲率变化率惩罚权重
   double spacing_weight_;        ///< 步长误差惩罚权重
+  double length_weight_;         ///< 总长度惩罚权重
   double fix_weight_;            ///< 尖点段固定约束权重
   double target_spacing_;        ///< 期望相邻点弧长（米）
 };

@@ -184,9 +184,9 @@
                 <p class="param-hint" data-i18n="weights.cuspZoneLengthHint">Sets the full arc-length span over which cusp obstacle weighting ramps up before and after a direction switch.</p>
               </div>
               <div class="param-group">
-                <label data-i18n-html="weights.distanceWeightLabel">Distance Weight: <span id="val_distance_weight">0.0</span></label>
-                <input type="range" id="distance_weight" min="0" max="100.0" step="1.0" value="0.0">
-                <p class="param-hint" data-i18n="weights.distanceWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
+                <label data-i18n-html="weights.referencePathWeightLabel">Reference Path Weight: <span id="val_reference_path_weight">0.0</span></label>
+                <input type="range" id="reference_path_weight" min="0" max="100.0" step="1.0" value="0.0">
+                <p class="param-hint" data-i18n="weights.referencePathWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
               </div>
               <div class="param-group param-group--stacked">
                 <label class="constraint-toggle" for="enable_reference_point_max_deviation">
@@ -206,6 +206,11 @@
                 <label data-i18n-html="weights.kinematicCurvatureRateWeightLabel">Kinematic Curvature-Rate Weight: <span id="val_kinematic_curvature_rate_weight">5.0</span></label>
                 <input type="range" id="kinematic_curvature_rate_weight" min="0" max="100.0" step="1.0" value="5.0">
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureRateWeightHint">Penalizes changes in the explicit kappa state between transitions along the optimized state chain.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="weights.pathLengthWeightLabel">Path Length Weight: <span id="val_path_length_weight">0.1</span></label>
+                <input type="range" id="path_length_weight" min="0.0" max="10.0" step="0.01" value="0.10">
+                <p class="param-hint" data-i18n="weights.pathLengthWeightHint">Adds an explicit penalty on each segment length ds so the optimizer can prefer shorter paths when other costs are comparable.</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="weights.maxCurvatureLabel">Max Curvature (1/m): <span id="val_max_curvature">2.5</span></label>
