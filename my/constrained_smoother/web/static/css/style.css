@@ -1253,6 +1253,40 @@ textarea {
   word-break: break-word;
 }
 
+.control-table .validation-details-grid {
+  grid-template-columns: 1fr;
+  gap: 0;
+  border: 1px solid var(--table-line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.40);
+  overflow: hidden;
+}
+
+.control-table .validation-details-item {
+  border: 0;
+  border-bottom: 1px solid var(--table-line);
+  border-radius: 0;
+  padding: 0.52rem 0.68rem;
+  background: transparent;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.72rem;
+}
+
+.control-table .validation-details-item:last-child {
+  border-bottom: 0;
+}
+
+.control-table .validation-details-item--wide {
+  grid-column: auto;
+}
+
+.control-table .validation-details-item strong {
+  text-align: right;
+  font-size: 0.82rem;
+}
+
 [hidden] {
   display: none !important;
 }
