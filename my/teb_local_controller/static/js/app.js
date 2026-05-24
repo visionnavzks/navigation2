@@ -16,6 +16,11 @@ const initialSpeedValue = document.getElementById('initial-speed-value');
 const initialSpeedMin = document.getElementById('initial-speed-min');
 const initialSpeedMid = document.getElementById('initial-speed-mid');
 const initialSpeedMax = document.getElementById('initial-speed-max');
+const initialAccelSlider = document.getElementById('initial-accel-slider');
+const initialAccelValue = document.getElementById('initial-accel-value');
+const initialAccelMin = document.getElementById('initial-accel-min');
+const initialAccelMid = document.getElementById('initial-accel-mid');
+const initialAccelMax = document.getElementById('initial-accel-max');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -88,8 +93,6 @@ const PARAM_HELP_TEXTS = {
     w_pos_terminal_real: '真实路径终点位置权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_theta_terminal_real: '真实路径终点航向权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_speed_terminal_real: '真实路径终点速度权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
-    w_accel: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用加速度参考，所以它目前不会改变结果。',
-    w_kappa: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用曲率参考，所以它目前不会改变结果。',
     w_dt: '时间弹性权重。越大，dt 越接近 dt_ref；越小，优化越愿意拉伸或压缩时间分配。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
@@ -298,17 +301,12 @@ function updateInitialHeadingControls(initialState) {
 }
 
 function resolveInitialSpeedRange(initialState, samplingConfig) {
-    const minCandidate = Number.parseFloat(samplingConfig?.speed_min);
     const maxCandidate = Number.parseFloat(samplingConfig?.speed_max);
 
-    let minSpeed = Number.isFinite(minCandidate) ? minCandidate : 0.0;
-    let maxSpeed = Number.isFinite(maxCandidate) ? maxCandidate : 1.2;
-    if (maxSpeed < minSpeed) {
-        [minSpeed, maxSpeed] = [maxSpeed, minSpeed];
-    }
+    const minSpeed = 0.0;
+    let maxSpeed = Number.isFinite(maxCandidate) ? Math.max(maxCandidate, minSpeed) : 1.2;
 
     if (initialState && Number.isFinite(initialState.v)) {
-        minSpeed = Math.min(minSpeed, initialState.v);
         maxSpeed = Math.max(maxSpeed, initialState.v);
     }
 
@@ -344,6 +342,54 @@ function updateInitialSpeedControls(initialState, samplingConfig = null) {
     initialSpeedValue.textContent = `${formatNumber(initialState.v, 3)} m/s`;
 }
 
+function resolveInitialAccelRange(initialState, samplingConfig) {
+    const minCandidate = Number.parseFloat(samplingConfig?.accel_min);
+    const maxCandidate = Number.parseFloat(samplingConfig?.accel_max);
+
+    let minAccel = Number.isFinite(minCandidate) ? minCandidate : -0.5;
+    let maxAccel = Number.isFinite(maxCandidate) ? maxCandidate : 0.5;
+    if (maxAccel < minAccel) {
+        [minAccel, maxAccel] = [maxAccel, minAccel];
+    }
+
+    if (initialState && Number.isFinite(initialState.a)) {
+        minAccel = Math.min(minAccel, initialState.a);
+        maxAccel = Math.max(maxAccel, initialState.a);
+    }
+
+    if (Math.abs(maxAccel - minAccel) < 1e-6) {
+        minAccel -= 0.5;
+        maxAccel += 0.5;
+    }
+
+    return { minAccel, maxAccel };
+}
+
+function updateInitialAccelControls(initialState, samplingConfig = null) {
+    if (!initialAccelSlider || !initialAccelValue || !initialAccelMin || !initialAccelMid || !initialAccelMax) {
+        return;
+    }
+
+    const { minAccel, maxAccel } = resolveInitialAccelRange(initialState, samplingConfig);
+    const midAccel = (minAccel + maxAccel) * 0.5;
+    initialAccelSlider.min = String(minAccel);
+    initialAccelSlider.max = String(maxAccel);
+    initialAccelMin.textContent = `${formatNumber(minAccel, 2)} m/s²`;
+    initialAccelMid.textContent = `${formatNumber(midAccel, 2)} m/s²`;
+    initialAccelMax.textContent = `${formatNumber(maxAccel, 2)} m/s²`;
+
+    if (!initialState) {
+        initialAccelSlider.disabled = true;
+        initialAccelSlider.value = String(midAccel);
+        initialAccelValue.textContent = '--';
+        return;
+    }
+
+    initialAccelSlider.disabled = false;
+    initialAccelSlider.value = String(initialState.a);
+    initialAccelValue.textContent = `${formatNumber(initialState.a, 3)} m/s²`;
+}
+
 function scheduleInitialStateReplan(message) {
     if (autoReplanTimer !== null) {
         clearTimeout(autoReplanTimer);
@@ -361,6 +407,10 @@ function scheduleInitialHeadingReplan() {
 
 function scheduleInitialSpeedReplan() {
     scheduleInitialStateReplan('起点速度已变更，正在等待基于当前状态自动重规划...');
+}
+
+function scheduleInitialAccelReplan() {
+    scheduleInitialStateReplan('起点加速度已变更，正在等待基于当前状态自动重规划...');
 }
 
 function ensureGlobalParamTooltip() {
@@ -1236,6 +1286,7 @@ function renderStats(data) {
 
     updateInitialHeadingControls(initialState);
     updateInitialSpeedControls(initialState, data.config?.sampling);
+    updateInitialAccelControls(initialState, data.config?.sampling);
 }
 
 function renderConfig(data) {
@@ -1244,7 +1295,7 @@ function renderConfig(data) {
     const limits = config.limits;
     const weights = config.weights;
     const solver = config.solver;
-    const processWeightKeys = ['w_pos', 'w_speed', 'w_accel', 'w_kappa', 'w_dt', 'w_jerk', 'w_dkappa'];
+    const processWeightKeys = ['w_pos', 'w_speed', 'w_dt', 'w_jerk', 'w_dkappa'];
     const processTerminalWeightKeys = ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
     const realTerminalWeightKeys = ['w_pos_terminal_real', 'w_speed_terminal_real', 'w_theta_terminal_real'];
     const extraPoints = Number.parseInt(reference.params?.extra_points ?? 0, 10) || 0;
@@ -1526,6 +1577,32 @@ function handleInitialSpeedInput() {
     scheduleInitialSpeedReplan();
 }
 
+function handleInitialAccelInput() {
+    if (!currentData?.initial_state || !initialAccelSlider) {
+        return;
+    }
+
+    const sliderAccel = Number.parseFloat(initialAccelSlider.value);
+    if (Number.isNaN(sliderAccel)) {
+        return;
+    }
+
+    currentData.initial_state = {
+        ...currentData.initial_state,
+        a: sliderAccel,
+    };
+    activeHoverKey = 'initial-0';
+    renderPathView(currentData, activeHoverKey);
+    renderStats(currentData);
+
+    const currentInitialItem = currentScene?.itemMap.get('initial-0') || null;
+    if (currentInitialItem && activeHoverKey === 'initial-0') {
+        renderHoverDetails(currentInitialItem);
+    }
+
+    scheduleInitialAccelReplan();
+}
+
 function clearCanvasHover() {
     if (isDraggingInitialState) {
         return;
@@ -1650,6 +1727,9 @@ if (initialHeadingSlider) {
 if (initialSpeedSlider) {
     initialSpeedSlider.addEventListener('input', handleInitialSpeedInput);
 }
+if (initialAccelSlider) {
+    initialAccelSlider.addEventListener('input', handleInitialAccelInput);
+}
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => {
         updateDtRefPreview();
@@ -1662,6 +1742,7 @@ updateAxisButtonStyles();
 initParameterTooltips();
 updateInitialHeadingControls(null);
 updateInitialSpeedControls(null, null);
+updateInitialAccelControls(null, null);
 updateDtRefPreview();
 updateExtraPointsPreview();
 runRandomDemo();

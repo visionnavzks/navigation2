@@ -217,8 +217,6 @@ class TEBMPCController:
         self.w_pos_terminal_real = float(self.params.get("w_pos_terminal_real", 60.0))
         self.w_theta_terminal_real = float(self.params.get("w_theta_terminal_real", 15.0))
         self.w_speed_terminal_real = float(self.params.get("w_speed_terminal_real", 60.0))
-        self.w_accel = float(self.params.get("w_accel", 0.0))
-        self.w_kappa = float(self.params.get("w_kappa", 2.0))
         self.w_dt = float(self.params.get("w_dt", 10.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))

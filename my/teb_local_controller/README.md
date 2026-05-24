@@ -278,8 +278,6 @@ $$
 - `w_pos_terminal_real = 60.0`（真实路径终点）
 - `w_theta_terminal_real = 15.0`（真实路径终点）
 - `w_speed_terminal_real = 60.0`（真实路径终点）
-- `w_accel = 0.0`
-- `w_kappa = 2.0`
 - `w_dt = 10.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`

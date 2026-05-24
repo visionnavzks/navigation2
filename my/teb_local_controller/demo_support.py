@@ -167,8 +167,6 @@ def describe_demo_configuration(
             "w_pos_terminal_real": controller.w_pos_terminal_real,
             "w_theta_terminal_real": controller.w_theta_terminal_real,
             "w_speed_terminal_real": controller.w_speed_terminal_real,
-            "w_accel": controller.w_accel,
-            "w_kappa": controller.w_kappa,
             "w_dt": controller.w_dt,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
