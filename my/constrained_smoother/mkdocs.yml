@@ -1,5 +1,5 @@
 site_name: Constrained Smoother
-site_description: Standalone kinematic smoother design and implementation notes
+site_description: 独立运动学平滑器设计与实现文档
 repo_url: https://github.com/ros-navigation/navigation2
 repo_name: ros-navigation/navigation2
 
@@ -43,9 +43,9 @@ extra_javascript:
   - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
 
 nav:
-  - Overview: index.md
-  - Package Guide: package-guide.md
-  - Design:
-      - Kinematic Smoother: KINEMATIC_SMOOTHER_DESIGN.md
-  - Reference:
-      - Error Codes: error-codes.md
+  - 概览: index.md
+  - 包使用指南: package-guide.md
+  - 设计:
+      - 运动学平滑器: KINEMATIC_SMOOTHER_DESIGN.md
+  - 参考:
+      - 错误码: error-codes.md
