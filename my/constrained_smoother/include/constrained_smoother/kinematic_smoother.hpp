@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "ceres/ceres.h"
-#include "Eigen/Core"
 
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
@@ -144,38 +143,6 @@ public:
         esdf_values_,
       },
       request.failure);
-  }
-
-  /**
-   * @brief 使用内部生成的 ESDF 对路径做运动学平滑。
-   */
-  [[nodiscard]] bool smooth(
-    std::vector<Eigen::Vector3d> & path,
-    const Eigen::Vector2d & start_dir,
-    const Eigen::Vector2d & end_dir,
-    const Costmap2D * costmap,
-    const SmootherParams & params)
-  {
-    // 便捷入口：无预计算 ESDF、无结构化 failure 输出。
-    // 适合最常见调用路径；失败时通常走异常链路。
-    // 语义等价于完整入口中 precomputed_esdf=nullptr 且 failure=nullptr。
-    return smooth({path, start_dir, end_dir, costmap, params, nullptr, nullptr});
-  }
-
-  [[nodiscard]] bool smooth(
-    std::vector<Eigen::Vector3d> & path,
-    const Eigen::Vector2d & start_dir,
-    const Eigen::Vector2d & end_dir,
-    const Costmap2D * costmap,
-    const SmootherParams & params,
-    const std::vector<double> * precomputed_esdf,
-    SmoothingFailureInfo * failure = nullptr)
-  {
-    // 完整入口：允许复用上游 ESDF，并把失败细节回传给调用方。
-    // 对 Web/Python 边界层建议优先使用这个重载，以便稳定拿到失败原因。
-    // 注意：path 会被原地修改为优化结果。
-    // precomputed_esdf 维度若与 costmap 不匹配会触发异常（或写入 failure）。
-    return smooth({path, start_dir, end_dir, costmap, params, precomputed_esdf, failure});
   }
 
 private:

@@ -196,6 +196,7 @@ public:
     ceres::Problem & problem) const
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
+    // 这里的权重都以 sqrt 形式进入残差，便于与已有参数面板保持一致。
     const double model_weight = std::max(params.model_weight_sqrt, 1.0);
     const double curvature_weight = std::max(params.kinematic_curvature_weight_sqrt, 0.0);
     const double curvature_rate_weight =
@@ -205,6 +206,7 @@ public:
     const double reference_weight = std::max(params.reference_path_weight_sqrt, 0.0);
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
+    // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与期望间距。
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
       auto * transition_cost = new kinematic_smoother_detail::TransitionCostFunctor(
         processed.gears[index],
@@ -222,6 +224,7 @@ public:
         stateData(variables, index + 1));
     }
 
+    // 起点边界残差：位置固定，朝向是否固定由 keep_start_orientation 控制。
     auto * start_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
       processed.reference_points.front(),
       processed.start_theta,
@@ -233,11 +236,14 @@ public:
       false);
     problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
 
+    // 终点位置容差框所用的参考朝向：
+    // keep_goal_orientation=true 时采用 end_theta，否则采用末段几何朝向。
     const double goal_position_theta = goalPositionFrameHeading(
       processed.reference_points,
       processed.end_theta,
       params.keep_goal_orientation);
 
+    // 终点边界残差：支持纵向/横向容差与可选朝向固定。
     auto * goal_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
       processed.reference_points.back(),
       goal_position_theta,
@@ -252,6 +258,7 @@ public:
       nullptr,
       stateData(variables, processed.state_count - 1));
 
+    // 参考路径吸附残差：仅在 reference_weight>0 时启用。
     if (reference_weight > 1e-9) {
       for (size_t index = 0; index < processed.state_count; ++index) {
         auto * reference_cost = new kinematic_smoother_detail::ReferenceCostFunctor(
@@ -260,6 +267,7 @@ public:
       }
     }
 
+    // 障碍物残差：普通点与 cusp 相邻点可使用不同安全策略。
     if (has_obstacle_cost) {
       for (size_t index = 0; index < processed.state_count; ++index) {
         const bool is_cusp_pose =
@@ -280,6 +288,8 @@ public:
     double max_curvature,
     double reference_point_max_deviation_m)
   {
+    // 显式参数边界：
+    // x/y 可选地限制在参考点邻域；kappa 与 ds 始终受物理边界约束。
     const double clamped_max_curvature = std::max(max_curvature, 1e-6);
     for (size_t index = 0; index < state_count; ++index) {
       double * state = variables + 5 * index;
@@ -301,6 +311,7 @@ public:
 
   static std::vector<Eigen::Vector3d> unpackPath(const std::vector<double> & variables, size_t state_count)
   {
+    // 将求解变量回写为公共路径格式：(x, y, yaw)。
     std::vector<Eigen::Vector3d> path;
     path.reserve(state_count);
     for (size_t index = 0; index < state_count; ++index) {
