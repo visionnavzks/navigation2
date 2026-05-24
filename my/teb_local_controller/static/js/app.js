@@ -32,13 +32,19 @@ const statsEls = {
     referenceConfig: document.getElementById('reference-config'),
     limitsConfig: document.getElementById('limits-config'),
     weightsConfig: document.getElementById('weights-config'),
+    terminalWeightsConfig: document.getElementById('terminal-weights-config'),
     solverConfig: document.getElementById('solver-config'),
 };
+
+const dtRefInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="dt_ref"]');
+const dsInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="ds"]');
+const cruiseSpeedInput = paramForm?.querySelector('[data-param-group="reference"][data-param-key="cruise_speed"]');
+const dtRefPreview = document.getElementById('dt-ref-preview');
 
 const PARAM_HELP_TEXTS = {
     ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，跟踪更细，但优化变量更多、求解更慢。',
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
-    dt_ref: '名义时间步长，单位 s。优化中的 dt 会围绕它变化，w_dt 越大，实际 dt 越不愿意偏离这个值。',
+    dt_ref: '名义时间步长，单位 s。留空时会按 ds / cruise_speed 自动推导；填写后，优化中的 dt 会围绕该值变化，w_dt 越大，实际 dt 越不愿意偏离它。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
     arc_1_angle: '第一段圆弧的转角，输入单位 rad。正值表示逆时针，负值表示顺时针。0.785 rad 大约等于 45 deg。',
@@ -65,14 +71,15 @@ const PARAM_HELP_TEXTS = {
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
     w_pos: '位置跟踪权重。越大，优化越优先贴近参考路径的 x/y 位置，但控制代价和光滑性可能被压制。',
-    w_theta: '终端航向误差权重。当前实现中 theta 只在终点代价里使用，所以它主要决定末端朝向是否对齐。',
+    w_pos_terminal: '终端位置权重。越大，优化越强调最后一个点在 x/y 位置上贴近参考终点。',
+    w_theta: '终端航向误差权重。它只作用在最后一个点的航向误差，不再与速度或位置共用权重。',
     w_speed: '速度跟踪权重。越大，优化速度曲线越接近参考速度。',
+    w_speed_terminal: '终端速度权重。越大，优化越强调最后一个点的速度贴近参考终点速度。',
     w_accel: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用加速度参考，所以它目前不会改变结果。',
     w_kappa: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用曲率参考，所以它目前不会改变结果。',
     w_dt: '时间弹性权重。越大，dt 越接近 dt_ref；越小，优化越愿意拉伸或压缩时间分配。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
-    w_terminal: '终端状态权重。越大，优化越强调最后一个点在位置、速度和航向上贴近参考终点。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
     ipopt_tol: 'IPOPT 收敛容差。数值越小，解要求越严格，通常也会更慢。',
     ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印，更高值会输出更多求解细节。',
@@ -165,8 +172,48 @@ function applyConfigToForm(config) {
         const key = input.dataset.paramKey;
         if (Object.prototype.hasOwnProperty.call(groupedValues[group] || {}, key)) {
             input.value = groupedValues[group][key];
+        } else if (group === 'reference' && key === 'dt_ref') {
+            input.value = '';
         }
     });
+
+    updateDtRefPreview(config?.reference?.dt_ref);
+}
+
+function updateDtRefPreview(resolvedDtRef = null) {
+    if (!dtRefPreview || !dtRefInput || !dsInput || !cruiseSpeedInput) {
+        return;
+    }
+
+    const rawDtRef = dtRefInput.value.trim();
+    if (rawDtRef !== '') {
+        const manualDtRef = Number.parseFloat(rawDtRef);
+        if (Number.isFinite(manualDtRef) && manualDtRef > 0) {
+            dtRefPreview.textContent = `当前使用: ${formatNumber(manualDtRef, 3)} s`;
+            dtRefPreview.dataset.mode = 'manual';
+        } else {
+            dtRefPreview.textContent = 'dt_ref 需为正数';
+            dtRefPreview.dataset.mode = 'error';
+        }
+        return;
+    }
+
+    let autoDtRef = Number.parseFloat(resolvedDtRef);
+    if (!(Number.isFinite(autoDtRef) && autoDtRef > 0)) {
+        const ds = Number.parseFloat(dsInput.value.trim());
+        const cruiseSpeed = Number.parseFloat(cruiseSpeedInput.value.trim());
+        autoDtRef = Number.isFinite(ds) && ds > 0 && Number.isFinite(cruiseSpeed) && Math.abs(cruiseSpeed) > 0
+            ? ds / Math.abs(cruiseSpeed)
+            : Number.NaN;
+    }
+
+    if (Number.isFinite(autoDtRef) && autoDtRef > 0) {
+        dtRefPreview.textContent = `自动计算: ${formatNumber(autoDtRef, 3)} s`;
+        dtRefPreview.dataset.mode = 'auto';
+    } else {
+        dtRefPreview.textContent = '自动计算值不可用';
+        dtRefPreview.dataset.mode = 'error';
+    }
 }
 
 function collectParameterPayload() {
@@ -1102,6 +1149,8 @@ function renderConfig(data) {
     const limits = config.limits;
     const weights = config.weights;
     const solver = config.solver;
+    const processWeightKeys = ['w_pos', 'w_speed', 'w_accel', 'w_kappa', 'w_dt', 'w_jerk', 'w_dkappa'];
+    const terminalWeightKeys = ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
 
     statsEls.referenceConfig.innerHTML = `
         <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
@@ -1119,7 +1168,15 @@ function renderConfig(data) {
         ['max_dkappa', `${formatNumber(limits.max_dkappa, 2)} 1/(m*s)`],
     ].map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
-    statsEls.weightsConfig.innerHTML = Object.entries(weights)
+    statsEls.weightsConfig.innerHTML = processWeightKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
+        .map((key) => [key, weights[key]])
+        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
+        .join('');
+
+    statsEls.terminalWeightsConfig.innerHTML = terminalWeightKeys
+        .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
+        .map((key) => [key, weights[key]])
         .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
         .join('');
 
@@ -1456,10 +1513,14 @@ if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
 }
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
-    input.addEventListener('input', () => scheduleAutoReplan(input));
+    input.addEventListener('input', () => {
+        updateDtRefPreview();
+        scheduleAutoReplan(input);
+    });
 });
 updateLegendToggleStyles();
 updateAxisButtonStyles();
 initParameterTooltips();
 updateInitialHeadingControls(null);
+updateDtRefPreview();
 runRandomDemo();

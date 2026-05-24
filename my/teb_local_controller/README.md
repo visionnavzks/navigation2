@@ -51,7 +51,7 @@ $$
 \{x_{ref}, y_{ref}, \theta_{ref}, v_{ref}, a_{ref}, \kappa_{ref}, s_{ref}, dt_{ref}\}
 $$
 
-其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长，默认用于鼓励 `dt` 不要偏离名义值。
+其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长；若构造参考轨迹时未显式传入，则按 `ds / cruise_speed` 推导，并用于鼓励 `dt` 不要偏离名义值。
 
 ## 轨迹生成
 
@@ -253,7 +253,7 @@ $$
 
 ### 时间相关
 
-- `dt_ref = 0.1`
+- `dt_ref = 0.1`（控制器参数默认值；若 `build_reference_trajectory()` 未显式传入 `dt_ref`，则参考轨迹会按 `ds / cruise_speed` 自动推导）
 - `dt_min = 0.03`
 - `dt_max = 0.35`
 
@@ -269,14 +269,15 @@ $$
 ### 权重
 
 - `w_pos = 0.0`
+- `w_pos_terminal = 60.0`
 - `w_theta = 15.0`
 - `w_speed = 0.0`
+- `w_speed_terminal = 60.0`
 - `w_accel = 1.5`
 - `w_kappa = 2.0`
 - `w_dt = 10.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
-- `w_terminal = 60.0`
 
 ### IPOPT
 

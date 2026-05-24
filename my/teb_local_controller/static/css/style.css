@@ -198,6 +198,9 @@ h1 {
 .side-panel {
     display: grid;
     gap: 16px;
+}
+
+.side-panel {
     max-height: calc(100vh - 178px);
     overflow: auto;
 }
@@ -258,6 +261,25 @@ h1 {
 .param-field span {
     font-weight: 700;
     color: var(--ink);
+}
+
+.param-inline-note {
+    min-height: 1.2em;
+    font-size: 0.74rem;
+    line-height: 1.35;
+    color: var(--muted);
+}
+
+.param-inline-note[data-mode="auto"] {
+    color: var(--accent-strong);
+}
+
+.param-inline-note[data-mode="manual"] {
+    color: var(--muted);
+}
+
+.param-inline-note[data-mode="error"] {
+    color: #b42318;
 }
 
 .param-label-wrap {

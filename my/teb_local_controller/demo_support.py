@@ -17,13 +17,11 @@ from my.teb_local_controller.teb_mpc import (
 
 DEMO_REFERENCE_DS = 0.25
 DEMO_CRUISE_SPEED = 1.0
-DEMO_DT_REF = 0.1
 
 
 DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
     "ds": DEMO_REFERENCE_DS,
     "cruise_speed": DEMO_CRUISE_SPEED,
-    "dt_ref": DEMO_DT_REF,
     "line_1_length": 1.8,
     "arc_1_radius": 1.8,
     "arc_1_angle": math.pi / 4.0,
@@ -73,12 +71,13 @@ def default_demo_segments(reference_config: Dict[str, float] | None = None) -> L
 
 def default_demo_reference(reference_config: Dict[str, float] | None = None) -> ReferenceTrajectory:
     config = _merged_reference_config(reference_config)
+    dt_ref = config.get("dt_ref")
     return build_reference_trajectory(
         start=VehicleState(x=0.0, y=0.0, theta=0.0, v=0.6, a=0.0, kappa=0.0),
         segments=default_demo_segments(reference_config=config),
         ds=float(config["ds"]),
         cruise_speed=float(config["cruise_speed"]),
-        dt_ref=float(config["dt_ref"]),
+        dt_ref=float(dt_ref) if dt_ref is not None else None,
     )
 
 
@@ -91,6 +90,7 @@ def describe_demo_configuration(
     merged_reference = _merged_reference_config(reference_config)
     merged_sampling = _merged_sampling_config(sampling_config)
     segments = default_demo_segments(reference_config=merged_reference)
+    reference = default_demo_reference(reference_config=merged_reference)
     segment_descriptions = []
     for segment in segments:
         if isinstance(segment, LineSegment):
@@ -104,7 +104,7 @@ def describe_demo_configuration(
         "reference": {
             "ds": float(merged_reference["ds"]),
             "cruise_speed": float(merged_reference["cruise_speed"]),
-            "dt_ref": float(merged_reference["dt_ref"]),
+            "dt_ref": float(reference.dt_ref),
             "segment_descriptions": segment_descriptions,
             "segment_count": len(segments),
             "target_length": float(sum(segment.length for segment in segments)),
@@ -125,14 +125,15 @@ def describe_demo_configuration(
         },
         "weights": {
             "w_pos": controller.w_pos,
+            "w_pos_terminal": controller.w_pos_terminal,
             "w_theta": controller.w_theta,
             "w_speed": controller.w_speed,
+            "w_speed_terminal": controller.w_speed_terminal,
             "w_accel": controller.w_accel,
             "w_kappa": controller.w_kappa,
             "w_dt": controller.w_dt,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
-            "w_terminal": controller.w_terminal,
         },
         "solver": {
             "ipopt_max_iter": controller.ipopt_max_iter,

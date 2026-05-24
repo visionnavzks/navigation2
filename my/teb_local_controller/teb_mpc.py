@@ -43,6 +43,19 @@ class ArcSegment:
 PathSegment = Union[LineSegment, ArcSegment]
 
 
+def _resolve_dt_ref(ds: float, cruise_speed: float, dt_ref: float | None) -> float:
+    if dt_ref is not None:
+        resolved_dt_ref = float(dt_ref)
+        if resolved_dt_ref <= 0.0:
+            raise ValueError("dt_ref must be positive")
+        return resolved_dt_ref
+
+    nominal_speed = abs(float(cruise_speed))
+    if nominal_speed <= 0.0:
+        raise ValueError("cruise_speed must be non-zero when dt_ref is omitted")
+    return float(ds) / nominal_speed
+
+
 @dataclass(frozen=True)
 class ReferenceTrajectory:
     x: np.ndarray
@@ -116,12 +129,12 @@ def build_reference_trajectory(
     segments: Sequence[PathSegment],
     ds: float = 0.2,
     cruise_speed: float = 1.0,
-    dt_ref: float = 0.1,
+    dt_ref: float | None = None,
 ) -> ReferenceTrajectory:
     if ds <= 0.0:
         raise ValueError("ds must be positive")
-    if dt_ref <= 0.0:
-        raise ValueError("dt_ref must be positive")
+
+    resolved_dt_ref = _resolve_dt_ref(ds, cruise_speed, dt_ref)
 
     samples: List[Tuple[float, float, float, float]] = [(start.x, start.y, start.theta, 0.0)]
     curvatures = [start.kappa]
@@ -152,7 +165,7 @@ def build_reference_trajectory(
     if x.shape[0] > 0:
         a[0] = start.a
 
-    return ReferenceTrajectory(x=x, y=y, theta=theta, v=v, a=a, kappa=kappa, s=s, dt_ref=float(dt_ref))
+    return ReferenceTrajectory(x=x, y=y, theta=theta, v=v, a=a, kappa=kappa, s=s, dt_ref=resolved_dt_ref)
 
 
 class TEBMPCController:
@@ -170,15 +183,22 @@ class TEBMPCController:
         self.max_jerk = float(self.params.get("max_jerk", 3.0))
         self.max_kappa = float(self.params.get("max_kappa", 2.0))
         self.max_dkappa = float(self.params.get("max_dkappa", 1.5))
+        legacy_w_terminal = self.params.get("w_terminal")
+        legacy_terminal_default = float(legacy_w_terminal) if legacy_w_terminal is not None else None
         self.w_pos = float(self.params.get("w_pos", 0.0))
-        self.w_theta = float(self.params.get("w_theta", 15.0))
+        self.w_pos_terminal = float(
+            self.params.get("w_pos_terminal", legacy_terminal_default if legacy_terminal_default is not None else 60.0)
+        )
+        self.w_theta = float(self.params.get("w_theta", legacy_terminal_default if legacy_terminal_default is not None else 15.0))
         self.w_speed = float(self.params.get("w_speed", 0.0))
+        self.w_speed_terminal = float(
+            self.params.get("w_speed_terminal", legacy_terminal_default if legacy_terminal_default is not None else 60.0)
+        )
         self.w_accel = float(self.params.get("w_accel", 1.5))
         self.w_kappa = float(self.params.get("w_kappa", 2.0))
         self.w_dt = float(self.params.get("w_dt", 10.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
-        self.w_terminal = float(self.params.get("w_terminal", 60.0))
         self.ipopt_max_iter = int(self.params.get("ipopt_max_iter", 500))
         self.ipopt_tol = float(self.params.get("ipopt_tol", 1e-6))
         self.ipopt_print_level = int(self.params.get("ipopt_print_level", 0))
@@ -212,12 +232,9 @@ class TEBMPCController:
             cost_control += self.w_jerk * jerk[i] ** 2
             cost_control += self.w_dkappa * dkappa[i] ** 2
 
-        terminal_cost = self.w_terminal * (
-            (x[-1] - reference.x[-1]) ** 2
-            + (y[-1] - reference.y[-1]) ** 2
-            + (v[-1] - reference.v[-1]) ** 2
-            + (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
-        )
+        terminal_cost = self.w_pos_terminal * ((x[-1] - reference.x[-1]) ** 2 + (y[-1] - reference.y[-1]) ** 2)
+        terminal_cost += self.w_speed_terminal * (v[-1] - reference.v[-1]) ** 2
+        terminal_cost += self.w_theta * (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
         opti.minimize(cost_track + cost_control + terminal_cost)
 
         for i in range(n - 1):
