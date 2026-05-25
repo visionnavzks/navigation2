@@ -198,13 +198,13 @@ w_{time}dt_i
 + w_{jerk} jerk_i^2
 + w_{d\kappa} d\kappa_i^2
 \Big]
- + \sum_{i>0} w_{dt}(dt_i-dt_{i-1})^2
+ + \sum_{i>0} w_{dt\_smooth}(dt_i-dt_{i-1})^2
 $$
 
 解释：
 
 - `w_time` 直接推动总时间变短
-- `w_dt` 控制相邻时间步长的平滑程度
+- `w_dt_smooth` 控制相邻时间步长的平滑程度
 - `w_jerk` 抑制过大的加加速度
 - `w_dkappa` 抑制曲率变化过快
 
@@ -281,7 +281,7 @@ $$
 - `w_pos_terminal_real = 60.0`（真实路径终点）
 - `w_theta_terminal_real = 15.0`（真实路径终点）
 - `w_speed_terminal_real = 60.0`（真实路径终点）
-- `w_dt = 10.0`
+- `w_dt_smooth = 10.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
 

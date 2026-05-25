@@ -267,7 +267,8 @@ class TEBMPCController:
         )
         self.w_theta_terminal_real = float(self.params.get("w_theta_terminal_real", 15.0))
         self.w_speed_terminal_real = float(self.params.get("w_speed_terminal_real", 60.0))
-        self.w_dt = float(self.params.get("w_dt", 10.0))
+        self.w_dt_smooth = float(self.params.get("w_dt_smooth", self.params.get("w_dt", 10.0)))
+        self.w_dt = self.w_dt_smooth
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
         self.ipopt_max_iter = int(self.params.get("ipopt_max_iter", 500))
@@ -310,7 +311,7 @@ class TEBMPCController:
             cost_control += self.w_dkappa * dkappa[i] ** 2
 
         for i in range(n - 2):
-            cost_control += self.w_dt * (dt[i + 1] - dt[i]) ** 2
+            cost_control += self.w_dt_smooth * (dt[i + 1] - dt[i]) ** 2
 
         if _reference_targets_real_terminal(reference, real_terminal_state):
             terminal_target = real_terminal_state

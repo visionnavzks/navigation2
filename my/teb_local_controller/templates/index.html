@@ -49,6 +49,7 @@
                             <label class="param-field"><span>cruise_speed</span><input data-param-group="reference" data-param-key="cruise_speed" type="number" step="0.05" value="1.0"></label>
                             <label class="param-field"><span>dt_ref</span><input data-param-group="reference" data-param-key="dt_ref" type="number" step="0.01" placeholder="auto = ds / cruise_speed"><small id="dt-ref-preview" class="param-inline-note" aria-live="polite">自动计算: --</small></label>
                             <label class="param-field"><span>selection_length</span><input data-param-group="reference" data-param-key="selection_length" type="number" step="0.1" value="0.0"><small class="param-inline-note">0 = 从投影点一直取到路径终点</small></label>
+                            <label class="param-field"><span>near_terminal_s_tol</span><input data-param-group="reference" data-param-key="near_terminal_s_tol" type="number" step="0.05" value="0.0"><small class="param-inline-note">0 = 自动按参考采样间距触发 stopping</small></label>
                             <label class="param-field param-field-wide"><span>extra_points</span><div class="param-range-header"><small id="extra-points-preview" class="param-inline-note" aria-live="polite">当前调整: +0</small><small class="param-inline-note">负值减点，最少保留 2 个</small></div><input class="param-range" data-param-group="reference" data-param-key="extra_points" data-param-type="int" type="range" min="-20" max="20" step="1" value="0"><div class="param-range-scale"><span>-20</span><span>0</span><span>+20</span></div></label>
                             <label class="param-field"><span>line_1_length</span><input data-param-group="reference" data-param-key="line_1_length" type="number" step="0.05" value="1.8"></label>
                             <label class="param-field"><span>arc_1_radius</span><input data-param-group="reference" data-param-key="arc_1_radius" type="number" step="0.05" value="1.8"></label>
@@ -96,7 +97,7 @@
                             <label class="param-field"><span>w_pos</span><input data-param-group="controller" data-param-key="w_pos" type="number" step="0.1" value="0.0"></label>
                             <label class="param-field"><span>w_speed</span><input data-param-group="controller" data-param-key="w_speed" type="number" step="0.1" value="0.0"></label>
                             <label class="param-field"><span>w_time</span><input data-param-group="controller" data-param-key="w_time" type="number" step="0.1" value="1.0"></label>
-                            <label class="param-field"><span>w_dt</span><input data-param-group="controller" data-param-key="w_dt" type="number" step="0.1" value="10.0"></label>
+                            <label class="param-field"><span>w_dt_smooth</span><input data-param-group="controller" data-param-key="w_dt_smooth" type="number" step="0.1" value="10.0"></label>
                             <label class="param-field"><span>w_jerk</span><input data-param-group="controller" data-param-key="w_jerk" type="number" step="0.1" value="0.5"></label>
                             <label class="param-field"><span>w_dkappa</span><input data-param-group="controller" data-param-key="w_dkappa" type="number" step="0.1" value="0.5"></label>
                         </div>

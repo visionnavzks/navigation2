@@ -64,6 +64,7 @@ const PARAM_HELP_TEXTS = {
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
     dt_ref: '名义时间步长，单位 s。留空时会按 ds / cruise_speed 自动推导；它主要用于给 dt 提供初始化尺度，并用于构造停车参考。',
     selection_length: '从当前状态投影点开始，最多截取多少米参考路径用于本次优化。0 表示一直取到当前路径终点。',
+    near_terminal_s_tol: '近终点 stopping 触发阈值，单位 m，按参考的 s 轴纵向剩余距离判断。0 表示自动按参考采样间距估计；当剩余距离小于该阈值时，直接切到停车参考。',
     extra_points: '对齐后的参考轨迹点数调整量。正值会额外插入优化点，负值会减少一些点，但最终至少保留 2 个点。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
@@ -104,7 +105,7 @@ const PARAM_HELP_TEXTS = {
     w_pos_terminal_real_longitudinal: '真实路径终点纵向误差权重。只在 terminal_cost_mode = terminal_frame 时使用。',
     w_theta_terminal_real: '真实路径终点航向权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_speed_terminal_real: '真实路径终点速度权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
-    w_dt: 'dt 平滑权重。越大，相邻时间步长越不愿意突然跳变；越小，dt 分配可以更不均匀。',
+    w_dt_smooth: 'dt 平滑权重。惩罚相邻时间步长的差异，越大则 dt 分配越平滑、越不容易突然跳变；越小则允许某些段的 dt 更集中地压缩或拉长。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
@@ -1367,7 +1368,7 @@ function renderConfig(data) {
     const weights = config.weights;
     const solver = config.solver;
     const terminalCostMode = weights.terminal_cost_mode || 'terminal_frame';
-    const processWeightKeys = ['w_pos', 'w_speed', 'w_time', 'w_dt', 'w_jerk', 'w_dkappa'];
+    const processWeightKeys = ['w_pos', 'w_speed', 'w_time', 'w_dt_smooth', 'w_jerk', 'w_dkappa'];
     const processTerminalWeightKeys = terminalCostMode === 'terminal_frame'
         ? ['w_pos_terminal_lateral', 'w_pos_terminal_longitudinal', 'w_speed_terminal', 'w_theta']
         : ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
@@ -1375,6 +1376,7 @@ function renderConfig(data) {
         ? ['w_pos_terminal_real_lateral', 'w_pos_terminal_real_longitudinal', 'w_speed_terminal_real', 'w_theta_terminal_real']
         : ['w_pos_terminal_real', 'w_speed_terminal_real', 'w_theta_terminal_real'];
     const extraPoints = Number.parseInt(reference.params?.extra_points ?? 0, 10) || 0;
+    const nearTerminalSTol = Number.parseFloat(reference.params?.near_terminal_s_tol ?? 0) || 0;
     const selectionLength = Number.parseFloat(reference.params?.selection_length ?? 0) || 0;
     const activeReferenceLength = Array.isArray(data.reference?.s) && data.reference.s.length > 0
         ? Number(data.reference.s[data.reference.s.length - 1])
@@ -1394,6 +1396,7 @@ function renderConfig(data) {
     statsEls.referenceConfig.innerHTML = `
         <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
         <div class="config-stack">selection_length = ${selectionLength > 0 ? `${formatNumber(selectionLength, 2)} m` : 'to end'}, active = ${formatNumber(activeReferenceLength, 2)} m</div>
+        <div class="config-stack">near_terminal_s_tol = ${nearTerminalSTol > 0 ? `${formatNumber(nearTerminalSTol, 2)} m` : 'auto (sample spacing)'}</div>
         <div class="config-stack">extra_points = ${extraPoints}</div>
         <div class="config-stack">segments (${reference.segment_count})</div>
         ${reference.segment_descriptions.map((segment) => `<div class="config-stack">${segment}</div>`).join('')}

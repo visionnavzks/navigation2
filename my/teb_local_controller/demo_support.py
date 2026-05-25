@@ -23,6 +23,7 @@ DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
     "ds": DEMO_REFERENCE_DS,
     "cruise_speed": DEMO_CRUISE_SPEED,
     "selection_length": 0.0,
+    "near_terminal_s_tol": 0.0,
     "extra_points": 0,
     "line_1_length": 1.8,
     "arc_1_radius": 1.8,
@@ -80,6 +81,22 @@ def _resolve_selection_length(selection_length: float | None) -> float | None:
     if resolved_selection_length <= 0.0:
         return None
     return resolved_selection_length
+
+
+def _resolve_near_terminal_s_tol(reference: ReferenceTrajectory, near_terminal_s_tol: float | None) -> float:
+    if near_terminal_s_tol is not None:
+        resolved_near_terminal_s_tol = float(near_terminal_s_tol)
+        if resolved_near_terminal_s_tol > 0.0:
+            return resolved_near_terminal_s_tol
+
+    if reference.size < 2:
+        return 0.0
+
+    positive_spacings = np.diff(np.array(reference.s, dtype=float))
+    positive_spacings = positive_spacings[positive_spacings > 1e-9]
+    if positive_spacings.size == 0:
+        return 0.0
+    return float(np.median(positive_spacings))
 
 
 def default_demo_segments(reference_config: Dict[str, float] | None = None) -> List[LineSegment | ArcSegment]:
@@ -173,7 +190,7 @@ def describe_demo_configuration(
             "w_pos_terminal_real_longitudinal": controller.w_pos_terminal_real_longitudinal,
             "w_theta_terminal_real": controller.w_theta_terminal_real,
             "w_speed_terminal_real": controller.w_speed_terminal_real,
-            "w_dt": controller.w_dt,
+            "w_dt_smooth": controller.w_dt_smooth,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
         },
@@ -482,12 +499,14 @@ def align_reference_to_projection(
     state: VehicleState,
     extra_points: int = 0,
     selection_length: float | None = None,
+    near_terminal_s_tol: float | None = None,
 ) -> ReferenceTrajectory:
     aligned_reference, _ = align_reference_to_projection_with_constraints(
         reference,
         state,
         extra_points=extra_points,
         selection_length=selection_length,
+        near_terminal_s_tol=near_terminal_s_tol,
     )
     return aligned_reference
 
@@ -498,12 +517,17 @@ def align_reference_to_projection_with_constraints(
     stop_constraints: Dict[str, float] | None = None,
     extra_points: int = 0,
     selection_length: float | None = None,
+    near_terminal_s_tol: float | None = None,
 ) -> Tuple[ReferenceTrajectory, Dict[str, object]]:
     resolved_extra_points = _resolve_extra_points(extra_points)
     resolved_selection_length = _resolve_selection_length(selection_length)
     projection = project_state_onto_reference(reference, state)
+    projection_s = float(projection["s"])
     end_s = float(reference.s[-1])
-    if float(projection["s"]) > end_s:
+    resolved_near_terminal_s_tol = _resolve_near_terminal_s_tol(reference, near_terminal_s_tol)
+    remaining_s = end_s - projection_s
+    if projection_s > end_s or remaining_s <= resolved_near_terminal_s_tol:
+        stop_mode = "beyond_end_stop" if projection_s > end_s else "near_end_stop"
         return (
             _build_stopping_reference(
                 state=state,
@@ -513,8 +537,10 @@ def align_reference_to_projection_with_constraints(
                 stop_constraints=stop_constraints,
             ),
             {
-                "mode": "beyond_end_stop",
+                "mode": stop_mode,
                 "is_stopping_reference": True,
+                "remaining_s": float(remaining_s),
+                "near_terminal_s_tol": float(resolved_near_terminal_s_tol),
                 "end_extension_line": {
                     "x": float(reference.x[-1]),
                     "y": float(reference.y[-1]),
@@ -565,6 +591,7 @@ def run_random_demo(
     merged_reference = _merged_reference_config(reference_config)
     extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
     selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    near_terminal_s_tol = float(merged_reference.get("near_terminal_s_tol", 0.0))
     base_reference = default_demo_reference(reference_config=merged_reference)
     real_terminal_state = _reference_terminal_state(base_reference)
     initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
@@ -580,6 +607,7 @@ def run_random_demo(
         stop_constraints=stop_constraints,
         extra_points=extra_points,
         selection_length=selection_length,
+        near_terminal_s_tol=near_terminal_s_tol,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
@@ -594,6 +622,7 @@ def solve_demo(
     merged_reference = _merged_reference_config(reference_config)
     extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
     selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    near_terminal_s_tol = float(merged_reference.get("near_terminal_s_tol", 0.0))
     base_reference = default_demo_reference(reference_config=merged_reference)
     real_terminal_state = _reference_terminal_state(base_reference)
     controller = TEBMPCController(params=params)
@@ -608,6 +637,7 @@ def solve_demo(
         stop_constraints=stop_constraints,
         extra_points=extra_points,
         selection_length=selection_length,
+        near_terminal_s_tol=near_terminal_s_tol,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
@@ -623,6 +653,7 @@ def demo_problem(
     merged_reference = _merged_reference_config(reference_config)
     extra_points = _resolve_extra_points(merged_reference.get("extra_points"))
     selection_length = _resolve_selection_length(merged_reference.get("selection_length"))
+    near_terminal_s_tol = float(merged_reference.get("near_terminal_s_tol", 0.0))
     real_terminal_state = _reference_terminal_state(default_demo_reference(reference_config=merged_reference))
     stop_constraints = {
         "max_lat_accel": controller.max_lat_accel,
@@ -635,6 +666,7 @@ def demo_problem(
         stop_constraints=stop_constraints,
         extra_points=extra_points,
         selection_length=selection_length,
+        near_terminal_s_tol=near_terminal_s_tol,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference, real_terminal_state=real_terminal_state)
     solution["reference_meta"] = reference_meta
