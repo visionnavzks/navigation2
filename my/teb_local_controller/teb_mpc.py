@@ -76,6 +76,46 @@ def _reference_targets_real_terminal(
     )
 
 
+def _resolve_terminal_cost_mode(mode: object) -> str:
+    resolved_mode = str(mode or "world_xy")
+    if resolved_mode not in {"world_xy", "terminal_frame"}:
+        raise ValueError("terminal_cost_mode must be 'world_xy' or 'terminal_frame'")
+    return resolved_mode
+
+
+def _reference_terminal_state(reference: "ReferenceTrajectory") -> VehicleState:
+    return VehicleState(
+        x=float(reference.x[-1]),
+        y=float(reference.y[-1]),
+        theta=float(reference.theta[-1]),
+        v=float(reference.v[-1]),
+        a=float(reference.a[-1]),
+        kappa=float(reference.kappa[-1]),
+    )
+
+
+def _terminal_position_cost(
+    x_terminal: ca.MX,
+    y_terminal: ca.MX,
+    target_state: VehicleState,
+    mode: str,
+    world_weight: float,
+    lateral_weight: float,
+    longitudinal_weight: float,
+) -> ca.MX:
+    delta_x = x_terminal - target_state.x
+    delta_y = y_terminal - target_state.y
+
+    if mode == "world_xy":
+        return world_weight * (delta_x ** 2 + delta_y ** 2)
+
+    target_cos = math.cos(target_state.theta)
+    target_sin = math.sin(target_state.theta)
+    longitudinal_error = target_cos * delta_x + target_sin * delta_y
+    lateral_error = -target_sin * delta_x + target_cos * delta_y
+    return longitudinal_weight * longitudinal_error ** 2 + lateral_weight * lateral_error ** 2
+
+
 @dataclass(frozen=True)
 class ReferenceTrajectory:
     x: np.ndarray
@@ -189,7 +229,7 @@ def build_reference_trajectory(
 
 
 class TEBMPCController:
-    def __init__(self, params: Dict[str, float] | None = None):
+    def __init__(self, params: Dict[str, float | str] | None = None):
         self.params = params or {}
         self._load_parameters()
 
@@ -209,6 +249,9 @@ class TEBMPCController:
         self.w_pos_terminal = float(
             self.params.get("w_pos_terminal", legacy_terminal_default if legacy_terminal_default is not None else 30.0)
         )
+        self.terminal_cost_mode = _resolve_terminal_cost_mode(self.params.get("terminal_cost_mode", "terminal_frame"))
+        self.w_pos_terminal_lateral = float(self.params.get("w_pos_terminal_lateral", self.w_pos_terminal))
+        self.w_pos_terminal_longitudinal = float(self.params.get("w_pos_terminal_longitudinal", self.w_pos_terminal))
         self.w_theta = float(self.params.get("w_theta", legacy_terminal_default if legacy_terminal_default is not None else 15.0))
         self.w_speed = float(self.params.get("w_speed", 0.0))
         self.w_time = float(self.params.get("w_time", 1.0))
@@ -216,6 +259,12 @@ class TEBMPCController:
             self.params.get("w_speed_terminal", legacy_terminal_default if legacy_terminal_default is not None else 0.0)
         )
         self.w_pos_terminal_real = float(self.params.get("w_pos_terminal_real", 60.0))
+        self.w_pos_terminal_real_lateral = float(
+            self.params.get("w_pos_terminal_real_lateral", self.w_pos_terminal_real)
+        )
+        self.w_pos_terminal_real_longitudinal = float(
+            self.params.get("w_pos_terminal_real_longitudinal", self.w_pos_terminal_real)
+        )
         self.w_theta_terminal_real = float(self.params.get("w_theta_terminal_real", 15.0))
         self.w_speed_terminal_real = float(self.params.get("w_speed_terminal_real", 60.0))
         self.w_dt = float(self.params.get("w_dt", 10.0))
@@ -264,15 +313,31 @@ class TEBMPCController:
             cost_control += self.w_dt * (dt[i + 1] - dt[i]) ** 2
 
         if _reference_targets_real_terminal(reference, real_terminal_state):
-            terminal_cost = self.w_pos_terminal_real * (
-                (x[-1] - real_terminal_state.x) ** 2 + (y[-1] - real_terminal_state.y) ** 2
+            terminal_target = real_terminal_state
+            terminal_cost = _terminal_position_cost(
+                x[-1],
+                y[-1],
+                terminal_target,
+                self.terminal_cost_mode,
+                self.w_pos_terminal_real,
+                self.w_pos_terminal_real_lateral,
+                self.w_pos_terminal_real_longitudinal,
             )
-            terminal_cost += self.w_speed_terminal_real * (v[-1] - real_terminal_state.v) ** 2
-            terminal_cost += self.w_theta_terminal_real * (1.0 - ca.cos(theta[-1] - real_terminal_state.theta))
+            terminal_cost += self.w_speed_terminal_real * (v[-1] - reference.v[-1]) ** 2
+            terminal_cost += self.w_theta_terminal_real * (1.0 - ca.cos(theta[-1] - terminal_target.theta))
         else:
-            terminal_cost = self.w_pos_terminal * ((x[-1] - reference.x[-1]) ** 2 + (y[-1] - reference.y[-1]) ** 2)
+            terminal_target = _reference_terminal_state(reference)
+            terminal_cost = _terminal_position_cost(
+                x[-1],
+                y[-1],
+                terminal_target,
+                self.terminal_cost_mode,
+                self.w_pos_terminal,
+                self.w_pos_terminal_lateral,
+                self.w_pos_terminal_longitudinal,
+            )
             terminal_cost += self.w_speed_terminal * (v[-1] - reference.v[-1]) ** 2
-            terminal_cost += self.w_theta * (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
+            terminal_cost += self.w_theta * (1.0 - ca.cos(theta[-1] - terminal_target.theta))
 
         opti.minimize(cost_track + cost_control + terminal_cost)
 

@@ -103,10 +103,26 @@
                     </details>
 
                     <details class="config-block">
+                        <summary>终点代价模式</summary>
+                        <p class="panel-note">默认 `terminal_frame` 使用终点切向坐标系下的横向/纵向误差。终点速度惩罚固定使用当前参考轨迹最后一个点的速度；在当前参考构造里这个值通常是 0。</p>
+                        <div class="param-grid param-grid-single">
+                            <label class="param-field">
+                                <span>terminal_cost_mode</span>
+                                <select data-param-group="controller" data-param-key="terminal_cost_mode" data-param-type="string">
+                                    <option value="terminal_frame" selected>terminal_frame</option>
+                                    <option value="world_xy">world_xy</option>
+                                </select>
+                            </label>
+                        </div>
+                    </details>
+
+                    <details class="config-block">
                         <summary>过程终点权重</summary>
-                        <p class="panel-note">这组权重只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。</p>
+                        <p class="panel-note">这组权重只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。`world_xy` 使用 `w_pos_terminal`，`terminal_frame` 使用横向/纵向权重。</p>
                         <div class="param-grid">
                             <label class="param-field"><span>w_pos_terminal</span><input data-param-group="controller" data-param-key="w_pos_terminal" type="number" step="0.1" value="30.0"></label>
+                            <label class="param-field"><span>w_pos_terminal_lateral</span><input data-param-group="controller" data-param-key="w_pos_terminal_lateral" type="number" step="0.1" value="30.0"></label>
+                            <label class="param-field"><span>w_pos_terminal_longitudinal</span><input data-param-group="controller" data-param-key="w_pos_terminal_longitudinal" type="number" step="0.1" value="30.0"></label>
                             <label class="param-field"><span>w_speed_terminal</span><input data-param-group="controller" data-param-key="w_speed_terminal" type="number" step="0.1" value="0.0"></label>
                             <label class="param-field"><span>w_theta</span><input data-param-group="controller" data-param-key="w_theta" type="number" step="0.1" value="15.0"></label>
                         </div>
@@ -114,9 +130,11 @@
 
                     <details class="config-block">
                         <summary>真实路径终点权重</summary>
-                        <p class="panel-note">这组权重只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。</p>
+                        <p class="panel-note">这组权重只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。`world_xy` 使用 `w_pos_terminal_real`，`terminal_frame` 使用横向/纵向权重。</p>
                         <div class="param-grid">
                             <label class="param-field"><span>w_pos_terminal_real</span><input data-param-group="controller" data-param-key="w_pos_terminal_real" type="number" step="0.1" value="60.0"></label>
+                            <label class="param-field"><span>w_pos_terminal_real_lateral</span><input data-param-group="controller" data-param-key="w_pos_terminal_real_lateral" type="number" step="0.1" value="60.0"></label>
+                            <label class="param-field"><span>w_pos_terminal_real_longitudinal</span><input data-param-group="controller" data-param-key="w_pos_terminal_real_longitudinal" type="number" step="0.1" value="60.0"></label>
                             <label class="param-field"><span>w_speed_terminal_real</span><input data-param-group="controller" data-param-key="w_speed_terminal_real" type="number" step="0.1" value="60.0"></label>
                             <label class="param-field"><span>w_theta_terminal_real</span><input data-param-group="controller" data-param-key="w_theta_terminal_real" type="number" step="0.1" value="15.0"></label>
                         </div>
@@ -291,11 +309,11 @@
                     </details>
                     <details class="config-block">
                         <summary>过程终点权重</summary>
-                        <div id="terminal-weights-config" class="config-list"></div>
+                        <div id="terminal-weights-config" class="config-list dense"></div>
                     </details>
                     <details class="config-block">
                         <summary>真实路径终点权重</summary>
-                        <div id="real-terminal-weights-config" class="config-list"></div>
+                        <div id="real-terminal-weights-config" class="config-list dense"></div>
                     </details>
                     <details class="config-block">
                         <summary>求解器</summary>

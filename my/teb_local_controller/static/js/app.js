@@ -91,12 +91,17 @@ const PARAM_HELP_TEXTS = {
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
     w_pos: '位置跟踪权重。越大，优化越优先贴近参考路径的 x/y 位置，但控制代价和光滑性可能被压制。',
-    w_pos_terminal: '过程终点位置权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
+    terminal_cost_mode: '终点代价的位置误差表达方式。world_xy 使用世界坐标下的末端位置二范数；terminal_frame 使用终点切向坐标系下的横向/纵向误差。',
+    w_pos_terminal: '过程终点位置权重。只在 terminal_cost_mode = world_xy 时使用。',
+    w_pos_terminal_lateral: '过程终点横向误差权重。只在 terminal_cost_mode = terminal_frame 时使用；越大越强调贴近终点切线。',
+    w_pos_terminal_longitudinal: '过程终点纵向误差权重。只在 terminal_cost_mode = terminal_frame 时使用；越小越不执着于沿终点切向追满尾部。',
     w_theta: '过程终点航向权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
     w_speed: '速度跟踪权重。越大，优化速度曲线越接近参考速度。',
     w_time: '总时间权重。越大，优化越倾向于减小 sum(dt)，也就是缩短总时域。',
     w_speed_terminal: '过程终点速度权重。只在当前优化终点不是原始路径真正终点时使用；与真实路径终点权重二选一，不叠加。',
-    w_pos_terminal_real: '真实路径终点位置权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
+    w_pos_terminal_real: '真实路径终点位置权重。只在 terminal_cost_mode = world_xy 时使用。',
+    w_pos_terminal_real_lateral: '真实路径终点横向误差权重。只在 terminal_cost_mode = terminal_frame 时使用。',
+    w_pos_terminal_real_longitudinal: '真实路径终点纵向误差权重。只在 terminal_cost_mode = terminal_frame 时使用。',
     w_theta_terminal_real: '真实路径终点航向权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_speed_terminal_real: '真实路径终点速度权重。只在当前优化目标就是原始路径真正终点时使用；与过程终点权重二选一，不叠加。',
     w_dt: 'dt 平滑权重。越大，相邻时间步长越不愿意突然跳变；越小，dt 分配可以更不均匀。',
@@ -271,8 +276,15 @@ function collectParameterPayload() {
         if (rawValue === '') {
             return;
         }
-        const value = input.dataset.paramType === 'int' ? Number.parseInt(rawValue, 10) : Number.parseFloat(rawValue);
-        if (Number.isNaN(value)) {
+        let value;
+        if (input.dataset.paramType === 'string') {
+            value = rawValue;
+        } else if (input.dataset.paramType === 'int') {
+            value = Number.parseInt(rawValue, 10);
+        } else {
+            value = Number.parseFloat(rawValue);
+        }
+        if (input.dataset.paramType !== 'string' && Number.isNaN(value)) {
             return;
         }
         payload[targetMap[input.dataset.paramGroup]][input.dataset.paramKey] = value;
@@ -1354,14 +1366,30 @@ function renderConfig(data) {
     const limits = config.limits;
     const weights = config.weights;
     const solver = config.solver;
+    const terminalCostMode = weights.terminal_cost_mode || 'terminal_frame';
     const processWeightKeys = ['w_pos', 'w_speed', 'w_time', 'w_dt', 'w_jerk', 'w_dkappa'];
-    const processTerminalWeightKeys = ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
-    const realTerminalWeightKeys = ['w_pos_terminal_real', 'w_speed_terminal_real', 'w_theta_terminal_real'];
+    const processTerminalWeightKeys = terminalCostMode === 'terminal_frame'
+        ? ['w_pos_terminal_lateral', 'w_pos_terminal_longitudinal', 'w_speed_terminal', 'w_theta']
+        : ['w_pos_terminal', 'w_speed_terminal', 'w_theta'];
+    const realTerminalWeightKeys = terminalCostMode === 'terminal_frame'
+        ? ['w_pos_terminal_real_lateral', 'w_pos_terminal_real_longitudinal', 'w_speed_terminal_real', 'w_theta_terminal_real']
+        : ['w_pos_terminal_real', 'w_speed_terminal_real', 'w_theta_terminal_real'];
     const extraPoints = Number.parseInt(reference.params?.extra_points ?? 0, 10) || 0;
     const selectionLength = Number.parseFloat(reference.params?.selection_length ?? 0) || 0;
     const activeReferenceLength = Array.isArray(data.reference?.s) && data.reference.s.length > 0
         ? Number(data.reference.s[data.reference.s.length - 1])
         : 0;
+    const renderConfigRows = (rows) => rows
+        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${typeof value === 'number' ? formatNumber(value, 2) : value}</strong></div>`)
+        .join('');
+    const renderConfigGroup = (title, rows) => `
+        <div class="config-subgroup">
+            <div class="config-subgroup-title">${title}</div>
+            <div class="config-subgroup-body">
+                ${renderConfigRows(rows)}
+            </div>
+        </div>
+    `;
 
     statsEls.referenceConfig.innerHTML = `
         <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
@@ -1387,17 +1415,29 @@ function renderConfig(data) {
         .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
         .join('');
 
-    statsEls.terminalWeightsConfig.innerHTML = processTerminalWeightKeys
-        .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
-        .map((key) => [key, weights[key]])
-        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
-        .join('');
+    statsEls.terminalWeightsConfig.innerHTML = [
+        renderConfigGroup('模式与收敛', [
+            ['terminal_cost_mode', terminalCostMode],
+            ['w_speed_terminal', weights.w_speed_terminal],
+            ['w_theta', weights.w_theta],
+        ].filter(([_label, value]) => value !== undefined)),
+        renderConfigGroup('位置权重', processTerminalWeightKeys
+            .filter((key) => key.startsWith('w_pos_'))
+            .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
+            .map((key) => [key, weights[key]])),
+    ].join('');
 
-    statsEls.realTerminalWeightsConfig.innerHTML = realTerminalWeightKeys
-        .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
-        .map((key) => [key, weights[key]])
-        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
-        .join('');
+    statsEls.realTerminalWeightsConfig.innerHTML = [
+        renderConfigGroup('模式与收敛', [
+            ['terminal_cost_mode', terminalCostMode],
+            ['w_speed_terminal_real', weights.w_speed_terminal_real],
+            ['w_theta_terminal_real', weights.w_theta_terminal_real],
+        ].filter(([_label, value]) => value !== undefined)),
+        renderConfigGroup('位置权重', realTerminalWeightKeys
+            .filter((key) => key.startsWith('w_pos_'))
+            .filter((key) => Object.prototype.hasOwnProperty.call(weights, key))
+            .map((key) => [key, weights[key]])),
+    ].join('');
 
     statsEls.solverConfig.innerHTML = [
         ['ipopt_max_iter', solver.ipopt_max_iter],

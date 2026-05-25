@@ -117,7 +117,7 @@ def _reference_terminal_state(reference: ReferenceTrajectory) -> VehicleState:
 
 
 def describe_demo_configuration(
-    params: Dict[str, float] | None = None,
+    params: Dict[str, float | str] | None = None,
     reference_config: Dict[str, float] | None = None,
     sampling_config: Dict[str, float] | None = None,
 ) -> Dict[str, object]:
@@ -160,12 +160,17 @@ def describe_demo_configuration(
         },
         "weights": {
             "w_pos": controller.w_pos,
+            "terminal_cost_mode": controller.terminal_cost_mode,
             "w_pos_terminal": controller.w_pos_terminal,
+            "w_pos_terminal_lateral": controller.w_pos_terminal_lateral,
+            "w_pos_terminal_longitudinal": controller.w_pos_terminal_longitudinal,
             "w_theta": controller.w_theta,
             "w_speed": controller.w_speed,
             "w_time": controller.w_time,
             "w_speed_terminal": controller.w_speed_terminal,
             "w_pos_terminal_real": controller.w_pos_terminal_real,
+            "w_pos_terminal_real_lateral": controller.w_pos_terminal_real_lateral,
+            "w_pos_terminal_real_longitudinal": controller.w_pos_terminal_real_longitudinal,
             "w_theta_terminal_real": controller.w_theta_terminal_real,
             "w_speed_terminal_real": controller.w_speed_terminal_real,
             "w_dt": controller.w_dt,
@@ -552,7 +557,7 @@ def align_reference_to_projection_with_constraints(
 
 def run_random_demo(
     seed: int | None = None,
-    params: Dict[str, float] | None = None,
+    params: Dict[str, float | str] | None = None,
     reference_config: Dict[str, float] | None = None,
     sampling_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
@@ -583,7 +588,7 @@ def run_random_demo(
 
 def solve_demo(
     initial_state: VehicleState,
-    params: Dict[str, float] | None = None,
+    params: Dict[str, float | str] | None = None,
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     merged_reference = _merged_reference_config(reference_config)
@@ -610,7 +615,7 @@ def solve_demo(
 
 
 def demo_problem(
-    params: Dict[str, float] | None = None,
+    params: Dict[str, float | str] | None = None,
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     initial_state = VehicleState(x=0.0, y=-0.3, theta=0.05, v=0.5, a=0.0, kappa=0.0)
