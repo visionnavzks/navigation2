@@ -211,6 +211,7 @@ class TEBMPCController:
         )
         self.w_theta = float(self.params.get("w_theta", legacy_terminal_default if legacy_terminal_default is not None else 15.0))
         self.w_speed = float(self.params.get("w_speed", 0.0))
+        self.w_time = float(self.params.get("w_time", 1.0))
         self.w_speed_terminal = float(
             self.params.get("w_speed_terminal", legacy_terminal_default if legacy_terminal_default is not None else 0.0)
         )
@@ -253,10 +254,14 @@ class TEBMPCController:
             cost_track += self.w_pos * ((x[i] - reference.x[i]) ** 2 + (y[i] - reference.y[i]) ** 2)
             cost_track += self.w_speed * (v[i] - reference.v[i]) ** 2
 
+        cost_control += self.w_time * ca.sum1(dt)
+
         for i in range(n - 1):
-            cost_control += self.w_dt * (dt[i] - reference.dt_ref) ** 2
             cost_control += self.w_jerk * jerk[i] ** 2
             cost_control += self.w_dkappa * dkappa[i] ** 2
+
+        for i in range(n - 2):
+            cost_control += self.w_dt * (dt[i + 1] - dt[i]) ** 2
 
         if _reference_targets_real_terminal(reference, real_terminal_state):
             terminal_cost = self.w_pos_terminal_real * (

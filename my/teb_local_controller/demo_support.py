@@ -163,6 +163,7 @@ def describe_demo_configuration(
             "w_pos_terminal": controller.w_pos_terminal,
             "w_theta": controller.w_theta,
             "w_speed": controller.w_speed,
+            "w_time": controller.w_time,
             "w_speed_terminal": controller.w_speed_terminal,
             "w_pos_terminal_real": controller.w_pos_terminal_real,
             "w_theta_terminal_real": controller.w_theta_terminal_real,

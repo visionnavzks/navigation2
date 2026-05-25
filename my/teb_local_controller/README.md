@@ -51,7 +51,7 @@ $$
 \{x_{ref}, y_{ref}, \theta_{ref}, v_{ref}, a_{ref}, \kappa_{ref}, s_{ref}, dt_{ref}\}
 $$
 
-其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长；若构造参考轨迹时未显式传入，则按 `ds / cruise_speed` 推导，并用于鼓励 `dt` 不要偏离名义值。
+其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长；若构造参考轨迹时未显式传入，则按 `ds / cruise_speed` 推导。当前实现中它主要用于给 `dt` 提供初始尺度，并用于构造停车参考。
 
 ## 轨迹生成
 
@@ -194,15 +194,17 @@ $$
 
 $$
 J_{control} = \sum_i \Big[
-w_{dt}(dt_i-dt_{ref})^2
+w_{time}dt_i
 + w_{jerk} jerk_i^2
 + w_{d\kappa} d\kappa_i^2
 \Big]
+ + \sum_{i>0} w_{dt}(dt_i-dt_{i-1})^2
 $$
 
 解释：
 
-- `w_dt` 控制时间弹性大小
+- `w_time` 直接推动总时间变短
+- `w_dt` 控制相邻时间步长的平滑程度
 - `w_jerk` 抑制过大的加加速度
 - `w_dkappa` 抑制曲率变化过快
 
@@ -274,6 +276,7 @@ $$
 - `w_pos_terminal = 30.0`（过程终点）
 - `w_theta = 15.0`（过程终点）
 - `w_speed = 0.0`
+- `w_time = 1.0`
 - `w_speed_terminal = 0.0`（过程终点）
 - `w_pos_terminal_real = 60.0`（真实路径终点）
 - `w_theta_terminal_real = 15.0`（真实路径终点）
