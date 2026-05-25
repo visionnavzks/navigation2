@@ -64,7 +64,7 @@ const PARAM_HELP_TEXTS = {
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
     dt_ref: '名义时间步长，单位 s。留空时会按 ds / cruise_speed 自动推导；它主要用于给 dt 提供初始化尺度，并用于构造停车参考。',
     selection_length: '从当前状态投影点开始，最多截取多少米参考路径用于本次优化。0 表示一直取到当前路径终点。',
-    near_terminal_s_tol: '近终点 stopping 触发阈值，单位 m，按参考的 s 轴纵向剩余距离判断。0 表示自动按参考采样间距估计；当剩余距离小于该阈值时，直接切到停车参考。',
+    near_terminal_s_tol: '近终点 stopping 触发阈值，单位 m，按参考的 s 轴纵向剩余距离判断。0 表示自动取 max(参考采样间距, 制动距离)；当剩余距离小于该阈值时，直接切到停车参考。',
     extra_points: '对齐后的参考轨迹点数调整量。正值会额外插入优化点，负值会减少一些点，但最终至少保留 2 个点。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
@@ -1396,7 +1396,7 @@ function renderConfig(data) {
     statsEls.referenceConfig.innerHTML = `
         <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
         <div class="config-stack">selection_length = ${selectionLength > 0 ? `${formatNumber(selectionLength, 2)} m` : 'to end'}, active = ${formatNumber(activeReferenceLength, 2)} m</div>
-        <div class="config-stack">near_terminal_s_tol = ${nearTerminalSTol > 0 ? `${formatNumber(nearTerminalSTol, 2)} m` : 'auto (sample spacing)'}</div>
+        <div class="config-stack">near_terminal_s_tol = ${nearTerminalSTol > 0 ? `${formatNumber(nearTerminalSTol, 2)} m` : 'auto (max sample spacing / braking distance)'}</div>
         <div class="config-stack">extra_points = ${extraPoints}</div>
         <div class="config-stack">segments (${reference.segment_count})</div>
         ${reference.segment_descriptions.map((segment) => `<div class="config-stack">${segment}</div>`).join('')}

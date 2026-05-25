@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
+from my.teb_local_controller.stopping_reference import StoppingReferenceBuilder
 from my.teb_local_controller.teb_mpc import (
     ArcSegment,
     LineSegment,
@@ -81,22 +82,6 @@ def _resolve_selection_length(selection_length: float | None) -> float | None:
     if resolved_selection_length <= 0.0:
         return None
     return resolved_selection_length
-
-
-def _resolve_near_terminal_s_tol(reference: ReferenceTrajectory, near_terminal_s_tol: float | None) -> float:
-    if near_terminal_s_tol is not None:
-        resolved_near_terminal_s_tol = float(near_terminal_s_tol)
-        if resolved_near_terminal_s_tol > 0.0:
-            return resolved_near_terminal_s_tol
-
-    if reference.size < 2:
-        return 0.0
-
-    positive_spacings = np.diff(np.array(reference.s, dtype=float))
-    positive_spacings = positive_spacings[positive_spacings > 1e-9]
-    if positive_spacings.size == 0:
-        return 0.0
-    return float(np.median(positive_spacings))
 
 
 def default_demo_segments(reference_config: Dict[str, float] | None = None) -> List[LineSegment | ArcSegment]:
@@ -239,119 +224,6 @@ def _projection_ratio_for_segment(index: int, segment_count: int, raw_ratio: flo
     if index == segment_count - 1:
         return max(raw_ratio, 0.0)
     return float(np.clip(raw_ratio, 0.0, 1.0))
-
-
-def _smoothstep_quintic(alpha: np.ndarray) -> np.ndarray:
-    return 6.0 * np.power(alpha, 5) - 15.0 * np.power(alpha, 4) + 10.0 * np.power(alpha, 3)
-
-
-def _derive_heading_from_positions(positions: np.ndarray, theta_start: float, theta_end: float) -> np.ndarray:
-    if positions.shape[0] == 1:
-        return np.array([theta_end], dtype=float)
-
-    deltas = np.diff(positions, axis=0)
-    segment_theta = np.array([math.atan2(delta[1], delta[0]) for delta in deltas], dtype=float)
-    theta = np.empty(positions.shape[0], dtype=float)
-    theta[0] = theta_start
-    theta[1:] = np.unwrap(segment_theta, discont=math.pi)
-    theta = np.unwrap(theta, discont=math.pi)
-    theta[0] = theta_start
-    theta[-1] = theta_end
-    return theta
-
-
-def _shape_curvature_profile(
-    theta: np.ndarray,
-    s: np.ndarray,
-    state: VehicleState,
-    v: np.ndarray,
-    dt_ref: float,
-    stop_constraints: Dict[str, float] | None,
-) -> np.ndarray:
-    sample_count = theta.shape[0]
-    if sample_count <= 1:
-        return np.array([float(state.kappa)], dtype=float)
-
-    target_kappa = np.zeros(sample_count, dtype=float)
-    ds = np.diff(s)
-    dtheta = np.diff(theta)
-    valid = ds > 1e-9
-    target_kappa[1:][valid] = dtheta[valid] / ds[valid]
-    target_kappa[0] = float(state.kappa)
-
-    max_kappa = float(stop_constraints.get("max_kappa", 2.0)) if stop_constraints else 2.0
-    max_dkappa = float(stop_constraints.get("max_dkappa", 1.5)) if stop_constraints else 1.5
-    max_lat_accel = float(stop_constraints.get("max_lat_accel", float("inf"))) if stop_constraints else float("inf")
-
-    for index in range(sample_count):
-        lat_limit = max_kappa
-        if math.isfinite(max_lat_accel) and max_lat_accel > 0.0:
-            speed_sq = max(float(v[index]) ** 2, 1e-6)
-            lat_limit = min(lat_limit, max_lat_accel / speed_sq)
-        target_kappa[index] = float(np.clip(target_kappa[index], -lat_limit, lat_limit))
-
-    delta_limit = max_dkappa * dt_ref
-    forward = np.empty(sample_count, dtype=float)
-    forward[0] = float(np.clip(state.kappa, -max_kappa, max_kappa))
-    for index in range(1, sample_count):
-        forward[index] = float(np.clip(target_kappa[index], forward[index - 1] - delta_limit, forward[index - 1] + delta_limit))
-
-    shaped = np.empty(sample_count, dtype=float)
-    shaped[-1] = 0.0
-    for index in range(sample_count - 2, -1, -1):
-        shaped[index] = float(np.clip(forward[index], shaped[index + 1] - delta_limit, shaped[index + 1] + delta_limit))
-
-    return shaped
-
-
-def _build_stopping_reference(
-    state: VehicleState,
-    reference: ReferenceTrajectory,
-    sample_count: int,
-    dt_ref: float,
-    stop_constraints: Dict[str, float] | None = None,
-) -> ReferenceTrajectory:
-    sample_count = max(int(sample_count), 2)
-    dt_ref = float(dt_ref)
-    times = np.arange(sample_count, dtype=float) * dt_ref
-    speed0 = max(float(state.v), 0.0)
-    horizon = max(times[-1], dt_ref)
-    decel = -speed0 / horizon if speed0 > 1e-9 else 0.0
-    travel = speed0 * times + 0.5 * decel * np.square(times)
-    travel = np.maximum(travel, 0.0)
-
-    end_theta = float(reference.theta[-1])
-    tangent = np.array([math.cos(end_theta), math.sin(end_theta)], dtype=float)
-    end_point = np.array([float(reference.x[-1]), float(reference.y[-1])], dtype=float)
-    state_point = np.array([float(state.x), float(state.y)], dtype=float)
-    relative_to_end = state_point - end_point
-    longitudinal_offset = float(np.dot(relative_to_end, tangent))
-    projected_point = end_point + longitudinal_offset * tangent
-    lateral_offset = state_point - projected_point
-    alpha = np.linspace(0.0, 1.0, sample_count, dtype=float)
-    blend = 1.0 - _smoothstep_quintic(alpha)
-    positions = projected_point + np.outer(travel, tangent) + np.outer(blend, lateral_offset)
-
-    v = np.maximum(speed0 + decel * times, 0.0)
-    a = np.full(sample_count, decel, dtype=float)
-    a[0] = float(state.a)
-    a[-1] = 0.0
-    s = np.zeros(sample_count, dtype=float)
-    if sample_count > 1:
-        s[1:] = np.cumsum(np.linalg.norm(np.diff(positions, axis=0), axis=1))
-    theta = _derive_heading_from_positions(positions, float(state.theta), end_theta)
-    kappa = _shape_curvature_profile(theta, s, state, v, dt_ref, stop_constraints)
-
-    return ReferenceTrajectory(
-        x=np.array(positions[:, 0], dtype=float),
-        y=np.array(positions[:, 1], dtype=float),
-        theta=theta,
-        v=np.array(v, dtype=float),
-        a=a,
-        kappa=kappa,
-        s=s,
-        dt_ref=dt_ref,
-    )
 
 
 def _sample_reference_at_s(reference: ReferenceTrajectory, query_s: np.ndarray) -> Dict[str, np.ndarray]:
@@ -523,24 +395,22 @@ def align_reference_to_projection_with_constraints(
     resolved_selection_length = _resolve_selection_length(selection_length)
     projection = project_state_onto_reference(reference, state)
     projection_s = float(projection["s"])
-    end_s = float(reference.s[-1])
-    resolved_near_terminal_s_tol = _resolve_near_terminal_s_tol(reference, near_terminal_s_tol)
-    remaining_s = end_s - projection_s
-    if projection_s > end_s or remaining_s <= resolved_near_terminal_s_tol:
-        stop_mode = "beyond_end_stop" if projection_s > end_s else "near_end_stop"
+    stopping_reference_builder = StoppingReferenceBuilder(stop_constraints=stop_constraints)
+    stop_decision = stopping_reference_builder.evaluate(reference, state, projection_s, near_terminal_s_tol)
+    if stop_decision is not None:
         return (
-            _build_stopping_reference(
+            stopping_reference_builder.build(
                 state=state,
                 reference=reference,
                 sample_count=reference.size + resolved_extra_points,
                 dt_ref=reference.dt_ref,
-                stop_constraints=stop_constraints,
+                mode=stop_decision.mode,
             ),
             {
-                "mode": stop_mode,
+                "mode": stop_decision.mode,
                 "is_stopping_reference": True,
-                "remaining_s": float(remaining_s),
-                "near_terminal_s_tol": float(resolved_near_terminal_s_tol),
+                "remaining_s": float(stop_decision.remaining_s),
+                "near_terminal_s_tol": float(stop_decision.near_terminal_s_tol),
                 "end_extension_line": {
                     "x": float(reference.x[-1]),
                     "y": float(reference.y[-1]),
@@ -597,6 +467,7 @@ def run_random_demo(
     initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
     controller = TEBMPCController(params=params)
     stop_constraints = {
+        "max_accel": controller.max_accel,
         "max_lat_accel": controller.max_lat_accel,
         "max_kappa": controller.max_kappa,
         "max_dkappa": controller.max_dkappa,
@@ -627,6 +498,7 @@ def solve_demo(
     real_terminal_state = _reference_terminal_state(base_reference)
     controller = TEBMPCController(params=params)
     stop_constraints = {
+        "max_accel": controller.max_accel,
         "max_lat_accel": controller.max_lat_accel,
         "max_kappa": controller.max_kappa,
         "max_dkappa": controller.max_dkappa,
@@ -656,6 +528,7 @@ def demo_problem(
     near_terminal_s_tol = float(merged_reference.get("near_terminal_s_tol", 0.0))
     real_terminal_state = _reference_terminal_state(default_demo_reference(reference_config=merged_reference))
     stop_constraints = {
+        "max_accel": controller.max_accel,
         "max_lat_accel": controller.max_lat_accel,
         "max_kappa": controller.max_kappa,
         "max_dkappa": controller.max_dkappa,
