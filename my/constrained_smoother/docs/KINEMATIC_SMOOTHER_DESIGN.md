@@ -55,16 +55,17 @@
     - 当前版本使用 Ceres。
 8. 执行后验校验。
     - C++ 版会检查有限值、边界约束、换向一致性、cusp 停驻行为、曲率约束和障碍物净空。
-9. 回写公共输出路径。
-    - 只保留 `(x, y, yaw)`。
+9. 组装 `SmootherResult`。
+    - `candidate_path` 保存解包后的候选路径。
+    - `smoothed_path` 保存通过后验校验后的最终 `(x, y, yaw)` 输出。
 
 ## 当前 C++ 分层
 
 当前运动学版实现建议按下面的对象边界来理解：
 
 1. 顶层对象：`include/constrained_smoother/kinematic_smoother.hpp`
-    - 对外暴露 `initialize()`、`smooth()` 和 `getLastOptimizedKnotCount()`。
-    - 持有长期状态，比如 ESDF 缓存、validator 和最近一次优化状态数。
+    - 对外暴露 `initialize()` 和 `smooth()`。
+    - 持有长期状态，比如 ESDF 缓存、validator 和求解器配置基线。
 2. 单次执行对象：`KinematicSmoother::Run`
     - 表示一次 `smooth()` 调用的生命周期。
     - 负责驱动"准备 -> 求解 -> 校验 -> 回写输出"。

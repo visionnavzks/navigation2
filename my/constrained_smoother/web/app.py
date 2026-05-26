@@ -218,7 +218,9 @@ _PRE_FINALIZE_FAILURE_REASONS = {
 
 
 def _failure_has_displayable_candidate_path(result):
-    candidate_path = result.get("path")
+    candidate_path = result.get("candidate_path")
+    if candidate_path is None:
+        candidate_path = result.get("path")
     if candidate_path is None:
         return False
 
@@ -1439,6 +1441,8 @@ def _run_smoother_stage(
     smooth_message = ""
     smooth_error = None
     candidate_smoothed = None
+    optimized_knot_count = 0
+    target_spacing_m = 0.0
 
     try:
         if planner_stage_result["planner"] is None:
@@ -1460,10 +1464,15 @@ def _run_smoother_stage(
             )
 
         smooth_time = (time.time() - smooth_t0) * 1000.0
+        smoothed_path = smooth_result.get("smoothed_path")
+        candidate_path = smooth_result.get("candidate_path")
         if bool(smooth_result["ok"]):
-            candidate_smoothed = smooth_result["path"]
+            candidate_smoothed = smoothed_path
         elif _failure_has_displayable_candidate_path(smooth_result):
-            candidate_smoothed = smooth_result["path"]
+            candidate_smoothed = candidate_path
+
+        optimized_knot_count = int(smooth_result.get("optimized_knot_count") or 0)
+        target_spacing_m = float(smooth_result.get("target_spacing_m") or 0.0)
 
         smooth_success = bool(smooth_result["ok"])
         if smooth_success:
@@ -1510,8 +1519,8 @@ def _run_smoother_stage(
         "smooth_error": smooth_error,
         "candidate_smoothed": candidate_smoothed,
         "smoother_stage": smoother_stage,
-        "optimized_knot_count": int(smoother.get_last_optimized_knot_count()),
-        "target_spacing_m": float(smoother.get_last_target_spacing()),
+        "optimized_knot_count": optimized_knot_count,
+        "target_spacing_m": target_spacing_m,
     }
 
 

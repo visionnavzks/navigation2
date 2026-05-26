@@ -16,6 +16,7 @@
 #ifndef CONSTRAINED_SMOOTHER__SMOOTHER_REQUEST_HPP_
 #define CONSTRAINED_SMOOTHER__SMOOTHER_REQUEST_HPP_
 
+#include <cstddef>
 #include <vector>
 
 #include "Eigen/Core"
@@ -27,15 +28,34 @@
 namespace constrained_smoother
 {
 
+/// 一次平滑调用产出的显式结果对象。
+///
+/// 与旧接口“原地改写输入 path”不同，这里把候选路径、最终输出路径和诊断元数据
+/// 一并显式返回，避免调用方再依赖隐藏副作用或实例级 getter。
+struct SmootherResult
+{
+  /// 求解后直接从状态向量解包得到的候选路径。
+  /// 若后验校验失败，这个字段仍可保留用于诊断或可视化。
+  std::vector<Eigen::Vector3d> candidate_path;
+  /// 通过后验校验后按运动学模型上采样的最终输出路径。
+  std::vector<Eigen::Vector3d> smoothed_path;
+  /// 本次参与优化的状态点数量。
+  std::size_t optimized_knot_count{0};
+  /// 本次优化使用的目标 knot 间距（米）。
+  double target_spacing{0.0};
+  /// 是否得到了可交付的最终平滑路径。
+  bool success{false};
+};
+
 /// 单次 smooth() 调用共享的不可拥有请求视图。
 ///
 /// 顶层 smoother 会在栈上构造它，再把它传给内部 Run 对象；这样多层 helper
 /// 不需要继续传递同一串参数，也不会误以为自己拥有 path / costmap / params。
 struct SmootherRequest
 {
-  /// 原地修改的路径缓冲区。
-  /// 输入时第三个分量是 direction_sign；成功输出后会被改写成 yaw。
-  std::vector<Eigen::Vector3d> & path;
+  /// 只读输入路径；第三个分量始终表示 direction_sign（+1/-1）。
+  /// smooth() 不再原地改写它，而是通过 SmootherResult 返回候选 / 最终路径。
+  const std::vector<Eigen::Vector3d> & path;
   /// 起点切向方向，始终按向量语义解释，而不是 yaw 标量。
   const Eigen::Vector2d & start_dir;
   /// 终点切向方向，始终按向量语义解释，而不是 yaw 标量。

@@ -98,7 +98,11 @@
 ```python
 {
     "ok": bool,
-    "path": list | None,
+    "path": list | None,          # 兼容字段；success 时等于 smoothed_path，失败时等于 candidate_path
+    "smoothed_path": list | None,
+    "candidate_path": list | None,
+    "optimized_knot_count": int,
+    "target_spacing_m": float,
     "error_code": str | None,       # CS_* 错误码
     "error_message": str | None,
     "error_reason": str | None,     # SmoothingFailureReason 字符串

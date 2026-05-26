@@ -40,6 +40,17 @@ std::string expectFailedToSmoothPath(CallableT && callable)
   return "";
 }
 
+void expectPathsNear(
+  const std::vector<Eigen::Vector3d> & actual,
+  const std::vector<Eigen::Vector3d> & expected,
+  double tolerance = 1e-9)
+{
+  ASSERT_EQ(actual.size(), expected.size());
+  for (size_t index = 0; index < actual.size(); ++index) {
+    EXPECT_TRUE(actual[index].isApprox(expected[index], tolerance)) << "path mismatch at " << index;
+  }
+}
+
 }  // namespace
 
 // NOTE: This file currently keeps helper-layer, backend-behavior, and stable-error
@@ -473,10 +484,16 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
 
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
+  const auto input_path = path;
 
-  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
-  EXPECT_GE(path.size(), 2u);
-  EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
+  const auto result = smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});
+
+  EXPECT_TRUE(result.success);
+  EXPECT_FALSE(result.candidate_path.empty());
+  EXPECT_GE(result.smoothed_path.size(), 2u);
+  EXPECT_GT(result.optimized_knot_count, 0u);
+  EXPECT_GT(result.target_spacing, 0.0);
+  expectPathsNear(path, input_path);
 }
 
 TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimizedPoint)
@@ -511,9 +528,12 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
 
       constrained_smoother::KinematicSmoother smoother;
       smoother.initialize(opt_params);
-      (void)smoother.smooth(
-      {path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params, nullptr, nullptr});
-      return path;
+      const auto input_path = path;
+      const auto result = smoother.smooth(
+        {path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0), &costmap, params, nullptr, nullptr});
+      EXPECT_TRUE(result.success);
+      expectPathsNear(path, input_path);
+      return result.smoothed_path;
     };
 
   const auto unbounded = run_case(0.0);
@@ -557,10 +577,14 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
 
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
+  const auto input_path = path;
 
-  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
-  EXPECT_GE(path.size(), 2u);
-  EXPECT_GT(smoother.getLastOptimizedKnotCount(), input_size);
+  const auto result = smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});
+
+  EXPECT_TRUE(result.success);
+  EXPECT_GE(result.smoothed_path.size(), 2u);
+  expectPathsNear(path, input_path);
+  EXPECT_GT(result.optimized_knot_count, input_size);
 }
 
 TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
@@ -577,8 +601,12 @@ TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
   constrained_smoother::OptimizerParams opt_params;
   constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
+  const auto input_path = path;
 
-  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr}));
+  const auto result = smoother.smooth({path, start_dir, end_dir, nullptr, params, nullptr, nullptr});
+
+  EXPECT_TRUE(result.success);
+  expectPathsNear(path, input_path);
 }
 
 TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
@@ -645,9 +673,13 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
 
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(1.0, 0.0);
+  const auto input_path = path;
 
-  EXPECT_NO_THROW((void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr}));
-  EXPECT_GT(smoother.getLastOptimizedKnotCount(), 0u);
+  const auto result = smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});
+
+  EXPECT_TRUE(result.success);
+  expectPathsNear(path, input_path);
+  EXPECT_GT(result.optimized_knot_count, 0u);
 }
 
 TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
@@ -901,8 +933,13 @@ TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThro
   const Eigen::Vector2d start_dir(1.0, 0.0);
   const Eigen::Vector2d end_dir(-1.0, 0.0);
   constrained_smoother::SmoothingFailureInfo failure;
+  const auto input_path = path;
 
-  EXPECT_FALSE(smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, &failure}));
+  const auto result = smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, &failure});
+
+  EXPECT_FALSE(result.success);
+  EXPECT_FALSE(result.candidate_path.empty());
+  expectPathsNear(path, input_path);
   EXPECT_EQ(failure.reason, constrained_smoother::SmoothingFailureReason::MotionDirectionConstraint);
   EXPECT_GE(failure.failed_index, 0);
   EXPECT_NE(failure.message.find("motion direction"), std::string::npos);

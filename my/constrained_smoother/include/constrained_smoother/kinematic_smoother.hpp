@@ -54,28 +54,18 @@ public:
       : ceres::LoggingType::SILENT;
   }
 
-  /// 返回最近一次运动学优化中参与求解的状态数量。
-  [[nodiscard]] size_t getLastOptimizedKnotCount() const
-  {
-    return last_optimized_knot_count_;
-  }
-
-  /// 返回最近一次参与优化的目标 knot 间距。
-  [[nodiscard]] double getLastTargetSpacing() const
-  {
-    return last_target_spacing_;
-  }
-
   /// 使用结构化请求入口执行一次完整平滑。
   ///
   /// 生命周期约定：request 内部引用（path/start_dir/end_dir/params 等）
   /// 必须在本次调用结束前保持有效。
   /// 输入约定：request.path 的第三维在输入时表示方向符号（+1/-1）。
-  /// 输出约定：若成功，request.path 会被原地改写，第三维变为 yaw（弧度）。
+  /// 输出约定：返回值中 `candidate_path` 保存解包后的候选结果，
+  /// `smoothed_path` 保存通过后验校验后的最终输出，第三维均为 yaw（弧度）。
   /// 失败语义：
   /// - 若 request.failure 非空，失败原因会写入该结构。
-  /// - 返回 false 表示优化失败或后验校验拒绝结果。
-  [[nodiscard]] bool smooth(const SmootherRequest & request)
+  /// - 若失败发生在后验校验之后，返回值中的 `candidate_path` 仍会保留诊断候选。
+  /// - 若 request.failure 为空，求解失败或后验校验失败会抛异常。
+  [[nodiscard]] SmootherResult smooth(const SmootherRequest & request)
   {
     // 1) 基础输入约束：至少两点；启用障碍项时必须有 costmap。
     constexpr const char * smoother_name = "Kinematic smoother";
@@ -85,6 +75,8 @@ public:
     if (request.params.obstacleTermsEnabled() && request.costmap == nullptr) {
       throw InvalidCostmap(std::string(smoother_name) + ": Costmap must not be null");
     }
+
+    SmootherResult result;
 
     // 2) 本次调用可覆盖全局默认的求解时间预算。
     solver_options_.max_solver_time_in_seconds = request.params.max_time;
@@ -116,9 +108,9 @@ public:
       request.params.kinematic_max_spacing,
       request.params.reference_point_max_deviation_m);
 
-    // 记录本次参与优化的 knot 数，供外层诊断 / UI 使用。
-    last_optimized_knot_count_ = processed.state_count;
-  last_target_spacing_ = processed.target_spacing;
+    // 记录本次参与优化的诊断元数据，供外层诊断 / UI 使用。
+    result.optimized_knot_count = processed.state_count;
+    result.target_spacing = processed.target_spacing;
 
     // 4) 调用 Ceres 求解，失败原因统一写入 failure（如提供）。
     if (!solveProblemOrReportFailure(
@@ -128,11 +120,13 @@ public:
         smoother_name,
         request.failure))
     {
-      return false;
+      return result;
     }
 
     // 5) 将内部变量解包为公共路径表示，并执行后验硬校验。
-    request.path = KinematicSmootherProblemBuilder::unpackPath(variables, processed.state_count);
+    result.candidate_path = KinematicSmootherProblemBuilder::unpackPath(
+      variables,
+      processed.state_count);
 
     // 6) 后验硬校验：过滤数值上收敛但不满足工程约束的结果。
     // 字段顺序需与 SmootherValidator::KinematicRequest 定义严格一致。
@@ -153,15 +147,16 @@ public:
       request.failure);
 
     if (!accepted) {
-      return false;
+      return result;
     }
 
     // 7) 校验通过后按运动学状态做段内插值，让 path_upsampling_factor 真正生效。
-    request.path = KinematicSmootherProblemBuilder::upsamplePathKinematic(
+    result.smoothed_path = KinematicSmootherProblemBuilder::upsamplePathKinematic(
       variables,
       processed,
       request.params);
-    return true;
+    result.success = true;
+    return result;
   }
 
 private:
@@ -169,10 +164,6 @@ private:
   std::vector<double> esdf_values_{};
   // 后验硬约束校验器：用于拒绝数值收敛但工程不可交付的结果。
   SmootherValidator validator_{};
-  // 最近一次参与优化的状态点数量。
-  size_t last_optimized_knot_count_{0};
-  // 最近一次参与优化的目标 knot 间距。
-  double last_target_spacing_{0.0};
 
   // 初始化阶段固定配置：是否打印详细求解日志。
   bool debug_{false};

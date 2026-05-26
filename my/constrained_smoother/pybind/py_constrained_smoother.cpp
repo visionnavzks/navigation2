@@ -83,9 +83,9 @@ const constrained_smoother::Costmap2D * copy_optional_costmap(const py::handle &
   return &py::cast<const constrained_smoother::Costmap2D &>(handle);
 }
 
-bool run_smooth_request(
+constrained_smoother::SmootherResult run_smooth_request(
   constrained_smoother::KinematicSmoother & smoother,
-  std::vector<Eigen::Vector3d> & path,
+  const std::vector<Eigen::Vector3d> & path,
   const Eigen::Vector2d & start_dir,
   const Eigen::Vector2d & end_dir,
   const constrained_smoother::Costmap2D * costmap,
@@ -121,9 +121,9 @@ py::dict make_error_result(const ErrorT & error);
 py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & error);
 py::dict make_error_result(
   const constrained_smoother::SmoothingFailureInfo & failure,
-  const py::object & path = py::none());
+  const constrained_smoother::SmootherResult & result);
 
-py::dict make_ok_result(const std::vector<Eigen::Vector3d> & path);
+py::dict make_ok_result(const constrained_smoother::SmootherResult & result);
 
 template<typename Fn>
 py::dict invoke_try_smooth(Fn && fn);
@@ -148,6 +148,10 @@ SmoothBindingInput parse_smooth_input(
 //   {
 //     "ok": bool,
 //     "path": list | None,
+//     "smoothed_path": list | None,
+//     "candidate_path": list | None,
+//     "optimized_knot_count": int,
+//     "target_spacing_m": float,
 //     "error_code": str | None,
 //     "error_message": str | None,
 //     "error_reason": str | None,
@@ -214,11 +218,31 @@ py::dict make_error_result_base(const ErrorT & error)
   py::dict result;
   result["ok"] = false;
   result["path"] = py::none();
+  result["smoothed_path"] = py::none();
+  result["candidate_path"] = py::none();
+  result["optimized_knot_count"] = py::int_(0);
+  result["target_spacing_m"] = py::float_(0.0);
   result["error_code"] = py::str(error.codeString());
   result["error_message"] = py::str(error.what());
   result["error_reason"] = py::none();
   result["error_details"] = py::none();
   return result;
+}
+
+void fill_result_payload(
+  py::dict & result_dict,
+  const constrained_smoother::SmootherResult & smooth_result)
+{
+  const py::object candidate_path = smooth_result.candidate_path.empty() ?
+    py::none() : py::cast(smooth_result.candidate_path);
+  const py::object smoothed_path = smooth_result.success ?
+    py::cast(smooth_result.smoothed_path) : py::none();
+
+  result_dict["path"] = smooth_result.success ? smoothed_path : candidate_path;
+  result_dict["smoothed_path"] = smoothed_path;
+  result_dict["candidate_path"] = candidate_path;
+  result_dict["optimized_knot_count"] = py::int_(smooth_result.optimized_knot_count);
+  result_dict["target_spacing_m"] = py::float_(smooth_result.target_spacing);
 }
 
 template<typename ErrorT>
@@ -239,11 +263,11 @@ py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & erro
 
 py::dict make_error_result(
   const constrained_smoother::SmoothingFailureInfo & failure,
-  const py::object & path)
+  const constrained_smoother::SmootherResult & smooth_result)
 {
   py::dict result;
   result["ok"] = false;
-  result["path"] = path;
+  fill_result_payload(result, smooth_result);
   result["error_code"] = py::str(
     constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::FailedToSmoothPath));
   result["error_message"] = py::str(failure.message);
@@ -304,11 +328,11 @@ PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFa
   return nullptr;
 }
 
-py::dict make_ok_result(const std::vector<Eigen::Vector3d> & path)
+py::dict make_ok_result(const constrained_smoother::SmootherResult & smooth_result)
 {
   py::dict result;
   result["ok"] = true;
-  result["path"] = path;
+  fill_result_payload(result, smooth_result);
   result["error_code"] = py::none();
   result["error_message"] = py::none();
   result["error_reason"] = py::none();
@@ -323,20 +347,20 @@ PyObject * run_smooth_or_raise(
   const std::vector<double> * precomputed_esdf)
 {
   constrained_smoother::SmoothingFailureInfo failure;
-  if (!run_smooth_request(
-      smoother,
-      input.path,
-      input.start_dir,
-      input.end_dir,
-      input.costmap,
-      params,
-      precomputed_esdf,
-      &failure))
-  {
+  const constrained_smoother::SmootherResult result = run_smooth_request(
+    smoother,
+    input.path,
+    input.start_dir,
+    input.end_dir,
+    input.costmap,
+    params,
+    precomputed_esdf,
+    &failure);
+  if (!result.success) {
     return make_python_smoothing_failure(failure);
   }
 
-  return py::cast(input.path).release().ptr();
+  return py::cast(result).release().ptr();
 }
 
 py::dict run_try_smooth_result(
@@ -346,20 +370,20 @@ py::dict run_try_smooth_result(
   const std::vector<double> * precomputed_esdf)
 {
   constrained_smoother::SmoothingFailureInfo failure;
-  if (!run_smooth_request(
-      smoother,
-      input.path,
-      input.start_dir,
-      input.end_dir,
-      input.costmap,
-      params,
-      precomputed_esdf,
-      &failure))
-  {
-    return make_error_result(failure, py::cast(input.path));
+  const constrained_smoother::SmootherResult result = run_smooth_request(
+    smoother,
+    input.path,
+    input.start_dir,
+    input.end_dir,
+    input.costmap,
+    params,
+    precomputed_esdf,
+    &failure);
+  if (!result.success) {
+    return make_error_result(failure, result);
   }
 
-  return make_ok_result(input.path);
+  return make_ok_result(result);
 }
 
 PyObject * run_smooth_binding(
@@ -415,6 +439,10 @@ py::dict invoke_try_smooth(Fn && fn)
     py::dict result;
     result["ok"] = false;
     result["path"] = py::none();
+    result["smoothed_path"] = py::none();
+    result["candidate_path"] = py::none();
+    result["optimized_knot_count"] = py::int_(0);
+    result["target_spacing_m"] = py::float_(0.0);
     result["error_code"] = py::none();
     result["error_message"] = py::str(error.what());
     result["error_reason"] = py::none();
@@ -455,6 +483,24 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   m.attr("ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH") = py::str(
     constrained_smoother::toErrorCodeString(
       constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
+
+  py::class_<constrained_smoother::SmootherResult>(m, "SmootherResult")
+    .def_readonly("success", &constrained_smoother::SmootherResult::success)
+    .def_readonly("candidate_path", &constrained_smoother::SmootherResult::candidate_path)
+    .def_readonly("smoothed_path", &constrained_smoother::SmootherResult::smoothed_path)
+    .def_readonly(
+      "optimized_knot_count",
+      &constrained_smoother::SmootherResult::optimized_knot_count)
+    .def_property_readonly(
+      "target_spacing_m",
+      [](const constrained_smoother::SmootherResult & result) {
+        return result.target_spacing;
+      })
+    .def_property_readonly(
+      "path",
+      [](const constrained_smoother::SmootherResult & result) {
+        return result.smoothed_path;
+      });
 
   // ---- Core value types and planning utilities ----
 
@@ -621,12 +667,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def(py::init<>())
     .def("initialize", &constrained_smoother::KinematicSmoother::initialize)
     .def(
-      "get_last_optimized_knot_count",
-      &constrained_smoother::KinematicSmoother::getLastOptimizedKnotCount)
-    .def(
-      "get_last_target_spacing",
-      &constrained_smoother::KinematicSmoother::getLastTargetSpacing)
-    .def(
       "smooth",
       [](constrained_smoother::KinematicSmoother & self,
       const py::handle & path_handle,
@@ -647,8 +687,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       py::return_value_policy::take_ownership,
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap") = py::none(), py::arg("params"),
-      // 异常式接口：失败时抛 Python 异常，成功时返回运动学平滑后的路径。
-      "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); returned path z is yaw in radians.")
+      // 异常式接口：失败时抛 Python 异常，成功时返回显式结果对象。
+      "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); the returned result carries both candidate/final paths and optimization diagnostics.")
     .def(
       "try_smooth",
       [](constrained_smoother::KinematicSmoother & self,
@@ -694,7 +734,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
       py::arg("costmap"), py::arg("params"), py::arg("planner"),
       // 异常式接口：复用 planner 已算好的 ESDF，失败时抛 Python 异常。
-      "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner.")
+      "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner, returning a structured result object on success.")
     .def(
       "try_smooth_with_planner_esdf",
       [](constrained_smoother::KinematicSmoother & self,

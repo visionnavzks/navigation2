@@ -9,7 +9,7 @@
 ## 核心 API 约定
 
 1. 输入路径使用 `(x, y, direction_sign)`，第三个分量表示前进/倒车方向。
-2. 输出路径把第三个分量改写成弧度制 `yaw`。
+2. 输出路径通过显式结果对象返回，结果中的第三个分量是弧度制 `yaw`。
 3. `cost_check_points` 直接按 `(x_local, y_local, weight)` 三元组使用。
 4. `reversing_enabled=false` 会把整条路径按前进段处理。
 5. `max_curvature` 的单位是 `1/m`（曲率，不是半径）。
@@ -42,13 +42,23 @@ smooth()
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `path` | `vector<Vector3d>&` | 原地修改的路径缓冲区；输入时第三分量是方向，输出后改为 `yaw` |
+| `path` | `const vector<Vector3d>&` | 只读输入路径；第三分量表示方向，不会在 smooth() 中被原地改写 |
 | `start_dir` | `Vector2d` | 起点切向方向（向量语义，不是 `yaw` 标量） |
 | `end_dir` | `Vector2d` | 终点切向方向（向量语义，不是 `yaw` 标量） |
 | `costmap` | `Costmap2D*` | 优化使用的代价地图，上层需保证生命周期覆盖整个调用 |
 | `params` | `SmootherParams` | 残差权重、边界约束和运行参数 |
 | `precomputed_esdf` | `vector<double>*` | 可选的预计算 ESDF；为空则由构建器根据 costmap 现场生成 |
 | `failure` | `SmoothingFailureInfo*` | 可选失败回传槽；为空时失败通过异常传播 |
+
+`KinematicSmoother::smooth(...)` 现在返回 `SmootherResult`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `candidate_path` | `vector<Vector3d>` | 求解后直接解包得到的候选路径；若后验校验失败，仍可用于诊断 |
+| `smoothed_path` | `vector<Vector3d>` | 通过后验校验并按运动学模型上采样后的最终路径 |
+| `optimized_knot_count` | `size_t` | 本次参与优化的状态点数量 |
+| `target_spacing` | `double` | 本次优化使用的目标 knot 间距（米） |
+| `success` | `bool` | 是否得到可交付的最终平滑路径 |
 
 ## 参数说明
 

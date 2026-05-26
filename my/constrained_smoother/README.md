@@ -13,11 +13,14 @@ The current standalone package keeps one smoothing backend only: `KinematicSmoot
 ## Current Behavior Contracts
 
 1. Input paths use `(x, y, direction_sign)`, not `(x, y, yaw)`.
-2. Output paths overwrite the third component with `yaw` in radians.
+2. Output paths are returned explicitly; their third component is `yaw` in radians.
 3. `KinematicSmoother` is the only retained C++ / pybind smoothing class.
 4. `cost_check_points` is consumed directly as `(x_local, y_local, weight)` triples.
 5. `reversing_enabled=false` forces the kinematic backend to treat all segments as forward motion.
 6. `max_curvature` is curvature in `1 / m`, not minimum turning radius.
+
+`KinematicSmoother::smooth(...)` returns a `SmootherResult` carrying `candidate_path`,
+`smoothed_path`, `optimized_knot_count`, and `target_spacing`.
 
 ## Core Code Layout
 
