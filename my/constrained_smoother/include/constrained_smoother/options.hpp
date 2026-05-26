@@ -75,6 +75,9 @@ struct SmootherParams
   double kinematic_max_spacing{0.0};
   /// 总长度惩罚的平方根权重；值越大，越倾向于压缩整条路径的总弧长。
   double path_length_weight_sqrt{0.0};
+  /// cusp 保持段和起终点边界残差共用的直接约束权重。
+  /// 与 `*_sqrt` 参数不同，这个值不会再开方，直接乘到残差上。
+  double fix_weight{100.0};
   /// 允许的最大曲率，单位为 1 / m。
   double max_curvature{0.0};
   /// 传给 Ceres 求解器的最大墙钟时间，单位秒。

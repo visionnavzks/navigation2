@@ -198,14 +198,14 @@ public:
     ceres::Problem & problem) const
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
-    // 这里的权重都以 sqrt 形式进入残差，便于与已有参数面板保持一致。
+    // 大多数权重以 sqrt 形式进入残差；fix_weight 是直接约束系数，不再额外开方。
     const double model_weight = std::max(params.model_weight_sqrt, 1.0);
     const double curvature_weight = std::max(params.kinematic_curvature_weight_sqrt, 0.0);
     const double curvature_rate_weight =
       std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);
     const double spacing_weight = std::max(params.kinematic_spacing_weight_sqrt, 0.0);
     const double length_weight = std::max(params.path_length_weight_sqrt, 0.0);
-    const double fix_weight = 100.0;
+    const double fix_weight = std::max(params.fix_weight, 0.0);
     const double reference_weight = std::max(params.reference_path_weight_sqrt, 0.0);
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 

@@ -60,6 +60,12 @@ public:
     return last_optimized_knot_count_;
   }
 
+  /// 返回最近一次参与优化的目标 knot 间距。
+  [[nodiscard]] double getLastTargetSpacing() const
+  {
+    return last_target_spacing_;
+  }
+
   /// 使用结构化请求入口执行一次完整平滑。
   ///
   /// 生命周期约定：request 内部引用（path/start_dir/end_dir/params 等）
@@ -112,6 +118,7 @@ public:
 
     // 记录本次参与优化的 knot 数，供外层诊断 / UI 使用。
     last_optimized_knot_count_ = processed.state_count;
+  last_target_spacing_ = processed.target_spacing;
 
     // 4) 调用 Ceres 求解，失败原因统一写入 failure（如提供）。
     if (!solveProblemOrReportFailure(
@@ -164,6 +171,8 @@ private:
   SmootherValidator validator_{};
   // 最近一次参与优化的状态点数量。
   size_t last_optimized_knot_count_{0};
+  // 最近一次参与优化的目标 knot 间距。
+  double last_target_spacing_{0.0};
 
   // 初始化阶段固定配置：是否打印详细求解日志。
   bool debug_{false};

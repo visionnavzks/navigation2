@@ -479,6 +479,7 @@ DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
 DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
 DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M = max(DEFAULT_RESOLUTION * 0.35, 0.02)
+DEFAULT_FIX_WEIGHT = 100.0
 INFLATION_RADIUS_CELLS = 5
 KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD = 0.1
 DEFAULT_OBSTACLE_RECTS = [
@@ -985,6 +986,7 @@ class PlanRequestConfig:
     kinematic_spacing_weight: float
     kinematic_max_spacing_m: float
     path_length_weight: float
+    fix_weight: float
     max_curvature: float
     max_time: float
     reference_spacing_target_m: float
@@ -1057,6 +1059,7 @@ class PlanRequestConfig:
             kinematic_spacing_weight=max(0.0, float(req.get("kinematic_spacing_weight", 1.0))),
             kinematic_max_spacing_m=max(0.0, float(req.get("kinematic_max_spacing_m", 0.0))),
             path_length_weight=float(req.get("path_length_weight", 0.1)),
+            fix_weight=max(0.0, float(req.get("fix_weight", DEFAULT_FIX_WEIGHT))),
             max_curvature=float(req.get("max_curvature", 2.5)),
             max_time=max(0.01, float(req.get("max_time", 10.0))),
             reference_spacing_target_m=min(
@@ -1128,6 +1131,7 @@ class PlanRequestConfig:
         smoother_params.kinematic_spacing_weight_sqrt = math.sqrt(self.kinematic_spacing_weight)
         smoother_params.kinematic_max_spacing = self.kinematic_max_spacing_m
         smoother_params.path_length_weight_sqrt = math.sqrt(self.path_length_weight)
+        smoother_params.fix_weight = self.fix_weight
         smoother_params.max_curvature = self.max_curvature
         smoother_params.max_time = self.max_time
         smoother_params.keep_start_orientation = self.keep_start_orientation
@@ -1507,6 +1511,7 @@ def _run_smoother_stage(
         "candidate_smoothed": candidate_smoothed,
         "smoother_stage": smoother_stage,
         "optimized_knot_count": int(smoother.get_last_optimized_knot_count()),
+        "target_spacing_m": float(smoother.get_last_target_spacing()),
     }
 
 
@@ -1620,6 +1625,7 @@ def _build_plan_response_payload(
     pipeline,
     optimizer_label,
     optimized_knot_count,
+    target_spacing_m,
     astar_time,
     smooth_time,
     smooth_success,
@@ -1641,8 +1647,10 @@ def _build_plan_response_payload(
         "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
         "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
         "kinematic_spacing_weight": round(config.kinematic_spacing_weight, 3),
+        "target_spacing_m": round(target_spacing_m, 4),
         "kinematic_max_spacing_m": round(config.kinematic_max_spacing_m, 3),
         "path_length_weight": round(config.path_length_weight, 3),
+        "fix_weight": round(config.fix_weight, 3),
         "max_curvature": round(config.max_curvature, 4),
         "max_time_s": round(config.max_time, 3),
         "max_iterations": int(config.max_iterations),
@@ -1859,6 +1867,7 @@ def plan_and_smooth():
             pipeline,
             optimizer_label,
             optimized_knot_count,
+            smoother_stage["target_spacing_m"],
             astar_time,
             smooth_time,
             smooth_success,

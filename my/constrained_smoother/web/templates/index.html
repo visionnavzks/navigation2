@@ -162,11 +162,16 @@
                 <span id="weights-optimizer-badge" class="pill" data-i18n="solver.kinematic">Kinematic Smoother</span>
               </div>
               <p id="optimizer-mode-hint" class="param-hint">Kinematic Smoother uses the C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.</p>
-              <p class="param-hint">These sliders show raw weights. The backend converts them to sqrt-weight terms before passing them to the solver.</p>
+              <p class="param-hint" data-i18n="weights.rawWeightNote">Most sliders show raw weights and are converted to sqrt-weight terms in the backend. Fix Weight is passed directly into the hard-constraint residuals.</p>
               <div id="model-weight-group" class="param-group">
                 <label data-i18n-html="weights.modelWeightLabel">Model Weight: <span id="val_model_weight">20</span></label>
                 <input type="range" id="model_weight" min="0" max="100" step="1" value="20">
                 <p class="param-hint" data-i18n="weights.modelWeightHint">Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="weights.fixWeightLabel">Fix Weight: <span id="val_fix_weight">100</span></label>
+                <input type="range" id="fix_weight" min="0" max="300" step="5" value="100">
+                <p class="param-hint" data-i18n="weights.fixWeightHint">Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="weights.obstacleWeightLabel">Obstacle Weight: <span id="val_costmap_weight">1.000</span></label>
@@ -211,6 +216,7 @@
                 <label data-i18n-html="weights.kinematicSpacingWeightLabel">Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">1.0</span></label>
                 <input type="range" id="kinematic_spacing_weight" min="0.0" max="20.0" step="0.1" value="1.0">
                 <p class="param-hint" data-i18n="weights.kinematicSpacingWeightHint">Penalizes deviation of ds from the target segment spacing so knot spacing remains numerically stable and near-uniform.</p>
+                <p id="kinematic-spacing-target-hint" class="param-hint">Current optimizer target spacing: --</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="weights.pathLengthWeightLabel">Path Length Weight: <span id="val_path_length_weight">0.1</span></label>

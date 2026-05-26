@@ -85,9 +85,11 @@ document.addEventListener('DOMContentLoaded', () => {
     'loupe.cellCost': '栅格代价值',
     'loupe.esdfDistance': 'ESDF 距离',
     'weights.title': '平滑权重',
-    'weights.rawWeightNote': '这些滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数。当前 Web Lab 只暴露运动学后端实际会用到的权重。',
+    'weights.rawWeightNote': '大多数滑块显示的是原始权重，后端会先取 sqrt，再写入求解器里的 *_sqrt 参数。Fix Weight 例外，它会直接进入强约束残差。',
     'weights.modelWeightLabel': '模型权重: <span id="val_model_weight">20</span>',
     'weights.modelWeightHint': '这是运动学状态转移一致性残差的原始权重。调高后，每一步状态转移都会更贴近自行车模型预测，而不只是“看起来更平滑”。',
+    'weights.fixWeightLabel': '固定权重: <span id="val_fix_weight">100</span>',
+    'weights.fixWeightHint': '直接缩放 cusp 保持段和起终点锚定共用的强约束残差。这个值不会再做 sqrt 变换。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
     'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
     'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
@@ -300,8 +302,11 @@ document.addEventListener('DOMContentLoaded', () => {
       'session.goalLongitudinalToleranceHint': 'Allows the final point to slide forward or backward inside the goal frame before the hinge penalty turns on. Set both goal tolerances to zero to keep the goal position fixed.',
       'session.goalLateralToleranceLabel': 'Goal Lateral Tolerance (m): <span id="val_goal_lateral_tolerance_m">0.00</span>',
       'session.goalLateralToleranceHint': 'Allows the final point to drift sideways inside the goal frame before the hinge penalty turns on. This exposes the goal position bandwidth residual in the web lab.',
+      'weights.rawWeightNote': 'Most sliders show raw weights and are converted to sqrt-weight terms in the backend. Fix Weight is passed directly into the hard-constraint residuals.',
       'weights.modelWeightLabel': 'Model Weight: <span id="val_model_weight">20</span>',
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
+      'weights.fixWeightLabel': 'Fix Weight: <span id="val_fix_weight">100</span>',
+      'weights.fixWeightHint': 'Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.',
       'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">1.0</span>',
       'weights.kinematicSpacingWeightHint': 'Penalizes ds deviation from the target spacing so optimized knot spacing stays near-uniform and numerically stable.',
       'weights.pathLengthWeightLabel': 'Path Length Weight: <span id="val_path_length_weight">0.1</span>',
@@ -612,6 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
     model_weight: value => Math.round(value).toLocaleString(),
+    fix_weight: value => String(Math.round(value)),
     costmap_weight: value => Number(value).toFixed(3),
     cusp_costmap_weight: value => Number(value).toFixed(3),
     cusp_zone_length: value => Number(value).toFixed(2),
@@ -634,7 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
     gradient_tol: value => formatScientific(value),
   };
   const optimizerScopedSliderIds = [
-    'model_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
+    'model_weight', 'fix_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
     'reference_path_weight', 'reference_point_max_deviation_m',
     'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'kinematic_spacing_weight', 'path_length_weight', 'max_curvature',
     'reference_spacing_target_m', 'max_iterations', 'max_time',
@@ -1374,6 +1380,10 @@ document.addEventListener('DOMContentLoaded', () => {
       'kinematic-param-resampling',
       'kinematic-param-ceres-tolerances',
     ].forEach(id => setText(id, '--'));
+    setText(
+      'kinematic-spacing-target-hint',
+      currentLanguage === 'zh' ? '当前优化目标间距：--' : 'Current optimizer target spacing: --'
+    );
   }
 
   function updateKinematicDiagnostics(data) {
@@ -1399,7 +1409,19 @@ document.addEventListener('DOMContentLoaded', () => {
       'kinematic-param-curvature-rate-weight',
       optimizerConfig.kinematic_curvature_rate_weight ?? '--'
     );
-    setText('kinematic-param-resampling', `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'}`);
+    const targetSpacingText = formatMeters(optimizerConfig.target_spacing_m, 3);
+    setText(
+      'kinematic-param-resampling',
+      currentLanguage === 'zh'
+        ? `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'} · 目标间距 ${targetSpacingText}`
+        : `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'} · target ${targetSpacingText}`
+    );
+    setText(
+      'kinematic-spacing-target-hint',
+      currentLanguage === 'zh'
+        ? `当前优化目标间距：${targetSpacingText}。该值由参与优化的状态链平均段长自动估计。`
+        : `Current optimizer target spacing: ${targetSpacingText}. This is estimated from the average segment length of the optimized knot chain.`
+    );
     setText(
       'kinematic-param-ceres-tolerances',
       `p ${Number(optimizerConfig.parameter_tolerance ?? NaN).toExponential(1)}, f ${Number(optimizerConfig.function_tolerance ?? NaN).toExponential(1)}, g ${Number(optimizerConfig.gradient_tolerance ?? NaN).toExponential(1)}`

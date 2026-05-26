@@ -510,6 +510,7 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "path_length_weight_sqrt",
     &constrained_smoother::SmootherParams::path_length_weight_sqrt)
+    .def_readwrite("fix_weight", &constrained_smoother::SmootherParams::fix_weight)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
     .def_readwrite("use_exact_esdf", &constrained_smoother::SmootherParams::use_exact_esdf)
@@ -622,6 +623,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def(
       "get_last_optimized_knot_count",
       &constrained_smoother::KinematicSmoother::getLastOptimizedKnotCount)
+    .def(
+      "get_last_target_spacing",
+      &constrained_smoother::KinematicSmoother::getLastTargetSpacing)
     .def(
       "smooth",
       [](constrained_smoother::KinematicSmoother & self,
