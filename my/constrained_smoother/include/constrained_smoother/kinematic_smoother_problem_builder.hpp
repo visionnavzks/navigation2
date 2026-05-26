@@ -372,6 +372,8 @@ public:
       double interp_x = x;
       double interp_y = y;
       double interp_theta = theta;
+      std::vector<Eigen::Vector3d> segment_samples;
+      segment_samples.reserve(static_cast<size_t>(upsample_factor - 1));
 
       for (int step_index = 1; step_index < upsample_factor; ++step_index) {
         const double t0 = static_cast<double>(step_index - 1) / static_cast<double>(upsample_factor);
@@ -383,7 +385,31 @@ public:
         interp_x += direction * step * std::cos(theta_mid);
         interp_y += direction * step * std::sin(theta_mid);
         interp_theta = normalizeAngle(interp_theta + direction * step * 0.5 * (kappa0 + kappa1));
-        upsampled.emplace_back(interp_x, interp_y, interp_theta);
+        segment_samples.emplace_back(interp_x, interp_y, interp_theta);
+      }
+
+      const double final_t0 = static_cast<double>(upsample_factor - 1) /
+        static_cast<double>(upsample_factor);
+      const double final_kappa0 = kappa + (next_kappa - kappa) * final_t0;
+      const double final_theta_mid = interp_theta + direction * step * 0.5 * final_kappa0;
+      const double predicted_end_x = interp_x + direction * step * std::cos(final_theta_mid);
+      const double predicted_end_y = interp_y + direction * step * std::sin(final_theta_mid);
+      const double predicted_end_theta = normalizeAngle(
+        interp_theta + direction * step * 0.5 * (final_kappa0 + next_kappa));
+
+      const double closure_x = next_pose.x() - predicted_end_x;
+      const double closure_y = next_pose.y() - predicted_end_y;
+      const double closure_theta = normalizeAngle(next_pose.z() - predicted_end_theta);
+
+      // 优化后的相邻状态只在有限权重下逼近运动学一致性；
+      // 将端点闭合误差沿整段均匀摊开，避免最后一个插值点硬跳到 next_pose。
+      for (int step_index = 1; step_index < upsample_factor; ++step_index) {
+        const double t = static_cast<double>(step_index) / static_cast<double>(upsample_factor);
+        const Eigen::Vector3d & sample = segment_samples[static_cast<size_t>(step_index - 1)];
+        upsampled.emplace_back(
+          sample.x() + t * closure_x,
+          sample.y() + t * closure_y,
+          normalizeAngle(sample.z() + t * closure_theta));
       }
 
       upsampled.push_back(next_pose);

@@ -52,6 +52,11 @@ def _coerce_bool(value, default):
     return default
 
 
+def _normalize_capsule_mode(value):
+    mode = str(value or "conservative").strip().lower()
+    return mode if mode in {"exact", "conservative"} else "conservative"
+
+
 ERROR_INVALID_REQUEST = "CS_INVALID_REQUEST"
 ERROR_ASTAR_NO_PATH = "CS_ASTAR_NO_PATH"
 ERROR_INTERNAL = "CS_INTERNAL_ERROR"
@@ -473,6 +478,7 @@ DEFAULT_RESOLUTION = 0.1
 DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
 DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
+DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M = max(DEFAULT_RESOLUTION * 0.35, 0.02)
 INFLATION_RADIUS_CELLS = 5
 KINEMATIC_GOAL_ORIENTATION_TOLERANCE_RAD = 0.1
 DEFAULT_OBSTACLE_RECTS = [
@@ -880,15 +886,29 @@ def _build_capsule_center_offsets(limit_x, radius, tolerance):
     return np.linspace(-limit_x, limit_x, interval_count + 1).tolist()
 
 
+def _resolve_capsule_center_limit(half_length, radius, capsule_mode):
+    if _normalize_capsule_mode(capsule_mode) == "exact":
+        return max(half_length - radius, 0.0)
+    return half_length
+
+
 def _build_robot_footprint_model(
     footprint_mode,
+    capsule_mode,
     surface_clearance_margin_m,
     point_robot_radius_m,
     robot_length_m,
     robot_width_m,
+    capsule_sampling_tolerance_m=None,
 ):
     """Build the unified checkpoint + radius geometry used by planning and smoothing."""
     mode = footprint_mode if footprint_mode in {"point", "capsule"} else "capsule"
+    normalized_capsule_mode = _normalize_capsule_mode(capsule_mode)
+    sampling_tolerance = max(
+        0.0,
+        DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M
+        if capsule_sampling_tolerance_m is None else float(capsule_sampling_tolerance_m),
+    )
     half_length = max(robot_length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
     half_width = max(robot_width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
 
@@ -897,10 +917,11 @@ def _build_robot_footprint_model(
         local_points = [(0.0, 0.0)]
     else:
         check_radius = half_width
+        center_limit = _resolve_capsule_center_limit(half_length, check_radius, normalized_capsule_mode)
         local_points = [(offset_x, 0.0) for offset_x in _build_capsule_center_offsets(
-            half_length,
+            center_limit,
             check_radius,
-            max(DEFAULT_RESOLUTION * 0.35, 0.02),
+            sampling_tolerance,
         )]
 
     planner_points = []
@@ -917,6 +938,8 @@ def _build_robot_footprint_model(
     safe_distance = surface_clearance_margin_m
     return {
         "mode": mode,
+        "capsule_mode": normalized_capsule_mode if mode == "capsule" else None,
+        "capsule_sampling_tolerance_m": sampling_tolerance,
         "safe_distance": safe_distance,
         "check_radius": check_radius,
         "planner_points": planner_points,
@@ -944,6 +967,8 @@ class PlanRequestConfig:
     goal_lateral_tolerance_m: float
     goal_orientation_tolerance_deg: float
     footprint_mode: str
+    capsule_mode: str
+    capsule_sampling_tolerance_m: float
     surface_clearance_margin_m: float
     point_robot_radius_m: float
     robot_length_m: float
@@ -980,6 +1005,7 @@ class PlanRequestConfig:
         footprint_mode = str(req.get("footprint_mode", "capsule")).strip().lower()
         if footprint_mode not in {"point", "capsule"}:
             footprint_mode = "capsule"
+        capsule_mode = _normalize_capsule_mode(req.get("capsule_mode", "conservative"))
 
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
@@ -1001,6 +1027,11 @@ class PlanRequestConfig:
             goal_lateral_tolerance_m=max(0.0, float(req.get("goal_lateral_tolerance_m", 0.0))),
             goal_orientation_tolerance_deg=max(0.0, float(req.get("goal_orientation_tolerance_deg", 0.0))),
             footprint_mode=footprint_mode,
+            capsule_mode=capsule_mode,
+            capsule_sampling_tolerance_m=max(
+                0.0,
+                float(req.get("capsule_sampling_tolerance_m", DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M)),
+            ),
             surface_clearance_margin_m=max(
                 0.05,
                 float(req.get("surface_clearance_margin_m", req.get("hinge_loss_threshold_m", 0.5))),
@@ -1071,10 +1102,12 @@ class PlanRequestConfig:
     def build_footprint_model(self):
         return _build_robot_footprint_model(
             self.footprint_mode,
+            self.capsule_mode,
             self.surface_clearance_margin_m,
             self.point_robot_radius_m,
             self.robot_length_m,
             self.robot_width_m,
+            capsule_sampling_tolerance_m=self.capsule_sampling_tolerance_m,
         )
 
     def build_smoother_params(self, footprint_model):
@@ -1678,6 +1711,8 @@ def _build_plan_response_payload(
         "point_robot_radius_m": round(config.point_robot_radius_m, 3),
         "effective_safe_distance_m": round(footprint_model["safe_distance"], 3),
         "footprint_mode": footprint_model["mode"],
+        "footprint_capsule_mode": footprint_model["capsule_mode"],
+        "capsule_sampling_tolerance_m": round(footprint_model["capsule_sampling_tolerance_m"], 3),
         "robot_length_m": round(config.robot_length_m, 3),
         "robot_width_m": round(config.robot_width_m, 3),
         "robot_check_points": len(footprint_model["serialized_points"]),

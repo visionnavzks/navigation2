@@ -255,6 +255,19 @@
                 </select>
                 <p class="param-hint" data-i18n="robot.footprintHint">Planning and smoothing now share the same checkpoint-plus-radius model. The rectangle is kept only for final path validation.</p>
               </div>
+              <div class="param-group param-group--stacked">
+                <label for="capsule_mode" data-i18n="robot.capsuleMode">Capsule Variant</label>
+                <select id="capsule_mode">
+                  <option value="conservative" selected data-i18n="robot.capsuleConservative">Conservative Capsule</option>
+                  <option value="exact" data-i18n="robot.capsuleExact">Exact Capsule</option>
+                </select>
+                <p class="param-hint" data-i18n="robot.capsuleModeHint">Exact capsule keeps its total length aligned with the rectangle. Conservative capsule preserves the current end-cap overhang.</p>
+              </div>
+              <div class="param-group">
+                <label data-i18n-html="robot.capsuleSamplingToleranceLabel">Capsule Sampling Tolerance (m): <span id="val_capsule_sampling_tolerance_m">0.04</span></label>
+                <input type="range" id="capsule_sampling_tolerance_m" min="0.005" max="0.150" step="0.005" value="0.035">
+                <p class="param-hint" data-i18n="robot.capsuleSamplingToleranceHint">Smaller values insert more circles along the capsule centerline; larger values use fewer circles.</p>
+              </div>
               <div class="param-group">
                 <label data-i18n-html="robot.singleCircleRadiusLabel">Single-Circle Radius (m): <span id="val_point_robot_radius_m">1.00</span></label>
                 <input type="range" id="point_robot_radius_m" min="0.00" max="1.00" step="0.05" value="1.00">

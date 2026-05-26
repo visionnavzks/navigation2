@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const mapDisplayModeSelect = document.getElementById('map-display-mode');
   const esdfColormapSelect = document.getElementById('esdf-colormap');
   const footprintModeSelect = document.getElementById('footprint_mode');
+  const capsuleModeSelect = document.getElementById('capsule_mode');
   const languageSwitch = document.getElementById('language-switch');
   const scenePresetSelect = document.getElementById('scene-preset');
   const runBtn = document.getElementById('run-btn');
@@ -122,6 +123,12 @@ document.addEventListener('DOMContentLoaded', () => {
     'robot.footprintCapsule': '胶囊检查点',
     'robot.footprintPoint': '单圆检查',
     'robot.footprintHint': '规划和平滑现在共用同一套“检查点 + 半径”模型。矩形只保留给最终路径验证。',
+    'robot.capsuleMode': '胶囊模式',
+    'robot.capsuleExact': '精确胶囊',
+    'robot.capsuleConservative': '保守胶囊',
+    'robot.capsuleModeHint': '精确胶囊会让总长度与矩形严格对齐；保守胶囊保留当前端头外扩做法。',
+    'robot.capsuleSamplingToleranceLabel': '胶囊采样容差 (m): <span id="val_capsule_sampling_tolerance_m">0.04</span>',
+    'robot.capsuleSamplingToleranceHint': '值越小，中轴线上插入的圆越多；值越大，使用的圆越少。',
     'robot.singleCircleRadiusLabel': '单圆半径 (m): <span id="val_point_robot_radius_m">1.00</span>',
     'robot.singleCircleRadiusHint': '仅在单圆模式下使用。胶囊模式会直接从机器人宽度推导圆半径。',
     'robot.lengthLabel': '机器人长度 (m): <span id="val_robot_length_m">0.80</span>',
@@ -308,6 +315,14 @@ document.addEventListener('DOMContentLoaded', () => {
       'optimizer.mode.kinematic': 'Kinematic Smoother uses the new C++ bicycle-style state optimizer with ESDF obstacle residuals and footprint sampling.',
       'optimizer.linear.constrained': 'Chooses the Ceres linear solver backend used inside each nonlinear iteration.',
       'optimizer.linear.kinematic': 'Kinematic Smoother solves a single packed state vector; the linear-solver selector is not exposed in the Web Lab.',
+      'robot.capsuleMode': 'Capsule Variant',
+      'robot.capsuleExact': 'Exact Capsule',
+      'robot.capsuleConservative': 'Conservative Capsule',
+      'robot.capsuleModeHint': 'Exact capsule keeps its total length aligned with the rectangle. Conservative capsule preserves the current end-cap overhang.',
+      'robot.capsuleSamplingToleranceLabel': 'Capsule Sampling Tolerance (m): <span id="val_capsule_sampling_tolerance_m">0.04</span>',
+      'robot.capsuleSamplingToleranceHint': 'Smaller values insert more circles along the capsule centerline; larger values use fewer circles.',
+      'robot.badge.capsuleExact': 'Capsule · Exact',
+      'robot.badge.capsuleConservative': 'Capsule · Conservative',
       'robot.badge.capsule': 'Capsule',
       'robot.badge.point': 'Single circle',
       'robot.summary.previewPending': 'Capsule checkpoints are shown in amber; the dashed rectangle is final validation only.',
@@ -436,6 +451,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'optimizer.mode.kinematic': '运动学平滑器使用新的 C++ 自行车模型状态优化器，包含 ESDF 障碍残差与足迹采样。',
       'optimizer.linear.constrained': '选择每次非线性迭代内部使用的 Ceres 线性求解后端。',
       'optimizer.linear.kinematic': '运动学平滑器求解单个打包状态向量，Web Lab 不再暴露线性求解器切换。',
+      'robot.badge.capsuleExact': '胶囊·精确',
+      'robot.badge.capsuleConservative': '胶囊·保守',
       'robot.badge.capsule': '胶囊',
       'robot.badge.point': '单圆',
       'robot.summary.previewPending': '琥珀色显示的是胶囊检查点；虚线矩形仅用于最终验证。',
@@ -590,6 +607,7 @@ document.addEventListener('DOMContentLoaded', () => {
     goal_lateral_tolerance_m: value => Number(value).toFixed(2),
     planner_penalty_weight: value => Number(value).toFixed(1),
     surface_clearance_margin_m: value => Number(value).toFixed(2),
+    capsule_sampling_tolerance_m: value => Number(value).toFixed(3),
     point_robot_radius_m: value => Number(value).toFixed(2),
     robot_length_m: value => Number(value).toFixed(2),
     robot_width_m: value => Number(value).toFixed(2),
@@ -828,7 +846,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSelectionInfo();
         draw();
       }
-      if (id === 'surface_clearance_margin_m' || id === 'point_robot_radius_m' ||
+      if (id === 'surface_clearance_margin_m' || id === 'capsule_sampling_tolerance_m' || id === 'point_robot_radius_m' ||
         id === 'robot_length_m' || id === 'robot_width_m') {
         updateRobotConfigUi();
         draw();
@@ -900,6 +918,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (footprintModeSelect) {
     footprintModeSelect.addEventListener('change', () => {
+      updateRobotConfigUi();
+      draw();
+      scheduleAutoPlan();
+    });
+  }
+
+  if (capsuleModeSelect) {
+    capsuleModeSelect.addEventListener('change', () => {
       updateRobotConfigUi();
       draw();
       scheduleAutoPlan();
@@ -1129,13 +1155,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pointRobotRadiusInput) {
       pointRobotRadiusInput.disabled = !pointEnabled;
     }
+    if (capsuleModeSelect) {
+      capsuleModeSelect.disabled = mode !== 'capsule';
+    }
+    const capsuleSamplingToleranceInput = document.getElementById('capsule_sampling_tolerance_m');
+    if (capsuleSamplingToleranceInput) {
+      capsuleSamplingToleranceInput.disabled = mode !== 'capsule';
+    }
 
     const config = getRobotFootprintConfig();
-    const badgeText = config.mode === 'capsule' ? t('robot.badge.capsule') : t('robot.badge.point');
+    const capsuleLabel = config.capsuleMode === 'exact' ? t('robot.capsuleExact') : t('robot.capsuleConservative');
+    const badgeText = config.mode === 'capsule'
+      ? (config.capsuleMode === 'exact' ? t('robot.badge.capsuleExact') : t('robot.badge.capsuleConservative'))
+      : t('robot.badge.point');
     const summaryText = config.mode === 'capsule'
       ? currentLanguage === 'zh'
-        ? `规划和平滑使用 ${config.localCheckPoints.length} 个胶囊检查点，半径为 ${formatMeters(config.checkRadiusM)}。虚线 ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} 矩形仅用于最终验证。`
-        : `Planning and smoothing use ${config.localCheckPoints.length} capsule checkpoints with ${formatMeters(config.checkRadiusM)} radius. The dashed ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} rectangle is final validation only.`
+        ? `规划和平滑使用${capsuleLabel}，共 ${config.localCheckPoints.length} 个检查点，半径为 ${formatMeters(config.checkRadiusM)}。虚线 ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} 矩形仅用于最终验证。`
+        : `Planning and smoothing use the ${capsuleLabel} mode with ${config.localCheckPoints.length} checkpoints and ${formatMeters(config.checkRadiusM)} radius. The dashed ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} rectangle is final validation only.`
       : currentLanguage === 'zh'
         ? `规划和平滑使用一个半径为 ${formatMeters(config.checkRadiusM)} 的检查圆。虚线 ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} 矩形仍用于最终路径验证。`
         : `Planning and smoothing use one ${formatMeters(config.checkRadiusM)} check circle. The dashed ${formatMeters(config.lengthM)} × ${formatMeters(config.widthM)} rectangle still validates the final path.`;
@@ -1401,14 +1437,33 @@ document.addEventListener('DOMContentLoaded', () => {
     return Array.from({length: intervalCount + 1}, (_, index) => -limitX + ((2 * limitX * index) / intervalCount));
   }
 
-  function buildLocalFootprintPoints(mode, pointRadiusM, lengthM, widthM) {
+  function normalizeCapsuleMode(mode) {
+    return mode === 'exact' ? 'exact' : 'conservative';
+  }
+
+  function resolveCapsuleCenterLimit(halfLength, radius, capsuleMode) {
+    if (normalizeCapsuleMode(capsuleMode) === 'exact') {
+      return Math.max(halfLength - radius, 0);
+    }
+    return halfLength;
+  }
+
+  function buildLocalFootprintPoints(
+    mode,
+    pointRadiusM,
+    lengthM,
+    widthM,
+    capsuleMode = 'conservative',
+    capsuleSamplingToleranceM = Math.max((state.costmap?.resolution || 0.1) * 0.35, 0.02)
+  ) {
     if (mode === 'point') {
       return [{x: 0, y: 0}];
     }
 
     const halfLength = Math.max(lengthM * 0.5, (state.costmap?.resolution || 0.1) * 0.5);
     const checkRadiusM = Math.max(widthM * 0.5, (state.costmap?.resolution || 0.1) * 0.5);
-    return buildCapsuleCenterOffsets(halfLength, checkRadiusM, Math.max((state.costmap?.resolution || 0.1) * 0.35, 0.02))
+    const centerLimit = resolveCapsuleCenterLimit(halfLength, checkRadiusM, capsuleMode);
+    return buildCapsuleCenterOffsets(centerLimit, checkRadiusM, Math.max(capsuleSamplingToleranceM, 0))
       .map(offsetX => ({x: offsetX, y: 0}));
   }
 
@@ -1421,18 +1476,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const resolution = state.costmap?.resolution || 0.1;
     const mode = pathData?.footprint_mode || (footprintModeSelect ? footprintModeSelect.value : 'capsule');
+    const capsuleMode = normalizeCapsuleMode(
+      pathData?.footprint_capsule_mode || (capsuleModeSelect ? capsuleModeSelect.value : 'conservative')
+    );
+    const capsuleSamplingToleranceM = Number.isFinite(pathData?.capsule_sampling_tolerance_m)
+      ? Math.max(0, Number(pathData.capsule_sampling_tolerance_m))
+      : readValue('capsule_sampling_tolerance_m', Math.max(resolution * 0.35, 0.02));
     const pointRadiusM = Math.max(0, readValue('point_robot_radius_m', 1.0));
     const lengthM = Math.max(resolution, pathData?.robot_length_m ?? readValue('robot_length_m', 0.8));
     const widthM = Math.max(resolution, pathData?.robot_width_m ?? readValue('robot_width_m', 0.5));
     const localCheckPoints = Array.isArray(pathData?.collision_check_points_local) && pathData.collision_check_points_local.length
       ? pathData.collision_check_points_local.map(point => ({x: Number(point.x), y: Number(point.y)}))
-      : buildLocalFootprintPoints(mode, pointRadiusM, lengthM, widthM);
+      : buildLocalFootprintPoints(mode, pointRadiusM, lengthM, widthM, capsuleMode, capsuleSamplingToleranceM);
     const checkRadiusM = Number.isFinite(pathData?.collision_check_radius_m)
       ? Math.max(0, Number(pathData.collision_check_radius_m))
       : (mode === 'point' ? pointRadiusM : Math.max(widthM * 0.5, resolution * 0.5));
 
     return {
       mode,
+      capsuleMode,
+      capsuleSamplingToleranceM,
       pointRadiusM,
       checkRadiusM,
       lengthM,
@@ -3640,6 +3703,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     if (footprintModeSelect) {
       params.footprint_mode = footprintModeSelect.value;
+    }
+    if (capsuleModeSelect) {
+      params.capsule_mode = capsuleModeSelect.value;
     }
     params.keep_start_orientation = getConstraintEnabled('keep_start_orientation', true);
     params.keep_goal_orientation = getConstraintEnabled('keep_goal_orientation', true);

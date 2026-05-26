@@ -379,6 +379,47 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   EXPECT_NEAR(evaluate_cost(3.0), 4.5, 1e-9);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, UpsamplePathKinematicDistributesClosureError)
+{
+  constrained_smoother::KinematicProcessedPath processed;
+  processed.state_count = 2;
+  processed.gears = {1.0};
+  processed.is_cusp_segment = {false};
+
+  std::vector<double> variables = {
+    0.0, 0.0, 0.0, 0.0, 1.0,
+    0.6, 0.4, 0.2, 0.0, 0.0,
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.path_upsampling_factor = 4;
+
+  const auto upsampled = constrained_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematic(
+    variables,
+    processed,
+    params);
+
+  ASSERT_EQ(upsampled.size(), 5u);
+
+  const auto step_length = [&](size_t from, size_t to) {
+    return (upsampled[to].head<2>() - upsampled[from].head<2>()).norm();
+  };
+
+  const double step_01 = step_length(0, 1);
+  const double step_12 = step_length(1, 2);
+  const double step_23 = step_length(2, 3);
+  const double step_34 = step_length(3, 4);
+  const double regular_step = std::max(step_01, std::max(step_12, step_23));
+
+  EXPECT_LE(step_34, regular_step * 1.1);
+  EXPECT_NEAR(upsampled[1].x(), 0.15, 1e-9);
+  EXPECT_NEAR(upsampled[1].y(), 0.10, 1e-9);
+  EXPECT_NEAR(upsampled[2].x(), 0.30, 1e-9);
+  EXPECT_NEAR(upsampled[2].y(), 0.20, 1e-9);
+  EXPECT_NEAR(upsampled[3].x(), 0.45, 1e-9);
+  EXPECT_NEAR(upsampled[3].y(), 0.30, 1e-9);
+}
+
 // ---- Stable error-code and failure-message contract tests ----
 
 TEST(ErrorTest, InvalidPathCarriesStableCode)
@@ -503,7 +544,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   params.reference_path_weight_sqrt = std::sqrt(0.0);
   params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
   params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
-  params.max_curvature = 1.0 / 0.4;
+  params.max_curvature = 100.0;
   params.max_time = 1.0;
   params.keep_start_orientation = true;
   params.keep_goal_orientation = true;
@@ -667,6 +708,7 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
   constrained_smoother::SmootherParams params;
   params.keep_goal_orientation = true;
   params.keep_start_orientation = false;
+  params.max_curvature = 10.0;
 
   const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
   constrained_smoother::SmoothingFailureInfo failure;
@@ -756,6 +798,7 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceUsesReferenceGoalFrame
   params.keep_start_orientation = true;
   params.goal_longitudinal_tolerance = 0.2;
   params.goal_lateral_tolerance = 0.0;
+  params.max_curvature = 10.0;
 
   const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
   constrained_smoother::SmoothingFailureInfo failure;
