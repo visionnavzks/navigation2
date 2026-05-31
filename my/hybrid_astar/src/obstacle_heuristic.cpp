@@ -13,15 +13,14 @@ void ObstacleHeuristic::resetObstacleHeuristic(
   this->costmap = costmap;
 
   unsigned int size = 0u;
-  unsigned int size_x = 0u;
   if (downsample_obstacle_heuristic) {
-    size_x = ceil(static_cast<float>(costmap->getSizeInCellsX()) / 2.0f);
-    size = size_x *
-      ceil(static_cast<float>(costmap->getSizeInCellsY()) / 2.0f);
+    cached_size_x_ = ceil(static_cast<float>(costmap->getSizeInCellsX()) / 2.0f);
+    cached_size_y_ = ceil(static_cast<float>(costmap->getSizeInCellsY()) / 2.0f);
   } else {
-    size_x = costmap->getSizeInCellsX();
-    size = size_x * costmap->getSizeInCellsY();
+    cached_size_x_ = costmap->getSizeInCellsX();
+    cached_size_y_ = costmap->getSizeInCellsY();
   }
+  size = cached_size_x_ * cached_size_y_;
 
   if (obstacle_heuristic_lookup_table_.size() == size) {
     std::fill(
@@ -39,13 +38,13 @@ void ObstacleHeuristic::resetObstacleHeuristic(
 
   unsigned int goal_index;
   if (downsample_obstacle_heuristic) {
-    goal_index = floor(goal_y / 2.0f) * size_x + floor(goal_x / 2.0f);
+    goal_index = (goal_y / 2) * cached_size_x_ + (goal_x / 2);
   } else {
-    goal_index = floor(goal_y) * size_x + floor(goal_x);
+    goal_index = goal_y * cached_size_x_ + goal_x;
   }
 
   obstacle_heuristic_queue_.emplace_back(
-    distanceHeuristic2D(goal_index, size_x, start_x, start_y), goal_index);
+    distanceHeuristic2D(goal_index, cached_size_x_, start_x, start_y), goal_index);
 
   obstacle_heuristic_lookup_table_[goal_index] = -0.00001f;
 }
@@ -56,15 +55,8 @@ float ObstacleHeuristic::getObstacleHeuristic(
   const bool use_quadratic_cost_penalty,
   const bool downsample_obstacle_heuristic)
 {
-  unsigned int size_x = 0u;
-  unsigned int size_y = 0u;
-  if (downsample_obstacle_heuristic) {
-    size_x = ceil(static_cast<float>(costmap->getSizeInCellsX()) / 2.0f);
-    size_y = ceil(static_cast<float>(costmap->getSizeInCellsY()) / 2.0f);
-  } else {
-    size_x = costmap->getSizeInCellsX();
-    size_y = costmap->getSizeInCellsY();
-  }
+  const unsigned int size_x = cached_size_x_;
+  const unsigned int size_y = cached_size_y_;
 
   unsigned int start_y, start_x;
   if (downsample_obstacle_heuristic) {
@@ -87,7 +79,7 @@ float ObstacleHeuristic::getObstacleHeuristic(
   }
   std::make_heap(
     obstacle_heuristic_queue_.begin(), obstacle_heuristic_queue_.end(),
-    ObstacleHeuristicComparator{});
+    NodeHeuristicComparator{});
 
   const int size_x_int = static_cast<int>(size_x);
   const float sqrt2 = sqrtf(2.0f);
@@ -104,7 +96,7 @@ float ObstacleHeuristic::getObstacleHeuristic(
     idx = obstacle_heuristic_queue_.front().second;
     std::pop_heap(
       obstacle_heuristic_queue_.begin(), obstacle_heuristic_queue_.end(),
-      ObstacleHeuristicComparator{});
+      NodeHeuristicComparator{});
     obstacle_heuristic_queue_.pop_back();
     c_cost = obstacle_heuristic_lookup_table_[idx];
     if (c_cost > 0.0f) {
@@ -114,9 +106,13 @@ float ObstacleHeuristic::getObstacleHeuristic(
     obstacle_heuristic_lookup_table_[idx] = c_cost;
 
     for (unsigned int i = 0; i != neighborhood.size(); i++) {
-      new_idx = static_cast<unsigned int>(static_cast<int>(idx) + neighborhood[i]);
+      int new_idx_int = static_cast<int>(idx) + neighborhood[i];
+      if (new_idx_int < 0 || new_idx_int >= static_cast<int>(size_x * size_y)) {
+        continue;
+      }
+      new_idx = static_cast<unsigned int>(new_idx_int);
 
-      if (new_idx < size_x * size_y) {
+      {
         if (downsample_obstacle_heuristic) {
           unsigned int y_offset = (new_idx / size_x) * 2;
           unsigned int x_offset = (new_idx - ((new_idx / size_x) * size_x)) * 2;
@@ -159,10 +155,10 @@ float ObstacleHeuristic::getObstacleHeuristic(
         if (existing_cost <= 0.0f) {
           if (use_quadratic_cost_penalty) {
             travel_cost =
-              (i <= 3 ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost * cost / 63504.0f));
+              (i <= 3 ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost * cost / MAX_NON_OBSTACLE_COST_SQ));
           } else {
             travel_cost =
-              ((i <= 3) ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost / 252.0f));
+              ((i <= 3) ? 1.0f : sqrt2) * (1.0f + (cost_penalty * cost / MAX_NON_OBSTACLE_COST));
           }
 
           new_cost = c_cost + travel_cost;
@@ -172,7 +168,7 @@ float ObstacleHeuristic::getObstacleHeuristic(
               new_cost + distanceHeuristic2D(new_idx, size_x, start_x, start_y), new_idx);
             std::push_heap(
               obstacle_heuristic_queue_.begin(), obstacle_heuristic_queue_.end(),
-              ObstacleHeuristicComparator{});
+              NodeHeuristicComparator{});
           }
         }
       }

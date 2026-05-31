@@ -31,7 +31,7 @@ public:
   bool inCollision(
     const unsigned int & i, const bool & traverse_unknown);
 
-  float getCost();
+  float getCost() const;
 
   std::vector<float> & getPrecomputedAngles() { return angles_; }
 
@@ -40,7 +40,7 @@ public:
 
   void setCostmap(Costmap2D * costmap) { costmap_ = costmap; }
 
-  bool outsideRange(const unsigned int & max, const float & value);
+  bool outsideRange(const unsigned int & max, const float & value) const;
 
 protected:
   Costmap2D * costmap_;

@@ -135,7 +135,7 @@ void AStarAlgorithm<NodeT>::setGoal(
   const GoalHeadingMode & goal_heading_mode,
   const int & coarse_search_resolution)
 {
-  _coarse_search_resolution = 1;
+  _coarse_search_resolution = coarse_search_resolution;
 
   _goal_manager.clear();
   Coordinates ref_goal_coord(mx, my, static_cast<float>(dim_3));
@@ -189,8 +189,6 @@ void AStarAlgorithm<NodeT>::setGoal(
       }
 
     case GoalHeadingMode::ALL_DIRECTION: {
-        _coarse_search_resolution = coarse_search_resolution;
-
         for (unsigned int i = 0; i < num_bins; ++i) {
           auto goal = addToGraph(
             getIndex(
@@ -304,7 +302,7 @@ bool AStarAlgorithm<NodeT>::createPath(
       populateExpansionsLog(current_node, expansions_log);
     }
 
-    if (onVisitationCheckNode(current_node)) {
+    if (current_node->wasVisited()) {
       continue;
     }
 
@@ -388,12 +386,6 @@ float AStarAlgorithm<NodeT>::getHeuristicCost(const NodePtr & node)
 }
 
 template<typename NodeT>
-bool AStarAlgorithm<NodeT>::onVisitationCheckNode(const NodePtr & current_node)
-{
-  return current_node->wasVisited();
-}
-
-template<typename NodeT>
 void AStarAlgorithm<NodeT>::clearQueue()
 {
   NodeQueue q;
@@ -418,49 +410,50 @@ uint64_t AStarAlgorithm<NodeT>::getIndex(
 }
 
 template<typename NodeT>
-int & AStarAlgorithm<NodeT>::getMaxIterations()
+int AStarAlgorithm<NodeT>::getMaxIterations() const
 {
   return _max_iterations;
 }
 
 template<typename NodeT>
-int & AStarAlgorithm<NodeT>::getOnApproachMaxIterations()
+int AStarAlgorithm<NodeT>::getOnApproachMaxIterations() const
 {
   return _max_on_approach_iterations;
 }
 
 template<typename NodeT>
-float & AStarAlgorithm<NodeT>::getToleranceHeuristic()
+float AStarAlgorithm<NodeT>::getToleranceHeuristic() const
 {
   return _tolerance;
 }
 
 template<typename NodeT>
-unsigned int & AStarAlgorithm<NodeT>::getSizeX()
+unsigned int AStarAlgorithm<NodeT>::getSizeX() const
 {
   return _x_size;
 }
 
 template<typename NodeT>
-unsigned int & AStarAlgorithm<NodeT>::getSizeY()
+unsigned int AStarAlgorithm<NodeT>::getSizeY() const
 {
   return _y_size;
 }
 
 template<typename NodeT>
-unsigned int & AStarAlgorithm<NodeT>::getSizeDim3()
+unsigned int AStarAlgorithm<NodeT>::getSizeDim3() const
 {
   return _dim3_size;
 }
 
 template<typename NodeT>
-unsigned int AStarAlgorithm<NodeT>::getCoarseSearchResolution()
+unsigned int AStarAlgorithm<NodeT>::getCoarseSearchResolution() const
 {
   return _coarse_search_resolution;
 }
 
 template<typename NodeT>
-typename AStarAlgorithm<NodeT>::GoalManagerT AStarAlgorithm<NodeT>::getGoalManager()
+const typename AStarAlgorithm<NodeT>::GoalManagerT &
+AStarAlgorithm<NodeT>::getGoalManager() const
 {
   return _goal_manager;
 }

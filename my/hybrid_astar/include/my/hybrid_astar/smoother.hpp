@@ -38,7 +38,7 @@ class Smoother
 public:
   explicit Smoother(const SmootherParams & params);
 
-  ~Smoother() {}
+  ~Smoother() = default;
 
   void initialize(
     const double & min_turning_radius);
@@ -57,7 +57,7 @@ protected:
 
   inline double getFieldByDim(
     const Pose & msg,
-    const unsigned int & dim);
+    const unsigned int & dim) const;
 
   inline void setFieldByDim(
     Pose & msg, const unsigned int dim,
@@ -89,7 +89,6 @@ protected:
   double min_turning_rad_, tolerance_, data_w_, smooth_w_;
   int max_its_, refinement_ctr_, refinement_num_;
   bool is_holonomic_, do_refinement_;
-  MotionModel motion_model_;
   ompl::base::StateSpacePtr state_space_;
 };
 

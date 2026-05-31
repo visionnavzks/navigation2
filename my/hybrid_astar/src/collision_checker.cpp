@@ -68,8 +68,7 @@ bool GridCollisionChecker::inCollision(
     return true;
   }
 
-  center_cost_ = static_cast<float>(costmap_->getCost(
-    static_cast<unsigned int>(x + 0.5f), static_cast<unsigned int>(y + 0.5f)));
+  center_cost_ = static_cast<float>(costmap_->getCost(x, y));
 
   if (!footprint_is_radius_) {
     if (center_cost_ < possible_collision_cost_ && possible_collision_cost_ > 0.0f) {
@@ -84,9 +83,8 @@ bool GridCollisionChecker::inCollision(
       return true;
     }
 
-    double wx, wy;
-    costmap_->mapToWorld(
-      static_cast<double>(x), static_cast<double>(y), wx, wy);
+    float wx, wy;
+    costmap_->mapCellToWorld(x, y, wx, wy);
     const Footprint & oriented_footprint =
       oriented_footprints_[static_cast<unsigned int>(angle_bin)];
 
@@ -130,12 +128,12 @@ bool GridCollisionChecker::inCollision(
   return center_cost_ >= INSCRIBED_COST;
 }
 
-float GridCollisionChecker::getCost()
+float GridCollisionChecker::getCost() const
 {
   return center_cost_;
 }
 
-bool GridCollisionChecker::outsideRange(const unsigned int & max, const float & value)
+bool GridCollisionChecker::outsideRange(const unsigned int & max, const float & value) const
 {
   return value < 0.0f || value >= static_cast<float>(max);
 }

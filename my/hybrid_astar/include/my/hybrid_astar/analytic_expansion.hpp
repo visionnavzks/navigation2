@@ -8,7 +8,6 @@
 #include <functional>
 #include <list>
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "my/hybrid_astar/node_hybrid.hpp"
@@ -100,8 +99,6 @@ public:
     const AnalyticExpansionNodes & expanded_nodes);
 
   int countDirectionChanges(const ompl::base::ReedsSheppStateSpace::ReedsSheppPath & path);
-
-  void cleanNode(const NodePtr & nodes);
 
 protected:
   MotionModel _motion_model;

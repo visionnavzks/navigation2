@@ -13,7 +13,7 @@ template<typename NodeT>
 class DistanceHeuristic
 {
 public:
-  DistanceHeuristic() {}
+  DistanceHeuristic() = default;
 
   template<typename MotionTableT>
   void precomputeDistanceHeuristic(
@@ -32,7 +32,7 @@ public:
 
 protected:
   LookupTable dist_heuristic_lookup_table_;
-  float size_lookup_;
+  float size_lookup_{0.0f};
 };
 
 }  // namespace hybrid_astar

@@ -21,27 +21,33 @@ class NodeHybrid;
 
 struct HybridMotionTable
 {
-  HybridMotionTable() {}
+  HybridMotionTable() = default;
 
   void initDubin(
-    unsigned int & size_x_in,
-    unsigned int & size_y_in,
-    unsigned int & angle_quantization_in,
+    const unsigned int & size_x_in,
+    const unsigned int & size_y_in,
+    const unsigned int & angle_quantization_in,
     SearchInfo & search_info);
 
   void initReedsShepp(
-    unsigned int & size_x_in,
-    unsigned int & size_y_in,
-    unsigned int & angle_quantization_in,
+    const unsigned int & size_x_in,
+    const unsigned int & size_y_in,
+    const unsigned int & angle_quantization_in,
     SearchInfo & search_info);
 
   MotionPoses getProjections(const NodeHybrid * node);
 
-  unsigned int getClosestAngularBin(const double & theta);
+  unsigned int getClosestAngularBin(const double & theta) const;
 
-  float getAngleFromBin(const unsigned int & bin_idx);
+  float getAngleFromBin(const unsigned int & bin_idx) const;
 
-  double getAngle(const double & theta);
+  double getAngle(const double & theta) const;
+
+  void initCommon(
+    const unsigned int & size_x_in,
+    const unsigned int & num_angle_quantization_in,
+    SearchInfo & search_info,
+    MotionModel model);
 
   MotionModel motion_model = MotionModel::UNKNOWN;
   MotionPoses projections;
@@ -101,7 +107,7 @@ public:
 
   void reset();
 
-  inline float getAccumulatedCost()
+  inline float getAccumulatedCost() const
   {
     return _accumulated_cost;
   }
@@ -117,22 +123,22 @@ public:
     _turn_dir = turn_dir;
   }
 
-  inline unsigned int & getMotionPrimitiveIndex()
+  inline unsigned int getMotionPrimitiveIndex() const
   {
     return _motion_primitive_index;
   }
 
-  inline TurnDirection & getTurnDirection()
+  inline TurnDirection getTurnDirection() const
   {
     return _turn_dir;
   }
 
-  inline float getCost()
+  inline float getCost() const
   {
     return _cell_cost;
   }
 
-  inline bool wasVisited()
+  inline bool wasVisited() const
   {
     return _was_visited;
   }
@@ -142,7 +148,7 @@ public:
     _was_visited = true;
   }
 
-  inline uint64_t getIndex()
+  inline uint64_t getIndex() const
   {
     return _index;
   }
@@ -180,9 +186,9 @@ public:
   static void initMotionModel(
     NodeContext * ctx,
     const MotionModel & motion_model,
-    unsigned int & size_x,
-    unsigned int & size_y,
-    unsigned int & angle_quantization,
+    const unsigned int & size_x,
+    const unsigned int & size_y,
+    const unsigned int & angle_quantization,
     SearchInfo & search_info);
 
   void getNeighbors(

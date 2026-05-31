@@ -12,22 +12,13 @@ namespace hybrid_astar
 
 class Costmap2D;
 
-typedef std::pair<float, uint64_t> ObstacleHeuristicElement;
-struct ObstacleHeuristicComparator
-{
-  bool operator()(const ObstacleHeuristicElement & a, const ObstacleHeuristicElement & b) const
-  {
-    return a.first > b.first;
-  }
-};
-
-typedef std::vector<ObstacleHeuristicElement> ObstacleHeuristicQueue;
+typedef std::vector<NodeHeuristicPair> ObstacleHeuristicQueue;
 
 class ObstacleHeuristic
 {
 public:
-  ObstacleHeuristic() {}
-  ~ObstacleHeuristic() {}
+  ObstacleHeuristic() = default;
+  ~ObstacleHeuristic() = default;
 
   void resetObstacleHeuristic(
     Costmap2D * costmap,
@@ -43,7 +34,7 @@ public:
 
   inline float distanceHeuristic2D(
     const uint64_t idx, const unsigned int size_x,
-    const unsigned int target_x, const unsigned int target_y)
+    const unsigned int target_x, const unsigned int target_y) const
   {
     int dx = static_cast<int>(idx % size_x) - static_cast<int>(target_x);
     int dy = static_cast<int>(idx / size_x) - static_cast<int>(target_y);
@@ -53,7 +44,9 @@ public:
 protected:
   LookupTable obstacle_heuristic_lookup_table_;
   ObstacleHeuristicQueue obstacle_heuristic_queue_;
-  Costmap2D * costmap;
+  Costmap2D * costmap{nullptr};
+  unsigned int cached_size_x_{0};
+  unsigned int cached_size_y_{0};
 };
 
 }  // namespace hybrid_astar

@@ -6,7 +6,7 @@ using namespace hybrid_astar;
 
 TEST(SmootherTest, SmoothStraightLine) {
   SmootherParams params;
-  params.get(1e-3, 200, 0.3, 0.3, false, 3);
+  params.set(1e-3, 200, 0.3, 0.3, false, 3);
 
   Smoother smoother(params);
   smoother.initialize(2.0);
@@ -32,7 +32,7 @@ TEST(SmootherTest, SmoothStraightLine) {
 
 TEST(SmootherTest, SmoothEmptyPathTriviallySucceeds) {
   SmootherParams params;
-  params.get(1e-3, 200, 0.3, 0.3, false, 3);
+  params.set(1e-3, 200, 0.3, 0.3, false, 3);
 
   Smoother smoother(params);
   smoother.initialize(2.0);
@@ -47,7 +47,7 @@ TEST(SmootherTest, SmoothEmptyPathTriviallySucceeds) {
 
 TEST(SmootherTest, SmoothShortPathStillWorks) {
   SmootherParams params;
-  params.get(1e-3, 200, 0.3, 0.3, false, 3);
+  params.set(1e-3, 200, 0.3, 0.3, false, 3);
 
   Smoother smoother(params);
   smoother.initialize(2.0);

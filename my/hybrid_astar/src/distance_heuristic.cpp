@@ -16,17 +16,7 @@ void DistanceHeuristic<NodeHybrid>::precomputeDistanceHeuristic(
   const SearchInfo & search_info,
   MotionTableT & motion_table)
 {
-  if (motion_model == MotionModel::DUBIN) {
-    motion_table.state_space = std::make_shared<ompl::base::DubinsStateSpace>(
-      search_info.minimum_turning_radius);
-  } else if (motion_model == MotionModel::REEDS_SHEPP) {
-    motion_table.state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(
-      search_info.minimum_turning_radius);
-  } else {
-    throw std::runtime_error(
-            "Node attempted to precompute distance heuristics "
-            "with invalid motion model!");
-  }
+  motion_table.state_space = createStateSpace(motion_model, search_info.minimum_turning_radius);
 
   ompl::base::ScopedState<> from(motion_table.state_space), to(motion_table.state_space);
   to[0] = 0.0;
@@ -68,12 +58,7 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
   const float dy = node_coords.y - goal_coords.y;
 
   double dtheta_bin = node_coords.theta - goal_coords.theta;
-  if (dtheta_bin < 0) {
-    dtheta_bin += motion_table.num_angle_quantization;
-  }
-  if (dtheta_bin > motion_table.num_angle_quantization) {
-    dtheta_bin -= motion_table.num_angle_quantization;
-  }
+  dtheta_bin = wrapBinIndex(static_cast<int>(dtheta_bin), motion_table.num_angle_quantization);
 
   Coordinates node_coords_relative(
     round(dx * cos_th - dy * sin_th),
@@ -84,10 +69,11 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
   const int floored_size = floor(size_lookup_ / 2.0);
   const int ceiling_size = ceil(size_lookup_ / 2.0);
   const float mirrored_relative_y = abs(node_coords_relative.y);
-  if (abs(node_coords_relative.x) < floored_size && mirrored_relative_y < floored_size) {
+  if (abs(node_coords_relative.x) <= floored_size && mirrored_relative_y <= floored_size) {
     int theta_pos;
     if (node_coords_relative.y < 0.0) {
       theta_pos = motion_table.num_angle_quantization - node_coords_relative.theta;
+      theta_pos %= motion_table.num_angle_quantization;
     } else {
       theta_pos = node_coords_relative.theta;
     }
@@ -104,8 +90,8 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
     to[1] = goal_coords.y;
     from[0] = node_coords.x;
     from[1] = node_coords.y;
-    to[2] = goal_coords.theta * motion_table.num_angle_quantization;
-    from[2] = node_coords.theta * motion_table.num_angle_quantization;
+    to[2] = motion_table.getAngleFromBin(goal_coords.theta);
+    from[2] = motion_table.getAngleFromBin(node_coords.theta);
     motion_heuristic = motion_table.state_space->distance(from(), to());
   }
 

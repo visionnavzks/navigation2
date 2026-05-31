@@ -1,5 +1,4 @@
 #include <ompl/base/ScopedState.h>
-#include <ompl/base/spaces/DubinsStateSpace.h>
 
 #include <chrono>
 #include <memory>
@@ -29,7 +28,9 @@ inline std::vector<PathSegment> findDirectionalPathSegments(
       double angle = std::atan2(dy, dx);
       double prev_angle = (i > 1) ? std::atan2(
         path[i-1].y - path[i-2].y, path[i-1].x - path[i-2].x) : angle;
-      if (std::abs(angle - prev_angle) > M_PI_2) {
+      double angle_diff = std::fmod(std::abs(angle - prev_angle), 2.0 * M_PI);
+      if (angle_diff > M_PI) angle_diff = 2.0 * M_PI - angle_diff;
+      if (angle_diff > M_PI_2) {
         segments.push_back({seg_start, static_cast<int>(i - 1)});
         seg_start = i - 1;
       }
@@ -39,11 +40,8 @@ inline std::vector<PathSegment> findDirectionalPathSegments(
   return segments;
 }
 
-inline void updateApproximatePathOrientations(
-  Path & path, bool reversing_segment, bool is_holonomic)
+inline void updateApproximatePathOrientations(Path & path, bool is_holonomic)
 {
-  (void)reversing_segment;
-  (void)is_holonomic;
   if (path.size() < 2) return;
   for (size_t i = 0; i < path.size() - 1; ++i) {
     double dx = path[i + 1].x - path[i].x;
@@ -69,7 +67,7 @@ Smoother::Smoother(const SmootherParams & params)
 void Smoother::initialize(const double & min_turning_radius)
 {
   min_turning_rad_ = min_turning_radius;
-  state_space_ = std::make_unique<ompl::base::DubinsStateSpace>(min_turning_rad_);
+  state_space_ = createStateSpace(MotionModel::DUBIN, min_turning_rad_);
 }
 
 bool Smoother::smooth(
@@ -83,7 +81,7 @@ bool Smoother::smooth(
 
   steady_clock::time_point start = steady_clock::now();
   double time_remaining = max_time;
-  bool success = true, reversing_segment;
+  bool success = true, reversing_segment = false;
   Path curr_path_segment;
   std::vector<PathSegment> path_segments = findDirectionalPathSegments(
     path,
@@ -148,7 +146,7 @@ bool Smoother::smoothImpl(
       SMAC_DEBUG(
         "Number of iterations has exceeded limit of %i.", max_its_);
       path = last_path;
-      updateApproximatePathOrientations(path, reversing_segment, is_holonomic_);
+      updateApproximatePathOrientations(path, is_holonomic_);
       return false;
     }
 
@@ -158,7 +156,7 @@ bool Smoother::smoothImpl(
       SMAC_DEBUG(
         "Smoothing time exceeded allowed duration of %0.2f.", max_time);
       path = last_path;
-      updateApproximatePathOrientations(path, reversing_segment, is_holonomic_);
+      updateApproximatePathOrientations(path, is_holonomic_);
       return false;
     }
 
@@ -172,7 +170,7 @@ bool Smoother::smoothImpl(
 
         y_i += data_w_ * (x_i - y_i) + smooth_w_ * (y_ip1 + y_m1 - (2.0 * y_i));
         setFieldByDim(new_path[i], j, y_i);
-        change += abs(y_i - y_i_org);
+        change += std::fabs(y_i - y_i_org);
       }
 
       float cost = 0.0;
@@ -189,7 +187,7 @@ bool Smoother::smoothImpl(
           "Smoothing process resulted in an infeasible collision. "
           "Returning the last path before the infeasibility was introduced.");
         path = last_path;
-        updateApproximatePathOrientations(path, reversing_segment, is_holonomic_);
+        updateApproximatePathOrientations(path, is_holonomic_);
         return false;
       }
     }
@@ -202,13 +200,13 @@ bool Smoother::smoothImpl(
     smoothImpl(new_path, reversing_segment, costmap, max_time);
   }
 
-  updateApproximatePathOrientations(new_path, reversing_segment, is_holonomic_);
+  updateApproximatePathOrientations(new_path, is_holonomic_);
   path = new_path;
   return true;
 }
 
 double Smoother::getFieldByDim(
-  const Pose & msg, const unsigned int & dim)
+  const Pose & msg, const unsigned int & dim) const
 {
   if (dim == 0) {
     return msg.x;
@@ -359,7 +357,7 @@ void Smoother::enforceStartBoundaryConditions(
   }
 
   unsigned int best_expansion_idx = findShortestBoundaryExpansionIdx(boundary_expansions);
-  if (best_expansion_idx > boundary_expansions.size()) {
+  if (best_expansion_idx >= boundary_expansions.size()) {
     return;
   }
 
@@ -398,7 +396,7 @@ void Smoother::enforceEndBoundaryConditions(
   }
 
   unsigned int best_expansion_idx = findShortestBoundaryExpansionIdx(boundary_expansions);
-  if (best_expansion_idx > boundary_expansions.size()) {
+  if (best_expansion_idx >= boundary_expansions.size()) {
     return;
   }
 

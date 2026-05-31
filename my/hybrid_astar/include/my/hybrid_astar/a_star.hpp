@@ -79,23 +79,23 @@ public:
     const float & my,
     const unsigned int & dim_3);
 
-  int & getMaxIterations();
+  int getMaxIterations() const;
 
   NodePtr & getStart();
 
-  int & getOnApproachMaxIterations();
+  int getOnApproachMaxIterations() const;
 
-  float & getToleranceHeuristic();
+  float getToleranceHeuristic() const;
 
-  unsigned int & getSizeX();
+  unsigned int getSizeX() const;
 
-  unsigned int & getSizeY();
+  unsigned int getSizeY() const;
 
-  unsigned int & getSizeDim3();
+  unsigned int getSizeDim3() const;
 
-  unsigned int getCoarseSearchResolution();
+  unsigned int getCoarseSearchResolution() const;
 
-  GoalManagerT getGoalManager();
+  const GoalManagerT & getGoalManager() const;
 
   NodeContext * getContext();
 
@@ -110,7 +110,6 @@ protected:
   inline void clearGraph();
   inline uint64_t getIndex(
     const unsigned int & x, const unsigned int & y, const unsigned int & dim3);
-  inline bool onVisitationCheckNode(const NodePtr & node);
   inline void populateExpansionsLog(
     const NodePtr & node, std::vector<std::tuple<float, float, float>> * expansions_log);
 
@@ -135,8 +134,8 @@ protected:
   MotionModel _motion_model;
   NodeHeuristicPair _best_heuristic_node;
 
-  GridCollisionChecker * _collision_checker;
-  Costmap2D * _costmap;
+  GridCollisionChecker * _collision_checker{nullptr};
+  Costmap2D * _costmap{nullptr};
   std::unique_ptr<AnalyticExpansion<NodeT>> _expander;
   std::shared_ptr<NodeContext> _shared_ctx;
 };

@@ -18,8 +18,7 @@ inline Pose getWorldCoords(
   const float & mx, const float & my, const Costmap2D * costmap)
 {
   Pose p;
-  p.x = costmap->getOriginX() + mx * costmap->getResolution();
-  p.y = costmap->getOriginY() + my * costmap->getResolution();
+  costmap->mapCellToWorld(mx, my, p.x, p.y);
   p.theta = 0.0;
   return p;
 }

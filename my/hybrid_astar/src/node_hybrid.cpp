@@ -18,11 +18,11 @@ using namespace std::chrono;  // NOLINT
 namespace hybrid_astar
 {
 
-void HybridMotionTable::initDubin(
-  unsigned int & size_x_in,
-  unsigned int & /*size_y_in*/,
-  unsigned int & num_angle_quantization_in,
-  SearchInfo & search_info)
+void HybridMotionTable::initCommon(
+  const unsigned int & size_x_in,
+  const unsigned int & num_angle_quantization_in,
+  SearchInfo & search_info,
+  MotionModel model)
 {
   size_x = size_x_in;
   change_penalty = search_info.change_penalty;
@@ -36,7 +36,7 @@ void HybridMotionTable::initDubin(
   if (num_angle_quantization_in == num_angle_quantization &&
     min_turning_radius == search_info.minimum_turning_radius &&
     allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
-    motion_model == MotionModel::DUBIN)
+    motion_model == model)
   {
     return;
   }
@@ -45,9 +45,10 @@ void HybridMotionTable::initDubin(
   num_angle_quantization_float = static_cast<float>(num_angle_quantization);
   min_turning_radius = search_info.minimum_turning_radius;
   allow_primitive_interpolation = search_info.allow_primitive_interpolation;
-  motion_model = MotionModel::DUBIN;
+  motion_model = model;
 
-  float angle = 2.0 * asin(sqrt(2.0) / (2 * min_turning_radius));
+  float asin_arg = std::min(1.0, sqrt(2.0) / (2 * min_turning_radius));
+  float angle = 2.0 * asin(asin_arg);
   bin_size =
     2.0f * static_cast<float>(M_PI) / static_cast<float>(num_angle_quantization);
   float increments;
@@ -63,13 +64,22 @@ void HybridMotionTable::initDubin(
   const float delta_dist = hypotf(delta_x, delta_y);
 
   projections.clear();
-  projections.reserve(3);
+
+  // Forward + Left + Right (shared by both models)
   projections.emplace_back(delta_dist, 0.0, 0.0, TurnDirection::FORWARD);
   projections.emplace_back(delta_x, delta_y, increments, TurnDirection::LEFT);
   projections.emplace_back(delta_x, -delta_y, -increments, TurnDirection::RIGHT);
 
+  if (model == MotionModel::REEDS_SHEPP) {
+    projections.emplace_back(-delta_dist, 0.0, 0.0, TurnDirection::REVERSE);
+    projections.emplace_back(-delta_x, delta_y, -increments, TurnDirection::REV_LEFT);
+    projections.emplace_back(-delta_x, -delta_y, increments, TurnDirection::REV_RIGHT);
+  }
+
+  const unsigned int base_count = (model == MotionModel::REEDS_SHEPP) ? 6u : 3u;
+
   if (search_info.allow_primitive_interpolation && increments > 1.0f) {
-    projections.reserve(3 + (2 * (increments - 1)));
+    projections.reserve(base_count + (2 * base_count * (increments - 1)));
     for (unsigned int i = 1; i < static_cast<unsigned int>(increments); i++) {
       const float angle_n = static_cast<float>(i) * bin_size;
       const float turning_rad_n = delta_dist / (2.0f * sin(angle_n / 2.0f));
@@ -79,10 +89,16 @@ void HybridMotionTable::initDubin(
         delta_x_n, delta_y_n, static_cast<float>(i), TurnDirection::LEFT);
       projections.emplace_back(
         delta_x_n, -delta_y_n, -static_cast<float>(i), TurnDirection::RIGHT);
+      if (model == MotionModel::REEDS_SHEPP) {
+        projections.emplace_back(
+          -delta_x_n, delta_y_n, -static_cast<float>(i), TurnDirection::REV_LEFT);
+        projections.emplace_back(
+          -delta_x_n, -delta_y_n, static_cast<float>(i), TurnDirection::REV_RIGHT);
+      }
     }
   }
 
-  state_space = std::make_shared<ompl::base::DubinsStateSpace>(min_turning_radius);
+  state_space = createStateSpace(model, min_turning_radius);
 
   delta_xs.resize(projections.size());
   delta_ys.resize(projections.size());
@@ -116,115 +132,22 @@ void HybridMotionTable::initDubin(
   }
 }
 
-void HybridMotionTable::initReedsShepp(
-  unsigned int & size_x_in,
-  unsigned int & /*size_y_in*/,
-  unsigned int & num_angle_quantization_in,
+void HybridMotionTable::initDubin(
+  const unsigned int & size_x_in,
+  const unsigned int & /*size_y_in*/,
+  const unsigned int & num_angle_quantization_in,
   SearchInfo & search_info)
 {
-  size_x = size_x_in;
-  change_penalty = search_info.change_penalty;
-  non_straight_penalty = search_info.non_straight_penalty;
-  cost_penalty = search_info.cost_penalty;
-  reverse_penalty = search_info.reverse_penalty;
-  travel_distance_reward = 1.0f - search_info.retrospective_penalty;
-  downsample_obstacle_heuristic = search_info.downsample_obstacle_heuristic;
-  use_quadratic_cost_penalty = search_info.use_quadratic_cost_penalty;
+  initCommon(size_x_in, num_angle_quantization_in, search_info, MotionModel::DUBIN);
+}
 
-  if (num_angle_quantization_in == num_angle_quantization &&
-    min_turning_radius == search_info.minimum_turning_radius &&
-    allow_primitive_interpolation == search_info.allow_primitive_interpolation &&
-    motion_model == MotionModel::REEDS_SHEPP)
-  {
-    return;
-  }
-
-  num_angle_quantization = num_angle_quantization_in;
-  num_angle_quantization_float = static_cast<float>(num_angle_quantization);
-  min_turning_radius = search_info.minimum_turning_radius;
-  allow_primitive_interpolation = search_info.allow_primitive_interpolation;
-  motion_model = MotionModel::REEDS_SHEPP;
-
-  float angle = 2.0 * asin(sqrt(2.0) / (2 * min_turning_radius));
-  bin_size =
-    2.0f * static_cast<float>(M_PI) / static_cast<float>(num_angle_quantization);
-  float increments;
-  if (angle < bin_size) {
-    increments = 1.0f;
-  } else {
-    increments = ceil(angle / bin_size);
-  }
-  angle = increments * bin_size;
-
-  const float delta_x = min_turning_radius * sin(angle);
-  const float delta_y = min_turning_radius - (min_turning_radius * cos(angle));
-  const float delta_dist = hypotf(delta_x, delta_y);
-
-  projections.clear();
-  projections.reserve(6);
-  projections.emplace_back(delta_dist, 0.0, 0.0, TurnDirection::FORWARD);
-  projections.emplace_back(
-    delta_x, delta_y, increments, TurnDirection::LEFT);
-  projections.emplace_back(
-    delta_x, -delta_y, -increments, TurnDirection::RIGHT);
-  projections.emplace_back(-delta_dist, 0.0, 0.0, TurnDirection::REVERSE);
-  projections.emplace_back(
-    -delta_x, delta_y, -increments, TurnDirection::REV_LEFT);
-  projections.emplace_back(
-    -delta_x, -delta_y, increments, TurnDirection::REV_RIGHT);
-
-  if (search_info.allow_primitive_interpolation && increments > 1.0f) {
-    projections.reserve(6 + (4 * (increments - 1)));
-    for (unsigned int i = 1; i < static_cast<unsigned int>(increments); i++) {
-      const float angle_n = static_cast<float>(i) * bin_size;
-      const float turning_rad_n = delta_dist / (2.0f * sin(angle_n / 2.0f));
-      const float delta_x_n = turning_rad_n * sin(angle_n);
-      const float delta_y_n = turning_rad_n - (turning_rad_n * cos(angle_n));
-      projections.emplace_back(
-        delta_x_n, delta_y_n, static_cast<float>(i), TurnDirection::LEFT);
-      projections.emplace_back(
-        delta_x_n, -delta_y_n, -static_cast<float>(i), TurnDirection::RIGHT);
-      projections.emplace_back(
-        -delta_x_n, delta_y_n, -static_cast<float>(i),
-        TurnDirection::REV_LEFT);
-      projections.emplace_back(
-        -delta_x_n, -delta_y_n, static_cast<float>(i),
-        TurnDirection::REV_RIGHT);
-    }
-  }
-
-  state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(min_turning_radius);
-
-  delta_xs.resize(projections.size());
-  delta_ys.resize(projections.size());
-  trig_values.resize(num_angle_quantization);
-
-  for (unsigned int i = 0; i != projections.size(); i++) {
-    delta_xs[i].resize(num_angle_quantization);
-    delta_ys[i].resize(num_angle_quantization);
-
-    for (unsigned int j = 0; j != num_angle_quantization; j++) {
-      double cos_theta = cos(bin_size * j);
-      double sin_theta = sin(bin_size * j);
-      if (i == 0) {
-        trig_values[j] = {cos_theta, sin_theta};
-      }
-      delta_xs[i][j] = projections[i]._x * cos_theta - projections[i]._y * sin_theta;
-      delta_ys[i][j] = projections[i]._x * sin_theta + projections[i]._y * cos_theta;
-    }
-  }
-
-  travel_costs.resize(projections.size());
-  for (unsigned int i = 0; i != projections.size(); i++) {
-    const TurnDirection turn_dir = projections[i]._turn_dir;
-    if (turn_dir != TurnDirection::FORWARD && turn_dir != TurnDirection::REVERSE) {
-      const float arc_angle = projections[i]._theta * bin_size;
-      const float turning_rad = delta_dist / (2.0f * sin(arc_angle / 2.0f));
-      travel_costs[i] = turning_rad * arc_angle;
-    } else {
-      travel_costs[i] = delta_dist;
-    }
-  }
+void HybridMotionTable::initReedsShepp(
+  const unsigned int & size_x_in,
+  const unsigned int & /*size_y_in*/,
+  const unsigned int & num_angle_quantization_in,
+  SearchInfo & search_info)
+{
+  initCommon(size_x_in, num_angle_quantization_in, search_info, MotionModel::REEDS_SHEPP);
 }
 
 MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
@@ -237,14 +160,8 @@ MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
 
     const float & node_heading = node->pose.theta;
     float new_heading = node_heading + proj_motion_model._theta;
-
-    if (new_heading < 0.0) {
-      new_heading += num_angle_quantization_float;
-    }
-
-    if (new_heading >= num_angle_quantization_float) {
-      new_heading -= num_angle_quantization_float;
-    }
+    new_heading = static_cast<float>(wrapBinIndex(
+      static_cast<int>(new_heading), num_angle_quantization));
 
     projection_list.emplace_back(
       delta_xs[i][node_heading] + node->pose.x,
@@ -255,18 +172,18 @@ MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
   return projection_list;
 }
 
-unsigned int HybridMotionTable::getClosestAngularBin(const double & theta)
+unsigned int HybridMotionTable::getClosestAngularBin(const double & theta) const
 {
-  auto bin = static_cast<unsigned int>(round(static_cast<float>(theta) / bin_size));
+  auto bin = static_cast<unsigned int>(round(wrapAngle(theta) / bin_size));
   return bin < num_angle_quantization ? bin : 0u;
 }
 
-float HybridMotionTable::getAngleFromBin(const unsigned int & bin_idx)
+float HybridMotionTable::getAngleFromBin(const unsigned int & bin_idx) const
 {
   return bin_idx * bin_size;
 }
 
-double HybridMotionTable::getAngle(const double & theta)
+double HybridMotionTable::getAngle(const double & theta) const
 {
   return theta / bin_size;
 }
@@ -286,7 +203,6 @@ NodeHybrid::NodeHybrid(const uint64_t index, NodeContext * ctx)
 
 NodeHybrid::~NodeHybrid()
 {
-  parent = nullptr;
 }
 
 void NodeHybrid::reset()
@@ -318,7 +234,7 @@ bool NodeHybrid::isNodeValid(
 
 float NodeHybrid::getTraversalCost(const NodePtr & child)
 {
-  const float normalized_cost = child->getCost() / 252.0f;
+  const float normalized_cost = child->getCost() / MAX_NON_OBSTACLE_COST;
   if (std::isnan(normalized_cost)) {
     throw std::runtime_error(
             "Node attempted to get traversal "
@@ -383,9 +299,9 @@ float NodeHybrid::getHeuristicCost(
 void NodeHybrid::initMotionModel(
   NodeContext * ctx,
   const MotionModel & motion_model,
-  unsigned int & size_x,
-  unsigned int & size_y,
-  unsigned int & num_angle_quantization,
+  const unsigned int & size_x,
+  const unsigned int & size_y,
+  const unsigned int & num_angle_quantization,
   SearchInfo & search_info)
 {
   switch (motion_model) {
@@ -413,7 +329,7 @@ void NodeHybrid::getNeighbors(
   uint64_t index = 0;
   NodePtr neighbor = nullptr;
   Coordinates initial_node_coords;
-  const MotionPoses motion_projections = _ctx->motion_table.getProjections(this);
+  const MotionPoses & motion_projections = _ctx->motion_table.getProjections(this);
 
   for (unsigned int i = 0; i != motion_projections.size(); i++) {
     index = NodeHybrid::getIndex(

@@ -57,7 +57,7 @@ inline std::string toString(const GoalHeadingMode & n)
   }
 }
 
-inline GoalHeadingMode fromStringToGH(const std::string & n)
+inline GoalHeadingMode toGoalHeadingMode(const std::string & n)
 {
   if (n == "DEFAULT") {
     return GoalHeadingMode::DEFAULT;
@@ -70,11 +70,12 @@ inline GoalHeadingMode fromStringToGH(const std::string & n)
   }
 }
 
-const float UNKNOWN_COST = 255.0;
-const float OCCUPIED_COST = 254.0;
-const float INSCRIBED_COST = 253.0;
-const float MAX_NON_OBSTACLE_COST = 252.0;
-const float FREE_COST = 0;
+inline constexpr float UNKNOWN_COST = 255.0f;
+inline constexpr float OCCUPIED_COST = 254.0f;
+inline constexpr float INSCRIBED_COST = 253.0f;
+inline constexpr float MAX_NON_OBSTACLE_COST = 252.0f;
+inline constexpr float MAX_NON_OBSTACLE_COST_SQ = MAX_NON_OBSTACLE_COST * MAX_NON_OBSTACLE_COST;
+inline constexpr float FREE_COST = 0.0f;
 
 }  // namespace hybrid_astar
 

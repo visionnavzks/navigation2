@@ -58,7 +58,7 @@ void SmacPlannerHybrid::configure(
   }
 
   _motion_model = fromString(_config.motion_model_for_search);
-  _goal_heading_mode = fromStringToGH(_config.goal_heading_mode);
+  _goal_heading_mode = toGoalHeadingMode(_config.goal_heading_mode);
 
   if (_goal_heading_mode == GoalHeadingMode::UNKNOWN) {
     throw std::runtime_error(
@@ -113,6 +113,7 @@ void SmacPlannerHybrid::configure(
 void SmacPlannerHybrid::setFootprint(
   const Footprint & footprint, bool use_radius, double circumscribed_cost)
 {
+  std::lock_guard<std::mutex> lock(_mutex);
   _config.robot_footprint = footprint;
   _config.use_radius = use_radius;
   if (circumscribed_cost < 0.0) {
@@ -146,15 +147,8 @@ Path SmacPlannerHybrid::createPlan(
       std::to_string(start.y) + ") was outside bounds");
   }
 
-  double start_orientation_bin = std::round(start.theta / _angle_bin_size);
-  while (start_orientation_bin < 0.0) {
-    start_orientation_bin += static_cast<float>(_angle_quantizations);
-  }
-  if (start_orientation_bin >= static_cast<float>(_angle_quantizations)) {
-    start_orientation_bin -= static_cast<float>(_angle_quantizations);
-  }
   unsigned int start_orientation_bin_int =
-    static_cast<unsigned int>(start_orientation_bin);
+    wrapBinIndex(static_cast<int>(std::round(start.theta / _angle_bin_size)), _angle_quantizations);
   _a_star->setStart(mx_start, my_start, start_orientation_bin_int);
 
   if (!costmap->worldToMapContinuous(goal.x, goal.y, mx_goal, my_goal)) {
@@ -163,15 +157,8 @@ Path SmacPlannerHybrid::createPlan(
       std::to_string(goal.y) + ") was outside bounds");
   }
 
-  double goal_orientation_bin = std::round(goal.theta / _angle_bin_size);
-  while (goal_orientation_bin < 0.0) {
-    goal_orientation_bin += static_cast<float>(_angle_quantizations);
-  }
-  if (goal_orientation_bin >= static_cast<float>(_angle_quantizations)) {
-    goal_orientation_bin -= static_cast<float>(_angle_quantizations);
-  }
   unsigned int goal_orientation_bin_int =
-    static_cast<unsigned int>(goal_orientation_bin);
+    wrapBinIndex(static_cast<int>(std::round(goal.theta / _angle_bin_size)), _angle_quantizations);
   _a_star->setGoal(
     mx_goal, my_goal, goal_orientation_bin_int,
     _goal_heading_mode, _config.coarse_search_resolution);

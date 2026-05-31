@@ -163,7 +163,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
     direction_changes = countDirectionChanges(rs_state_space->reedsShepp(from.get(), to.get()));
   }
 
-  static const float sqrt_2 = sqrtf(2.0f);
+  constexpr float sqrt_2 = 1.4142135623730950488f;
 
   if (d > _search_info.analytic_expansion_max_length || d < sqrt_2) {
     return AnalyticExpansionNodes();
@@ -188,8 +188,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   for (float i = 1; i <= num_intervals; i++) {
     state_space->interpolate(from(), to(), i / num_intervals, s());
     reals = s.reals();
-    theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
-    theta = (theta > 2.0 * M_PI) ? (theta - 2.0 * M_PI) : theta;
+    theta = wrapAngle(reals[2]);
     angle = _ctx->motion_table.getAngle(theta);
 
     index = NodeT::getIndex(
@@ -300,7 +299,7 @@ float AnalyticExpansion<NodeT>::refineAnalyticPath(
         expansion.nodes[1].proposed_coords.y - expansion.nodes[0].proposed_coords.y);
       const float & weight = _ctx->motion_table.cost_penalty;
       for (auto iter = expansion.nodes.begin(); iter != expansion.nodes.end(); ++iter) {
-        normalized_cost = iter->node->getCost() / 252.0f;
+        normalized_cost = iter->node->getCost() / MAX_NON_OBSTACLE_COST;
         score += distance * (1.0 + weight * normalized_cost);
       }
       return score;
@@ -316,12 +315,8 @@ float AnalyticExpansion<NodeT>::refineAnalyticPath(
 
   while (min_turn_rad < max_min_turn_rad) {
     min_turn_rad += 0.5;
-    ompl::base::StateSpacePtr state_space;
-    if (_ctx->motion_table.motion_model == MotionModel::DUBIN) {
-      state_space = std::make_shared<ompl::base::DubinsStateSpace>(min_turn_rad);
-    } else {
-      state_space = std::make_shared<ompl::base::ReedsSheppStateSpace>(min_turn_rad);
-    }
+    ompl::base::StateSpacePtr state_space =
+      createStateSpace(_ctx->motion_table.motion_model, min_turn_rad);
     refined_analytic_nodes = getAnalyticPath(node, goal_node, getter, state_space);
     score = scoringFn(refined_analytic_nodes);
 
@@ -354,7 +349,6 @@ typename AnalyticExpansion<NodeT>::NodePtr AnalyticExpansion<NodeT>::setAnalytic
   NodePtr prev = node;
   for (const auto & node_pose : expanded_nodes.nodes) {
     auto n = node_pose.node;
-    cleanNode(n);
     if (n->getIndex() != goal_node->getIndex()) {
       if (n->wasVisited()) {
         _detached_nodes.push_back(std::make_unique<NodeT>(-1, _ctx));
@@ -368,15 +362,9 @@ typename AnalyticExpansion<NodeT>::NodePtr AnalyticExpansion<NodeT>::setAnalytic
   }
   if (goal_node != prev) {
     goal_node->parent = prev;
-    cleanNode(goal_node);
     goal_node->visited();
   }
   return goal_node;
-}
-
-template<typename NodeT>
-void AnalyticExpansion<NodeT>::cleanNode(const NodePtr & /*expanded_nodes*/)
-{
 }
 
 template class AnalyticExpansion<NodeHybrid>;

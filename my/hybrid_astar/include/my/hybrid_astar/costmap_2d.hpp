@@ -35,6 +35,41 @@ public:
     return cost_map_[index];
   }
 
+  // Safe float-coordinate lookup: rounds to nearest cell with bounds clamping.
+  // Resolves Bug #12 (half-cell offset), Bug #20 (OOB), and Bug #5/#23 (negative coords).
+  unsigned char getCost(float fx, float fy) const
+  {
+    int ix = static_cast<int>(std::floor(fx + 0.5f));
+    int iy = static_cast<int>(std::floor(fy + 0.5f));
+    if (ix < 0) {ix = 0;} else if (ix >= static_cast<int>(size_x_)) {ix = size_x_ - 1;}
+    if (iy < 0) {iy = 0;} else if (iy >= static_cast<int>(size_y_)) {iy = size_y_ - 1;}
+    return cost_map_[static_cast<unsigned int>(iy) * size_x_ + static_cast<unsigned int>(ix)];
+  }
+
+  // Convert world coords directly to map coords (float version).
+  // Returns false if the point is outside the map.
+  bool worldToMapContinuous(float wx, float wy, float & mx, float & my) const
+  {
+    mx = static_cast<float>((wx - origin_x_) / resolution_);
+    my = static_cast<float>((wy - origin_y_) / resolution_);
+    return mx >= 0.0f && mx < static_cast<float>(size_x_) &&
+           my >= 0.0f && my < static_cast<float>(size_y_);
+  }
+
+  // Convert continuous cell coordinate to world coords (no +0.5 offset).
+  // Use mapToWorld() for integer cell index to cell-center conversion.
+  void mapCellToWorld(float mx, float my, float & wx, float & wy) const
+  {
+    wx = static_cast<float>(origin_x_) + mx * static_cast<float>(resolution_);
+    wy = static_cast<float>(origin_y_) + my * static_cast<float>(resolution_);
+  }
+
+  void mapCellToWorld(float mx, float my, double & wx, double & wy) const
+  {
+    wx = origin_x_ + static_cast<double>(mx) * resolution_;
+    wy = origin_y_ + static_cast<double>(my) * resolution_;
+  }
+
   void setCost(unsigned int mx, unsigned int my, unsigned char cost)
   {
     cost_map_[my * size_x_ + mx] = cost;
@@ -48,8 +83,13 @@ public:
 
   bool worldToMap(double wx, double wy, unsigned int& mx, unsigned int& my) const
   {
-    mx = static_cast<unsigned int>((wx - origin_x_) / resolution_);
-    my = static_cast<unsigned int>((wy - origin_y_) / resolution_);
+    double map_x = (wx - origin_x_) / resolution_;
+    double map_y = (wy - origin_y_) / resolution_;
+    if (map_x < 0.0 || map_y < 0.0) {
+      return false;
+    }
+    mx = static_cast<unsigned int>(map_x);
+    my = static_cast<unsigned int>(map_y);
     return mx < size_x_ && my < size_y_;
   }
 
