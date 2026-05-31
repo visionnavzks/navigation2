@@ -543,8 +543,8 @@ private:
     const T grid_y = (world_y - T(costmap_origin_.y())) / T(costmap_resolution_);
 
     // 若超出代价地图边界，返回最大惩罚 1.0（视为障碍）
-    if (grid_x < T(0.0) || grid_y < T(0.0) ||
-      grid_x >= T(static_cast<double>(size_x_)) || grid_y >= T(static_cast<double>(size_y_)))
+    if (grid_x < T(1.5) || grid_y < T(1.5) ||
+      grid_x >= T(static_cast<double>(size_x_) - 1.5) || grid_y >= T(static_cast<double>(size_y_) - 1.5))
     {
       return T(1.0);
     }
@@ -592,7 +592,7 @@ private:
   double obstacle_weight_;           ///< 普通路径点的障碍物惩罚权重（平方根形式）
   double cusp_obstacle_weight_;      ///< 尖点处的障碍物惩罚权重（不小于普通权重）
   bool is_cusp_pose_;                ///< 该路径点是否为尖点
-  std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
+  const std::vector<double> & cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< 保持插值器底层网格存活
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器
 };

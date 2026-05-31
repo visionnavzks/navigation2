@@ -197,7 +197,9 @@ bool Smoother::smoothImpl(
 
   if (do_refinement_ && refinement_ctr_ < refinement_num_) {
     refinement_ctr_++;
-    smoothImpl(new_path, reversing_segment, costmap, max_time);
+    if (!smoothImpl(new_path, reversing_segment, costmap, max_time)) {
+      return false;
+    }
   }
 
   updateApproximatePathOrientations(new_path, is_holonomic_);
@@ -236,7 +238,7 @@ unsigned int Smoother::findShortestBoundaryExpansionIdx(
   for (unsigned int idx = 0; idx != boundary_expansions.size(); idx++) {
     if (boundary_expansions[idx].expansion_path_length<min_length &&
       !boundary_expansions[idx].in_collision &&
-      boundary_expansions[idx].path_end_idx>0.0 &&
+      boundary_expansions[idx].path_end_idx > 0 &&
       boundary_expansions[idx].expansion_path_length > 0.0)
     {
       min_length = boundary_expansions[idx].expansion_path_length;
@@ -272,8 +274,8 @@ void Smoother::findBoundaryExpansion(
   double x_m = start.x;
   double y_m = start.y;
 
-  for (double i = 0; i <= expansion.path_end_idx; i++) {
-    state_space_->interpolate(from(), to(), i / expansion.path_end_idx, s());
+  for (size_t i = 0; i <= expansion.path_end_idx; i++) {
+    state_space_->interpolate(from(), to(), static_cast<double>(i) / expansion.path_end_idx, s());
     reals = s.reals();
     theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
     theta = (theta > 2.0 * M_PI) ? (theta - 2.0 * M_PI) : theta;
@@ -341,7 +343,7 @@ void Smoother::enforceStartBoundaryConditions(
 
   for (unsigned int i = 0; i != boundary_expansions.size(); i++) {
     BoundaryExpansion & expansion = boundary_expansions[i];
-    if (expansion.path_end_idx == 0.0) {
+    if (expansion.path_end_idx == 0) {
       continue;
     }
 
@@ -384,7 +386,7 @@ void Smoother::enforceEndBoundaryConditions(
   unsigned int expansion_starting_idx;
   for (unsigned int i = 0; i != boundary_expansions.size(); i++) {
     BoundaryExpansion & expansion = boundary_expansions[i];
-    if (expansion.path_end_idx == 0.0) {
+    if (expansion.path_end_idx == 0) {
       continue;
     }
     expansion_starting_idx = path.size() - expansion.path_end_idx - 1;

@@ -17,6 +17,7 @@
 #define CONSTRAINED_SMOOTHER__COSTMAP2D_HPP_
 
 #include <cstring>
+#include <stdexcept>
 #include <vector>
 
 namespace constrained_smoother
@@ -73,6 +74,60 @@ public:
   {
   }
 
+  Costmap2D(const Costmap2D & other)
+  : size_x_(other.size_x_), size_y_(other.size_y_),
+    resolution_(other.resolution_),
+    origin_x_(other.origin_x_), origin_y_(other.origin_y_),
+    data_storage_(other.data_storage_), data_(nullptr)
+  {
+    if (other.data_ != nullptr) {
+      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+    }
+  }
+
+  Costmap2D & operator=(const Costmap2D & other)
+  {
+    if (this != &other) {
+      size_x_ = other.size_x_;
+      size_y_ = other.size_y_;
+      resolution_ = other.resolution_;
+      origin_x_ = other.origin_x_;
+      origin_y_ = other.origin_y_;
+      data_storage_ = other.data_storage_;
+      data_ = (other.data_ != nullptr && !data_storage_.empty()) ? data_storage_.data() : nullptr;
+    }
+    return *this;
+  }
+
+  Costmap2D(Costmap2D && other) noexcept
+  : size_x_(other.size_x_), size_y_(other.size_y_),
+    resolution_(other.resolution_),
+    origin_x_(other.origin_x_), origin_y_(other.origin_y_),
+    data_storage_(std::move(other.data_storage_))
+  {
+    data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+    other.size_x_ = 0;
+    other.size_y_ = 0;
+    other.data_ = nullptr;
+  }
+
+  Costmap2D & operator=(Costmap2D && other) noexcept
+  {
+    if (this != &other) {
+      size_x_ = other.size_x_;
+      size_y_ = other.size_y_;
+      resolution_ = other.resolution_;
+      origin_x_ = other.origin_x_;
+      origin_y_ = other.origin_y_;
+      data_storage_ = std::move(other.data_storage_);
+      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+      other.size_x_ = 0;
+      other.size_y_ = 0;
+      other.data_ = nullptr;
+    }
+    return *this;
+  }
+
   unsigned int getSizeInCellsX() const {return size_x_;}
   unsigned int getSizeInCellsY() const {return size_y_;}
   double getResolution() const {return resolution_;}
@@ -82,11 +137,17 @@ public:
 
   unsigned char getCost(unsigned int mx, unsigned int my) const
   {
+    if (data_ == nullptr) {
+      throw std::runtime_error("Costmap2D::getCost: data_ is null (uninitialized costmap)");
+    }
     return data_[my * size_x_ + mx];
   }
 
   void setCost(unsigned int mx, unsigned int my, unsigned char cost)
   {
+    if (data_ == nullptr) {
+      throw std::runtime_error("Costmap2D::setCost: data_ is null (uninitialized costmap)");
+    }
     data_[my * size_x_ + mx] = cost;
   }
 

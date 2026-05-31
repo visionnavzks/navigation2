@@ -33,3 +33,9 @@ add_hybrid_test(test_utils test_utils.cpp)
 
 # Goal manager test
 add_hybrid_test(test_goal_manager test_goal_manager.cpp)
+
+# Obstacle heuristic test
+add_hybrid_test(test_obstacle_heuristic test_obstacle_heuristic.cpp)
+
+# Distance heuristic test
+add_hybrid_test(test_distance_heuristic test_distance_heuristic.cpp)

@@ -155,7 +155,7 @@ public:
       if (segment_norm > 1e-6) {
         double heading = std::atan2(delta.y(), delta.x());
         if (processed.gears[index] < 0.0) {
-          heading += M_PI;
+          heading += constrained_smoother::PI;
         }
         theta[index] = normalizeAngle(heading);
         ds[index] = segment_norm;
@@ -199,7 +199,7 @@ public:
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
     // 大多数权重以 sqrt 形式进入残差；fix_weight 是直接约束系数，不再额外开方。
-    const double model_weight = std::max(params.model_weight_sqrt, 1.0);
+    const double model_weight = std::max(params.model_weight_sqrt, 0.0);
     const double curvature_weight = std::max(params.kinematic_curvature_weight_sqrt, 0.0);
     const double curvature_rate_weight =
       std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);

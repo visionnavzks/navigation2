@@ -15,12 +15,11 @@
 #ifndef CONSTRAINED_SMOOTHER__UTILS_HPP_
 #define CONSTRAINED_SMOOTHER__UTILS_HPP_
 
+#include <ceres/ceres.h>
 #include <cmath>
 #include <limits>
 #include <vector>
 #include "Eigen/Core"
-
-#define EPSILON 0.0001
 
 /**
  * Compatibility with different ceres::isinf() and ceres::IsInfinite() API
@@ -34,6 +33,9 @@
 
 namespace constrained_smoother
 {
+
+constexpr double EPSILON = 0.0001;
+constexpr double PI = 3.14159265358979323846;
 
 inline double goalPositionFrameHeading(
   const std::vector<Eigen::Vector2d> & reference_points,

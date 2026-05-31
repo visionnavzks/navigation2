@@ -219,8 +219,8 @@ private:
     const Costmap2D * costmap,
     double wx, double wy)
   {
-    const int mx = static_cast<int>((wx - costmap->getOriginX()) / costmap->getResolution());
-    const int my = static_cast<int>((wy - costmap->getOriginY()) / costmap->getResolution());
+    const int mx = static_cast<int>(std::floor((wx - costmap->getOriginX()) / costmap->getResolution()));
+    const int my = static_cast<int>(std::floor((wy - costmap->getOriginY()) / costmap->getResolution()));
     return {mx, my};
   }
 

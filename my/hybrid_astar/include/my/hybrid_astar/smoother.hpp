@@ -24,7 +24,7 @@ struct BoundaryPoints
 
 struct BoundaryExpansion
 {
-  double path_end_idx{0.0};
+  size_t path_end_idx{0};
   double expansion_path_length{0.0};
   double original_path_length{0.0};
   std::vector<BoundaryPoints> pts;

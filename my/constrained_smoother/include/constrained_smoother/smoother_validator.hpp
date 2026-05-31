@@ -134,7 +134,7 @@ private:
 
   static double radiansToDegrees(double radians)
   {
-    return radians * 180.0 / M_PI;
+    return radians * 180.0 / PI;
   }
 
   static std::string describeOrientationViolation(
@@ -470,7 +470,7 @@ private:
     }
 
     const double radius = std::max(request.params.cost_check_radius, 0.0);
-    if (radius <= 1e-9) {
+    if (radius <= 1e-9 && request.params.cost_check_points.empty()) {
       return true;
     }
 

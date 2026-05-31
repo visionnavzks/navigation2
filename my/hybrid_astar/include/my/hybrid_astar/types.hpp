@@ -59,7 +59,13 @@ struct SearchInfo
 struct SmootherParams
 {
   SmootherParams()
-  : holonomic_(false)
+  : tolerance_(1e-3),
+    max_its_(1000),
+    w_data_(0.32),
+    w_smooth_(0.25),
+    holonomic_(false),
+    do_refinement_(true),
+    refinement_num_(3)
   {
   }
 

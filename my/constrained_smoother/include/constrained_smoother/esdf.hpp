@@ -38,16 +38,16 @@ public:
     const Costmap2D * costmap,
     unsigned char lethal_cost)
   {
-    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
-    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
+    const size_t size_x = static_cast<size_t>(costmap->getSizeInCellsX());
+    const size_t size_y = static_cast<size_t>(costmap->getSizeInCellsY());
     std::vector<double> outside_esdf = ComputeExactUnsignedESDF(costmap, lethal_cost, true);
     std::vector<double> inside_esdf = ComputeExactUnsignedESDF(costmap, lethal_cost, false);
     std::vector<double> signed_esdf = outside_esdf;
 
-    for (int my = 0; my < size_y; ++my) {
-      for (int mx = 0; mx < size_x; ++mx) {
-        const int index = toIndex(mx, my, size_x);
-        if (costmap->getCost(mx, my) >= lethal_cost) {
+    for (size_t my = 0; my < size_y; ++my) {
+      for (size_t mx = 0; mx < size_x; ++mx) {
+        const size_t index = toIndex(mx, my, size_x);
+        if (costmap->getCost(static_cast<unsigned int>(mx), static_cast<unsigned int>(my)) >= lethal_cost) {
           signed_esdf[index] = -inside_esdf[index];
         }
       }
@@ -60,16 +60,16 @@ public:
     const Costmap2D * costmap,
     unsigned char lethal_cost)
   {
-    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
-    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
+    const size_t size_x = static_cast<size_t>(costmap->getSizeInCellsX());
+    const size_t size_y = static_cast<size_t>(costmap->getSizeInCellsY());
     std::vector<double> outside_esdf = ComputeApproximateUnsignedESDF(costmap, lethal_cost, true);
     std::vector<double> inside_esdf = ComputeApproximateUnsignedESDF(costmap, lethal_cost, false);
     std::vector<double> signed_esdf = outside_esdf;
 
-    for (int my = 0; my < size_y; ++my) {
-      for (int mx = 0; mx < size_x; ++mx) {
-        const int index = toIndex(mx, my, size_x);
-        if (costmap->getCost(mx, my) >= lethal_cost) {
+    for (size_t my = 0; my < size_y; ++my) {
+      for (size_t mx = 0; mx < size_x; ++mx) {
+        const size_t index = toIndex(mx, my, size_x);
+        if (costmap->getCost(static_cast<unsigned int>(mx), static_cast<unsigned int>(my)) >= lethal_cost) {
           signed_esdf[index] = -inside_esdf[index];
         }
       }
@@ -84,9 +84,9 @@ private:
     unsigned char lethal_cost,
     bool treat_obstacles_as_zero)
   {
-    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
-    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
-    const int cell_count = size_x * size_y;
+    const size_t size_x = static_cast<size_t>(costmap->getSizeInCellsX());
+    const size_t size_y = static_cast<size_t>(costmap->getSizeInCellsY());
+    const size_t cell_count = size_x * size_y;
 
     dope::Index2 size({static_cast<dope::SizeType>(size_y),
                        static_cast<dope::SizeType>(size_x)});
@@ -108,7 +108,7 @@ private:
 
     for (dope::SizeType my = 0; my < size[0]; ++my) {
       for (dope::SizeType mx = 0; mx < size[1]; ++mx) {
-        const int index = static_cast<int>(my) * size_x + static_cast<int>(mx);
+        const size_t index = static_cast<size_t>(my) * size_x + static_cast<size_t>(mx);
         esdf[index] = f[my][mx] * resolution;
       }
     }
@@ -121,9 +121,9 @@ private:
     unsigned char lethal_cost,
     bool treat_obstacles_as_zero)
   {
-    const int size_x = static_cast<int>(costmap->getSizeInCellsX());
-    const int size_y = static_cast<int>(costmap->getSizeInCellsY());
-    const int cell_count = size_x * size_y;
+    const size_t size_x = static_cast<size_t>(costmap->getSizeInCellsX());
+    const size_t size_y = static_cast<size_t>(costmap->getSizeInCellsY());
+    const size_t cell_count = size_x * size_y;
     std::vector<double> esdf(cell_count, std::numeric_limits<double>::infinity());
 
     struct DistanceItem
@@ -138,14 +138,14 @@ private:
     };
 
     std::priority_queue<DistanceItem, std::vector<DistanceItem>, std::greater<DistanceItem>> queue;
-    for (int my = 0; my < size_y; ++my) {
-      for (int mx = 0; mx < size_x; ++mx) {
-        const int index = toIndex(mx, my, size_x);
-        const bool is_obstacle = costmap->getCost(mx, my) >= lethal_cost;
+    for (size_t my = 0; my < size_y; ++my) {
+      for (size_t mx = 0; mx < size_x; ++mx) {
+        const size_t index = toIndex(mx, my, size_x);
+        const bool is_obstacle = costmap->getCost(static_cast<unsigned int>(mx), static_cast<unsigned int>(my)) >= lethal_cost;
         const bool is_zero_seed = treat_obstacles_as_zero ? is_obstacle : !is_obstacle;
         if (is_zero_seed) {
           esdf[index] = 0.0;
-          queue.push({0.0, index});
+          queue.push({0.0, static_cast<int>(index)});
         }
       }
     }
@@ -157,20 +157,20 @@ private:
         continue;
       }
 
-      const int cx = current.index % size_x;
-      const int cy = current.index / size_x;
+      const int cx = current.index % static_cast<int>(size_x);
+      const int cy = current.index / static_cast<int>(size_x);
       for (const auto & neighbor : kNeighbors) {
         const int nx = cx + neighbor.dx;
         const int ny = cy + neighbor.dy;
-        if (!inBounds(nx, ny, size_x, size_y)) {
+        if (!inBounds(nx, ny, static_cast<int>(size_x), static_cast<int>(size_y))) {
           continue;
         }
 
-        const int next_index = toIndex(nx, ny, size_x);
+        const size_t next_index = toIndex(static_cast<size_t>(nx), static_cast<size_t>(ny), size_x);
         const double candidate = current.distance + neighbor.distance * costmap->getResolution();
         if (candidate < esdf[next_index]) {
           esdf[next_index] = candidate;
-          queue.push({candidate, next_index});
+          queue.push({candidate, static_cast<int>(next_index)});
         }
       }
     }
@@ -201,7 +201,7 @@ private:
     return mx >= 0 && my >= 0 && mx < size_x && my < size_y;
   }
 
-  static int toIndex(int mx, int my, int size_x)
+  static size_t toIndex(size_t mx, size_t my, size_t size_x)
   {
     return my * size_x + mx;
   }

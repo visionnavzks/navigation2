@@ -21,7 +21,22 @@ class NodeHybrid;
 
 struct HybridMotionTable
 {
-  HybridMotionTable() = default;
+  HybridMotionTable()
+  : motion_model(MotionModel::UNKNOWN),
+    size_x(0),
+    num_angle_quantization(0),
+    num_angle_quantization_float(0.0f),
+    min_turning_radius(0.0f),
+    bin_size(0.0f),
+    change_penalty(0.0f),
+    non_straight_penalty(0.0f),
+    cost_penalty(0.0f),
+    reverse_penalty(0.0f),
+    travel_distance_reward(0.0f),
+    downsample_obstacle_heuristic(false),
+    use_quadratic_cost_penalty(false),
+    allow_primitive_interpolation(false)
+  {}
 
   void initDubin(
     const unsigned int & size_x_in,
