@@ -49,8 +49,9 @@ void ObstacleHeuristic::resetObstacleHeuristic(
     goal_index = gy * cached_size_x_ + gx;
   }
 
-  const float start_x_floor = std::floor(start_x);
-  const float start_y_floor = std::floor(start_y);
+  const float inv = downsample_obstacle_heuristic ? 2.0f : 1.0f;
+  const float start_x_floor = std::floor(start_x / inv);
+  const float start_y_floor = std::floor(start_y / inv);
   obstacle_heuristic_queue_.emplace_back(
     distanceHeuristic2D(
       goal_index, cached_size_x_,

@@ -35,6 +35,8 @@ Generated: 2026-05-31 (updated 2026-06-01)
 | #26 | Minor | `node_basic.hpp:16-22` | 构造函数初始化 `motion_index`/`turn_dir` | ✅ 编译通过 |
 | #27 | Minor | `smoother.cpp:134,163` | `path_size` 改 `size_t`，循环变量同步 | ✅ 编译通过 |
 | **#28 (new)** | **Critical** | **`distance_heuristic.cpp:31`** | **修复查找表 `resize` 尺寸：与预计算迭代数一致（`floor(size/2)-ceil(-size/2)+1` × `floor(size/2)+1` × angle）** | ✅ 编译通过 |
+| **#29 (new)** | **Critical (latent)** | **`distance_heuristic.cpp:72-89`** + **`smac_planner_hybrid.cpp:75-77`** | **查找步长从 `ceiling_size = ceil(size/2)` 改为 `y_size = floor(size/2) + 1`，与预计算布局一致；移除上层「强制奇数尺寸」临时防御** | ✅ 编译通过 + ✅ 新增回归测试 |
+| **#30 (new)** | **Minor** | **`obstacle_heuristic.cpp:52-58`** | **`resetObstacleHeuristic` 优先队列起点按 `downsample_obstacle_heuristic` 同步除 2** | ✅ 编译通过 |
 
 ---
 
@@ -50,9 +52,9 @@ _(none)_
 
 | Status | Critical | Moderate | Minor | Total |
 |--------|----------|----------|-------|-------|
-| Fixed  | 5        | 13       | 9     | 27    |
+| Fixed  | 6        | 13       | 10    | 29    |
 | Open   | 0        | 0        | 0     | 0     |
-| **Total** | **5** | **13**  | **9** | **27** |
+| **Total** | **6** | **13**  | **10** | **29** |
 
 ---
 
@@ -70,3 +72,40 @@ _(none)_
 **Fix**: `resize` 改为与预计算完全一致的尺寸公式。
 
 **Trigger**: 任何调用 `setGoal`（间接触发 `precomputeDistanceHeuristic`）的规划请求都会触发。
+
+---
+
+## Notes on Bug #29 (新增，latent)
+
+**File**: `src/distance_heuristic.cpp:72-89`、`src/smac_planner_hybrid.cpp:73-77`
+
+**Symptom**: 当 `size_lookup_` 为偶数时，距离启发返回错误值（虽然仍是合法距离，导致路径次优但不失败）。当 `precomputeDistanceHeuristic` 被外部直接以偶数尺寸调用时也会触发。
+
+**Root cause**:
+- 预计算写入布局的 x 步长 = `(floor(size/2) + 1) * dim_3_size`（y 范围大小），因为 y 迭代到 `floor(size/2)` 共有 `floor(size/2) + 1` 个值。
+- 查找代码使用 `ceiling_size = ceil(size/2)` 作为 x 步长。奇数尺寸时两者相等，偶数尺寸时 `ceil(size/2) = size/2` < `floor(size/2) + 1 = size/2 + 1`，差一个 `dim_3_size`。
+- 之前上层 (`smac_planner_hybrid.cpp`) 用 `if (size % 2 == 0) size += 1` 临时防御，掩盖了 bug。
+
+**Fix**:
+- `distance_heuristic.cpp`：把 `ceiling_size` 替换为 `y_size = floored_size + 1`，与预计算严格一致。
+- `smac_planner_hybrid.cpp`：移除 `if (lookup_table_dim % 2 == 0) lookup_table_dim += 1` 这层防御，让查找公式自洽。
+- `test/test_distance_heuristic.cpp`：新增 `LookupMatchesOmplStridedByYRange`，对 `lookup_dim ∈ {19, 20, 21}` 分别采样 `(i, j, k)` 组合，断言查找返回值与 `state_space->distance()` 直接计算结果一致（`1e-3` 容差）。
+
+**Trigger**: 偶数 `size_lookup_` 配合 `precomputeDistanceHeuristic` 调用。
+
+---
+
+## Notes on Bug #30 (新增)
+
+**File**: `src/obstacle_heuristic.cpp:52-58`
+
+**Symptom**: 当 `downsample_obstacle_heuristic = true` 时，Dijkstra 优先队列初始 goal 项的 `f` 值偏大（用了全分辨率的起点坐标 vs 下采样后的 goal 索引），导致规划器在搜索初期多探索大量节点。无正确性影响，纯性能退化。
+
+**Root cause**:
+- `cached_size_x_` 已是下采样尺寸（`size_x / 2`）。
+- `getObstacleHeuristic` 在 `downsample=true` 时把 `node_coords.x / y` 除以 2。
+- 但 `resetObstacleHeuristic` 初始化优先队列时 `start_x_floor` / `start_y_floor` 没有同步除以 2，dx / dy 单位不一致。
+
+**Fix**: 在 `resetObstacleHeuristic` 中按 `downsample_obstacle_heuristic` 标志对起点同步除以 2。
+
+**Trigger**: `search_info.downsample_obstacle_heuristic = true`（默认）。

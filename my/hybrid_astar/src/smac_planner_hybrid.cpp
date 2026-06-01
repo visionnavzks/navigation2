@@ -72,9 +72,6 @@ void SmacPlannerHybrid::configure(
 
   lookup_table_dim = static_cast<float>(static_cast<int>(lookup_table_dim));
 
-  if (static_cast<int>(lookup_table_dim) % 2 == 0) {
-    lookup_table_dim += 1.0f;
-  }
   _lookup_table_dim = lookup_table_dim;
 
   double circumscribed_cost = _config.circumscribed_cost;

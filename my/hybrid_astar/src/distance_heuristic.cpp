@@ -70,7 +70,7 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
 
   float motion_heuristic = 0.0;
   const int floored_size = floor(size_lookup_ / 2.0);
-  const int ceiling_size = ceil(size_lookup_ / 2.0);
+  const int y_size = floored_size + 1;
   const float mirrored_relative_y = abs(node_coords_relative.y);
   if (abs(node_coords_relative.x) <= floored_size && mirrored_relative_y <= floored_size) {
     int theta_pos;
@@ -83,7 +83,7 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
     const int x_pos = node_coords_relative.x + floored_size;
     const int y_pos = static_cast<int>(mirrored_relative_y);
     const int index =
-      x_pos * ceiling_size * motion_table.num_angle_quantization +
+      x_pos * y_size * motion_table.num_angle_quantization +
       y_pos * motion_table.num_angle_quantization +
       theta_pos;
     motion_heuristic = dist_heuristic_lookup_table_[index];
