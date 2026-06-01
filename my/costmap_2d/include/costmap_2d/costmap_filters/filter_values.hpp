@@ -2,7 +2,7 @@
  *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2008, 2013, Willow Garage, Inc.
+ *  Copyright (c) 2020 Samsung Research Russia
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -15,7 +15,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *   * Neither the name of Willow Garage, Inc. nor the names of its
+ *   * Neither the name of the <ORGANIZATION> nor the names of its
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
@@ -32,37 +32,27 @@
  *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
  *
- * Author: Eitan Marder-Eppstein
- *         David V. Lu!!
+ * Author: Alexey Merzlyakov
  *********************************************************************/
-#ifndef MY_COSTMAP_2D__FOOTPRINT_HPP_
-#define MY_COSTMAP_2D__FOOTPRINT_HPP_
 
-#include <string>
-#include <vector>
-#include <utility>
+#ifndef COSTMAP_2D__COSTMAP_FILTERS__FILTER_VALUES_HPP_
+#define COSTMAP_2D__COSTMAP_FILTERS__FILTER_VALUES_HPP_
 
-#include "my_costmap_2d/point.hpp"
-
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
-std::pair<double, double> calculateMinAndMaxDistances(
-  const std::vector<Point> & footprint);
+static constexpr uint8_t KEEPOUT_FILTER = 0;
+static constexpr uint8_t SPEED_FILTER_PERCENT = 1;
+static constexpr uint8_t SPEED_FILTER_ABSOLUTE = 2;
+static constexpr uint8_t BINARY_FILTER = 3;
 
-void transformFootprint(
-  double x, double y, double theta,
-  const std::vector<Point> & footprint_spec,
-  std::vector<Point> & oriented_footprint);
+static constexpr double BASE_DEFAULT = 0.0;
+static constexpr double MULTIPLIER_DEFAULT = 1.0;
 
-void padFootprint(std::vector<Point> & footprint, double padding);
+static constexpr int8_t SPEED_MASK_UNKNOWN = -1;
+static constexpr int8_t SPEED_MASK_NO_LIMIT = 0;
+static constexpr double NO_SPEED_LIMIT = 0.0;
 
-std::vector<Point> makeFootprintFromRadius(double radius);
+}  // namespace costmap_2d
 
-bool makeFootprintFromString(
-  const std::string & footprint_string,
-  std::vector<Point> & footprint);
-
-}  // namespace my_costmap_2d
-
-#endif  // MY_COSTMAP_2D__FOOTPRINT_HPP_
+#endif  // COSTMAP_2D__COSTMAP_FILTERS__FILTER_VALUES_HPP_

@@ -3,17 +3,17 @@
 //
 // Software License Agreement (BSD License 2.0)
 //
-// Ported to ROS-free my_costmap_2d library
+// Ported to ROS-free costmap_2d library
 
 #include <gtest/gtest.h>
 #include <set>
 #include <vector>
 #include <cmath>
 
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 const unsigned char MAP_10_BY_10_CHAR[] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

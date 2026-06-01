@@ -1,15 +1,15 @@
 // Copyright (c) 2019 Intel Corporation
-// Ported to ROS-free my_costmap_2d library
+// Ported to ROS-free costmap_2d library
 
 #include <gtest/gtest.h>
 #include <memory>
 #include <vector>
 
-#include "my_costmap_2d/footprint_collision_checker.hpp"
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/footprint_collision_checker.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 // ===================== Basic Collision Checker Tests =====================
 

@@ -1,7 +1,7 @@
 // Copyright (c) 2013, Willow Garage, Inc.
 // All rights reserved.
 //
-// Ported to ROS-free my_costmap_2d library
+// Ported to ROS-free costmap_2d library
 
 #include <gtest/gtest.h>
 #include <string>
@@ -9,10 +9,10 @@
 #include <limits>
 #include <cmath>
 
-#include "my_costmap_2d/footprint.hpp"
-#include "my_costmap_2d/costmap_math.hpp"
+#include "costmap_2d/footprint.hpp"
+#include "costmap_2d/costmap_math.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 // ===================== Footprint String Parsing Tests =====================
 

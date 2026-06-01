@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MY_COSTMAP_2D__DISTANCE_TRANSFORM_HPP_
-#define MY_COSTMAP_2D__DISTANCE_TRANSFORM_HPP_
+#ifndef COSTMAP_2D__DISTANCE_TRANSFORM_HPP_
+#define COSTMAP_2D__DISTANCE_TRANSFORM_HPP_
 
 #include <limits>
 #include <vector>
@@ -22,7 +22,7 @@
 #endif
 #include <Eigen/Core>
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 using MatrixXfRM = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
@@ -115,6 +115,6 @@ public:
   }
 };
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__DISTANCE_TRANSFORM_HPP_
+#endif  // COSTMAP_2D__DISTANCE_TRANSFORM_HPP_

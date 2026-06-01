@@ -27,7 +27,7 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "my_costmap_2d/costmap_math.hpp"
+#include "costmap_2d/costmap_math.hpp"
 
 #include <vector>
 

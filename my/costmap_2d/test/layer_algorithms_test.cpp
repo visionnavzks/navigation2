@@ -3,11 +3,11 @@
 #include <gtest/gtest.h>
 #include <vector>
 
-#include "my_costmap_2d/costmap_layer_algorithms.hpp"
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/costmap_layer_algorithms.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 // ===================== UpdateWithTrueOverwrite Tests =====================
 

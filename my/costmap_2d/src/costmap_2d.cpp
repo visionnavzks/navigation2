@@ -35,15 +35,15 @@
  * Author: Eitan Marder-Eppstein
  *         David V. Lu!!
  *********************************************************************/
-#include "my_costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/costmap_2d.hpp"
 
 #include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 // Inline raytrace from nav2_util (ROS-free version)
@@ -571,4 +571,4 @@ bool Costmap2D::saveMap(std::string file_name)
   return true;
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d

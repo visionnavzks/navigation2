@@ -1,8 +1,7 @@
-/*********************************************************************
- *
+/*
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2008, 2013, Willow Garage, Inc.
+ *  Copyright (c) 2017, Locus Robotics
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -15,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *   * Neither the name of Willow Garage, Inc. nor the names of its
+ *   * Neither the name of the copyright holder nor the names of its
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
@@ -23,7 +22,7 @@
  *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
  *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
  *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
@@ -31,33 +30,35 @@
  *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
  *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
- *
- * Author: Eitan Marder-Eppstein
- *********************************************************************/
-#ifndef MY_COSTMAP_2D__COST_VALUES_HPP_
-#define MY_COSTMAP_2D__COST_VALUES_HPP_
-
-/** Provides a mapping for often used cost values */
-namespace my_costmap_2d
-{
-
-/**
- * @enum CombinationMethod
- * @brief Describes the method used to add data to master costmap, default to maximum.
  */
-enum class CombinationMethod : int
+#ifndef COSTMAP_2D__EXCEPTIONS_HPP_
+#define COSTMAP_2D__EXCEPTIONS_HPP_
+
+#include <stdexcept>
+#include <string>
+#include <memory>
+
+namespace costmap_2d
 {
-  Overwrite = 0,
-  Max = 1,
-  MaxWithoutUnknownOverwrite = 2
+
+class CollisionCheckerException : public std::runtime_error
+{
+public:
+  explicit CollisionCheckerException(const std::string description)
+  : std::runtime_error(description) {}
 };
 
-static constexpr unsigned char NO_INFORMATION = 255;
-static constexpr unsigned char LETHAL_OBSTACLE = 254;
-static constexpr unsigned char INSCRIBED_INFLATED_OBSTACLE = 253;
-static constexpr unsigned char MAX_NON_OBSTACLE = 252;
-static constexpr unsigned char FREE_SPACE = 0;
+class IllegalPoseException : public CollisionCheckerException
+{
+public:
+  IllegalPoseException(const std::string name, const std::string description)
+  : CollisionCheckerException(description), name_(name) {}
+  std::string getCriticName() const {return name_;}
 
-}  // namespace my_costmap_2d
+protected:
+  std::string name_;
+};
 
-#endif  // MY_COSTMAP_2D__COST_VALUES_HPP_
+}  // namespace costmap_2d
+
+#endif  // COSTMAP_2D__EXCEPTIONS_HPP_

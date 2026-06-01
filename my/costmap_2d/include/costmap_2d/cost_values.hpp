@@ -33,36 +33,31 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *
  * Author: Eitan Marder-Eppstein
- *         David V. Lu!!
  *********************************************************************/
-#ifndef MY_COSTMAP_2D__COSTMAP_MATH_HPP_
-#define MY_COSTMAP_2D__COSTMAP_MATH_HPP_
+#ifndef COSTMAP_2D__COST_VALUES_HPP_
+#define COSTMAP_2D__COST_VALUES_HPP_
 
-#include <math.h>
-#include <algorithm>
-#include <vector>
-
-#include "my_costmap_2d/point.hpp"
-
-/** @brief Return -1 if x < 0, +1 otherwise. */
-inline double sign(double x)
+/** Provides a mapping for often used cost values */
+namespace costmap_2d
 {
-  return x < 0.0 ? -1.0 : 1.0;
-}
 
-/** @brief Same as sign(x) but returns 0 if x is 0. */
-inline double sign0(double x)
+/**
+ * @enum CombinationMethod
+ * @brief Describes the method used to add data to master costmap, default to maximum.
+ */
+enum class CombinationMethod : int
 {
-  return x < 0.0 ? -1.0 : (x > 0.0 ? 1.0 : 0.0);
-}
+  Overwrite = 0,
+  Max = 1,
+  MaxWithoutUnknownOverwrite = 2
+};
 
-/** @brief Gets L2 norm distance */
-inline double distance(double x0, double y0, double x1, double y1)
-{
-  return hypot(x1 - x0, y1 - y0);
-}
+static constexpr unsigned char NO_INFORMATION = 255;
+static constexpr unsigned char LETHAL_OBSTACLE = 254;
+static constexpr unsigned char INSCRIBED_INFLATED_OBSTACLE = 253;
+static constexpr unsigned char MAX_NON_OBSTACLE = 252;
+static constexpr unsigned char FREE_SPACE = 0;
 
-/** @brief Gets point distance to a line */
-double distanceToLine(double pX, double pY, double x0, double y0, double x1, double y1);
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__COSTMAP_MATH_HPP_
+#endif  // COSTMAP_2D__COST_VALUES_HPP_

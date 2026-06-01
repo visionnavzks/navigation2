@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MY_COSTMAP_2D__DENOISE__IMAGE_HPP_
-#define MY_COSTMAP_2D__DENOISE__IMAGE_HPP_
+#ifndef COSTMAP_2D__DENOISE__IMAGE_HPP_
+#define COSTMAP_2D__DENOISE__IMAGE_HPP_
 
 #include <cstddef>
 #include <stdexcept>
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 template<class T>
@@ -135,6 +135,6 @@ void Image<T>::convert(Image<TargetElement> & target, Converter && converter) co
   }
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__DENOISE__IMAGE_HPP_
+#endif  // COSTMAP_2D__DENOISE__IMAGE_HPP_

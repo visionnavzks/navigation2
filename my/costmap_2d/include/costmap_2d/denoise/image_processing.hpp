@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MY_COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_
-#define MY_COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_
+#ifndef COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_
+#define COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_
 
 #include "image.hpp"
 #include <algorithm>
@@ -24,7 +24,7 @@
 #include <string>
 #include <utility>
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 enum class ConnectivityType : int
@@ -715,6 +715,6 @@ Image<Label> connectedComponents(
   return labels;
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_
+#endif  // COSTMAP_2D__DENOISE__IMAGE_PROCESSING_HPP_

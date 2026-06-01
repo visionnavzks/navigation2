@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MY_COSTMAP_2D__INFLATION_LAYER_CORE_HPP_
-#define MY_COSTMAP_2D__INFLATION_LAYER_CORE_HPP_
+#ifndef COSTMAP_2D__INFLATION_LAYER_CORE_HPP_
+#define COSTMAP_2D__INFLATION_LAYER_CORE_HPP_
 
 #include <cmath>
 #include <vector>
 
-#include "my_costmap_2d/cost_values.hpp"
-#include "my_costmap_2d/distance_transform.hpp"
+#include "costmap_2d/cost_values.hpp"
+#include "costmap_2d/distance_transform.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 /**
@@ -88,6 +88,6 @@ inline void applyInflation(
   }
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__INFLATION_LAYER_CORE_HPP_
+#endif  // COSTMAP_2D__INFLATION_LAYER_CORE_HPP_

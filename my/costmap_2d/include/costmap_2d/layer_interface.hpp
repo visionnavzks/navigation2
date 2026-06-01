@@ -29,18 +29,18 @@
 // ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef MY_COSTMAP_2D__LAYER_INTERFACE_HPP_
-#define MY_COSTMAP_2D__LAYER_INTERFACE_HPP_
+#ifndef COSTMAP_2D__LAYER_INTERFACE_HPP_
+#define COSTMAP_2D__LAYER_INTERFACE_HPP_
 
 #include <atomic>
 #include <string>
 #include <vector>
 #include <memory>
 
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/point.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/point.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 class LayeredCostmap;
@@ -97,6 +97,6 @@ protected:
   bool enabled_;
 };
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__LAYER_INTERFACE_HPP_
+#endif  // COSTMAP_2D__LAYER_INTERFACE_HPP_

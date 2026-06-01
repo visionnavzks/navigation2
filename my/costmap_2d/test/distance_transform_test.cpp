@@ -4,12 +4,12 @@
 #include <cmath>
 #include <vector>
 
-#include "my_costmap_2d/distance_transform.hpp"
-#include "my_costmap_2d/inflation_layer_core.hpp"
-#include "my_costmap_2d/cost_values.hpp"
-#include "my_costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/distance_transform.hpp"
+#include "costmap_2d/inflation_layer_core.hpp"
+#include "costmap_2d/cost_values.hpp"
+#include "costmap_2d/costmap_2d.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 // ===================== Distance Transform Tests =====================
 

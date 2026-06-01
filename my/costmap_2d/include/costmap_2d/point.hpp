@@ -30,10 +30,10 @@
 // ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 // POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef MY_COSTMAP_2D__POINT_HPP_
-#define MY_COSTMAP_2D__POINT_HPP_
+#ifndef COSTMAP_2D__POINT_HPP_
+#define COSTMAP_2D__POINT_HPP_
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 /**
@@ -46,6 +46,6 @@ struct Point
   double z{0.0};
 };
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__POINT_HPP_
+#endif  // COSTMAP_2D__POINT_HPP_

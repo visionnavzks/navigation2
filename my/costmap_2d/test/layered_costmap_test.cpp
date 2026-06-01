@@ -4,11 +4,11 @@
 #include <memory>
 #include <vector>
 
-#include "my_costmap_2d/layered_costmap.hpp"
-#include "my_costmap_2d/layer_interface.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/layered_costmap.hpp"
+#include "costmap_2d/layer_interface.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 
 // ===================== Mock Layer =====================
 

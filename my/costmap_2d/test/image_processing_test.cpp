@@ -1,5 +1,5 @@
 // Copyright (c) 2023 Andrey Ryzhikov
-// Ported to ROS-free my_costmap_2d library
+// Ported to ROS-free costmap_2d library
 
 #include <gtest/gtest.h>
 #include <cmath>
@@ -10,10 +10,10 @@
 #include <algorithm>
 #include <stdexcept>
 
-#include "my_costmap_2d/denoise/image_processing.hpp"
-#include "my_costmap_2d/denoise/image.hpp"
+#include "costmap_2d/denoise/image_processing.hpp"
+#include "costmap_2d/denoise/image.hpp"
 
-using namespace my_costmap_2d;
+using namespace costmap_2d;
 using namespace imgproc_impl;
 
 // Helper functions

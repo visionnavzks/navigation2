@@ -26,16 +26,16 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include "my_costmap_2d/footprint.hpp"
+#include "costmap_2d/footprint.hpp"
 
 #include <algorithm>
 #include <limits>
 #include <string>
 #include <vector>
 
-#include "my_costmap_2d/costmap_math.hpp"
+#include "costmap_2d/costmap_math.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 std::pair<double, double> calculateMinAndMaxDistances(
@@ -183,4 +183,4 @@ bool makeFootprintFromString(
   return true;
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d

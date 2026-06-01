@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(my_costmap_2d)
+project(costmap_2d)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -11,21 +11,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Eigen3 REQUIRED)
 
 set(HEADER_FILES
-  include/my_costmap_2d/point.hpp
-  include/my_costmap_2d/cost_values.hpp
-  include/my_costmap_2d/costmap_math.hpp
-  include/my_costmap_2d/exceptions.hpp
-  include/my_costmap_2d/costmap_2d.hpp
-  include/my_costmap_2d/distance_transform.hpp
-  include/my_costmap_2d/footprint.hpp
-  include/my_costmap_2d/footprint_collision_checker.hpp
-  include/my_costmap_2d/costmap_layer_algorithms.hpp
-  include/my_costmap_2d/inflation_layer_core.hpp
-  include/my_costmap_2d/layer_interface.hpp
-  include/my_costmap_2d/layered_costmap.hpp
-  include/my_costmap_2d/costmap_filters/filter_values.hpp
-  include/my_costmap_2d/denoise/image.hpp
-  include/my_costmap_2d/denoise/image_processing.hpp
+  include/costmap_2d/point.hpp
+  include/costmap_2d/cost_values.hpp
+  include/costmap_2d/costmap_math.hpp
+  include/costmap_2d/exceptions.hpp
+  include/costmap_2d/costmap_2d.hpp
+  include/costmap_2d/distance_transform.hpp
+  include/costmap_2d/footprint.hpp
+  include/costmap_2d/footprint_collision_checker.hpp
+  include/costmap_2d/costmap_layer_algorithms.hpp
+  include/costmap_2d/inflation_layer_core.hpp
+  include/costmap_2d/layer_interface.hpp
+  include/costmap_2d/layered_costmap.hpp
+  include/costmap_2d/costmap_filters/filter_values.hpp
+  include/costmap_2d/denoise/image.hpp
+  include/costmap_2d/denoise/image_processing.hpp
 )
 
 set(SOURCE_FILES
@@ -60,7 +60,7 @@ install(TARGETS ${PROJECT_NAME}
   LIBRARY DESTINATION lib
 )
 
-install(DIRECTORY include/my_costmap_2d
+install(DIRECTORY include/costmap_2d
   DESTINATION include
 )
 

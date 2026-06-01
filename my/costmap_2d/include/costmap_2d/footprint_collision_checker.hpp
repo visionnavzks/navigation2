@@ -12,21 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef MY_COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_
-#define MY_COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_
+#ifndef COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_
+#define COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_
 
 #include <string>
 #include <vector>
 #include <memory>
 #include <algorithm>
 
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/exceptions.hpp"
-#include "my_costmap_2d/costmap_math.hpp"
-#include "my_costmap_2d/footprint.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/exceptions.hpp"
+#include "costmap_2d/costmap_math.hpp"
+#include "costmap_2d/footprint.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 typedef std::vector<Point> Footprint;
@@ -165,6 +165,6 @@ void FootprintCollisionChecker<CostmapT>::setCostmap(CostmapT costmap)
   costmap_ = costmap;
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_
+#endif  // COSTMAP_2D__FOOTPRINT_COLLISION_CHECKER_HPP_

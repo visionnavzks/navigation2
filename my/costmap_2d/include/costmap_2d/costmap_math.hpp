@@ -1,7 +1,8 @@
-/*
+/*********************************************************************
+ *
  * Software License Agreement (BSD License)
  *
- *  Copyright (c) 2017, Locus Robotics
+ *  Copyright (c) 2008, 2013, Willow Garage, Inc.
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -14,7 +15,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *   * Neither the name of the copyright holder nor the names of its
+ *   * Neither the name of Willow Garage, Inc. nor the names of its
  *     contributors may be used to endorse or promote products derived
  *     from this software without specific prior written permission.
  *
@@ -22,7 +23,7 @@
  *  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  *  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
  *  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- *  COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ *  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
  *  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
  *  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
  *  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
@@ -30,35 +31,38 @@
  *  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
  *  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *  POSSIBILITY OF SUCH DAMAGE.
- */
-#ifndef MY_COSTMAP_2D__EXCEPTIONS_HPP_
-#define MY_COSTMAP_2D__EXCEPTIONS_HPP_
+ *
+ * Author: Eitan Marder-Eppstein
+ *         David V. Lu!!
+ *********************************************************************/
+#ifndef COSTMAP_2D__COSTMAP_MATH_HPP_
+#define COSTMAP_2D__COSTMAP_MATH_HPP_
 
-#include <stdexcept>
-#include <string>
-#include <memory>
+#include <math.h>
+#include <algorithm>
+#include <vector>
 
-namespace my_costmap_2d
+#include "costmap_2d/point.hpp"
+
+/** @brief Return -1 if x < 0, +1 otherwise. */
+inline double sign(double x)
 {
+  return x < 0.0 ? -1.0 : 1.0;
+}
 
-class CollisionCheckerException : public std::runtime_error
+/** @brief Same as sign(x) but returns 0 if x is 0. */
+inline double sign0(double x)
 {
-public:
-  explicit CollisionCheckerException(const std::string description)
-  : std::runtime_error(description) {}
-};
+  return x < 0.0 ? -1.0 : (x > 0.0 ? 1.0 : 0.0);
+}
 
-class IllegalPoseException : public CollisionCheckerException
+/** @brief Gets L2 norm distance */
+inline double distance(double x0, double y0, double x1, double y1)
 {
-public:
-  IllegalPoseException(const std::string name, const std::string description)
-  : CollisionCheckerException(description), name_(name) {}
-  std::string getCriticName() const {return name_;}
+  return hypot(x1 - x0, y1 - y0);
+}
 
-protected:
-  std::string name_;
-};
+/** @brief Gets point distance to a line */
+double distanceToLine(double pX, double pY, double x0, double y0, double x1, double y1);
 
-}  // namespace my_costmap_2d
-
-#endif  // MY_COSTMAP_2D__EXCEPTIONS_HPP_
+#endif  // COSTMAP_2D__COSTMAP_MATH_HPP_

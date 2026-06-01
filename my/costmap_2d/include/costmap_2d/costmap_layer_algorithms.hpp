@@ -35,13 +35,13 @@
  * Author: Eitan Marder-Eppstein
  *         David V. Lu!!
  *********************************************************************/
-#ifndef MY_COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_
-#define MY_COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_
+#ifndef COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_
+#define COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_
 
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/cost_values.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/cost_values.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 /**
@@ -185,6 +185,6 @@ inline void updateWithAddition(
   }
 }
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_
+#endif  // COSTMAP_2D__COSTMAP_LAYER_ALGORITHMS_HPP_

@@ -35,19 +35,19 @@
  * Author: Eitan Marder-Eppstein
  *         David V. Lu!!
  *********************************************************************/
-#ifndef MY_COSTMAP_2D__LAYERED_COSTMAP_HPP_
-#define MY_COSTMAP_2D__LAYERED_COSTMAP_HPP_
+#ifndef COSTMAP_2D__LAYERED_COSTMAP_HPP_
+#define COSTMAP_2D__LAYERED_COSTMAP_HPP_
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include "my_costmap_2d/cost_values.hpp"
-#include "my_costmap_2d/layer_interface.hpp"
-#include "my_costmap_2d/costmap_2d.hpp"
-#include "my_costmap_2d/point.hpp"
+#include "costmap_2d/cost_values.hpp"
+#include "costmap_2d/layer_interface.hpp"
+#include "costmap_2d/costmap_2d.hpp"
+#include "costmap_2d/point.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 class LayerInterface;
@@ -89,7 +89,7 @@ public:
 
   bool isTrackingUnknown()
   {
-    return combined_costmap_.getDefaultValue() == my_costmap_2d::NO_INFORMATION;
+    return combined_costmap_.getDefaultValue() == costmap_2d::NO_INFORMATION;
   }
 
   std::vector<std::shared_ptr<LayerInterface>> * getPlugins() {return &plugins_;}
@@ -139,6 +139,6 @@ private:
   std::shared_ptr<std::vector<Point>> footprint_;
 };
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__LAYERED_COSTMAP_HPP_
+#endif  // COSTMAP_2D__LAYERED_COSTMAP_HPP_

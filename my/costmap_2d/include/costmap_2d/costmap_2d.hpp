@@ -35,8 +35,8 @@
  * Author: Eitan Marder-Eppstein
  *         David V. Lu!!
  *********************************************************************/
-#ifndef MY_COSTMAP_2D__COSTMAP_2D_HPP_
-#define MY_COSTMAP_2D__COSTMAP_2D_HPP_
+#ifndef COSTMAP_2D__COSTMAP_2D_HPP_
+#define COSTMAP_2D__COSTMAP_2D_HPP_
 
 #include <string.h>
 #include <stdio.h>
@@ -48,9 +48,9 @@
 #include <queue>
 #include <mutex>
 
-#include "my_costmap_2d/point.hpp"
+#include "costmap_2d/point.hpp"
 
-namespace my_costmap_2d
+namespace costmap_2d
 {
 
 struct MapLocation
@@ -268,6 +268,6 @@ protected:
   };
 };
 
-}  // namespace my_costmap_2d
+}  // namespace costmap_2d
 
-#endif  // MY_COSTMAP_2D__COSTMAP_2D_HPP_
+#endif  // COSTMAP_2D__COSTMAP_2D_HPP_
