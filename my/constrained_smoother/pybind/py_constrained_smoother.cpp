@@ -261,6 +261,42 @@ py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & erro
   return result;
 }
 
+py::dict make_error_result(const constrained_smoother::InvalidCostmap & error)
+{
+  py::dict result;
+  result["ok"] = false;
+  result["path"] = py::none();
+  result["smoothed_path"] = py::none();
+  result["candidate_path"] = py::none();
+  result["optimized_knot_count"] = py::int_(0);
+  result["target_spacing_m"] = py::float_(0.0);
+  result["error_code"] = py::str(
+    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidCostmap));
+  result["error_message"] = py::str(error.what());
+  result["error_reason"] = py::none();
+  result["error_details"] = py::none();
+  return result;
+}
+
+py::dict make_error_result(
+  const constrained_smoother::PrecomputedEsdfSizeMismatch & error)
+{
+  py::dict result;
+  result["ok"] = false;
+  result["path"] = py::none();
+  result["smoothed_path"] = py::none();
+  result["candidate_path"] = py::none();
+  result["optimized_knot_count"] = py::int_(0);
+  result["target_spacing_m"] = py::float_(0.0);
+  result["error_code"] = py::str(
+    constrained_smoother::toErrorCodeString(
+      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
+  result["error_message"] = py::str(error.what());
+  result["error_reason"] = py::none();
+  result["error_details"] = py::none();
+  return result;
+}
+
 py::dict make_error_result(
   const constrained_smoother::SmoothingFailureInfo & failure,
   const constrained_smoother::SmootherResult & smooth_result)
