@@ -1,8 +1,6 @@
-#include "ompl/base/ScopedState.h"
-#include "ompl/base/spaces/DubinsStateSpace.h"
-#include "ompl/base/spaces/ReedsSheppStateSpace.h"
 #include "my/hybrid_astar/distance_heuristic.hpp"
 #include "my/hybrid_astar/node_hybrid.hpp"
+#include "my/hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {
@@ -16,9 +14,9 @@ void DistanceHeuristic<NodeHybrid>::precomputeDistanceHeuristic(
   const SearchInfo & search_info,
   MotionTableT & motion_table)
 {
-  motion_table.state_space = createStateSpace(motion_model, search_info.minimum_turning_radius);
+  motion_table.state_space = createSteeringStateSpace(motion_model, search_info.minimum_turning_radius);
 
-  ompl::base::ScopedState<> from(motion_table.state_space), to(motion_table.state_space);
+  SteeringState from, to;
   to[0] = 0.0;
   to[1] = 0.0;
   to[2] = 0.0;
@@ -38,7 +36,7 @@ void DistanceHeuristic<NodeHybrid>::precomputeDistanceHeuristic(
         from[0] = x;
         from[1] = y;
         from[2] = heading * angular_bin_size;
-        motion_heuristic = motion_table.state_space->distance(from(), to());
+        motion_heuristic = motion_table.state_space->distance(from, to);
         dist_heuristic_lookup_table_[index] = motion_heuristic;
         index++;
       }
@@ -88,14 +86,14 @@ float DistanceHeuristic<NodeT>::getDistanceHeuristic(
       theta_pos;
     motion_heuristic = dist_heuristic_lookup_table_[index];
   } else if (obstacle_heuristic <= 0.0) {
-    ompl::base::ScopedState<> from(motion_table.state_space), to(motion_table.state_space);
+    SteeringState from, to;
     to[0] = goal_coords.x;
     to[1] = goal_coords.y;
     from[0] = node_coords.x;
     from[1] = node_coords.y;
     to[2] = motion_table.getAngleFromBin(goal_coords.theta);
     from[2] = motion_table.getAngleFromBin(node_coords.theta);
-    motion_heuristic = motion_table.state_space->distance(from(), to());
+    motion_heuristic = motion_table.state_space->distance(from, to);
   }
 
   return motion_heuristic;

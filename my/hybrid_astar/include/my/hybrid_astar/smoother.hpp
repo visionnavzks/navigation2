@@ -6,7 +6,7 @@
 #include "my/hybrid_astar/types.hpp"
 #include "my/hybrid_astar/constants.hpp"
 #include "my/hybrid_astar/costmap_2d.hpp"
-#include "ompl/base/StateSpace.h"
+#include "my/hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {
@@ -89,7 +89,7 @@ protected:
   double min_turning_rad_, tolerance_, data_w_, smooth_w_;
   int max_its_, refinement_ctr_, refinement_num_;
   bool is_holonomic_, do_refinement_;
-  ompl::base::StateSpacePtr state_space_;
+  SteeringStateSpacePtr state_space_;
 };
 
 }  // namespace hybrid_astar

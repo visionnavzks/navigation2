@@ -1,5 +1,4 @@
-#include <ompl/base/ScopedState.h>
-
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -67,7 +66,7 @@ Smoother::Smoother(const SmootherParams & params)
 void Smoother::initialize(const double & min_turning_radius)
 {
   min_turning_rad_ = min_turning_radius;
-  state_space_ = createStateSpace(MotionModel::DUBIN, min_turning_rad_);
+  state_space_ = createSteeringStateSpace(MotionModel::DUBIN, min_turning_rad_);
 }
 
 bool Smoother::smooth(
@@ -258,7 +257,7 @@ void Smoother::findBoundaryExpansion(
   BoundaryExpansion & expansion,
   const Costmap2D * costmap)
 {
-  ompl::base::ScopedState<> from(state_space_), to(state_space_), s(state_space_);
+  SteeringState from, to, s;
 
   from[0] = start.x;
   from[1] = start.y;
@@ -267,7 +266,7 @@ void Smoother::findBoundaryExpansion(
   to[1] = end.y;
   to[2] = end.theta;
 
-  double d = state_space_->distance(from(), to());
+  double d = state_space_->distance(from, to);
   if (d > 2.0 * expansion.original_path_length) {
     return;
   }
@@ -278,7 +277,7 @@ void Smoother::findBoundaryExpansion(
   double y_m = start.y;
 
   for (size_t i = 0; i <= expansion.path_end_idx; i++) {
-    state_space_->interpolate(from(), to(), static_cast<double>(i) / expansion.path_end_idx, s());
+    state_space_->interpolate(from, to, static_cast<double>(i) / expansion.path_end_idx, s);
     reals = s.reals();
     theta = (reals[2] < 0.0) ? (reals[2] + 2.0 * M_PI) : reals[2];
     theta = (theta > 2.0 * M_PI) ? (theta - 2.0 * M_PI) : theta;

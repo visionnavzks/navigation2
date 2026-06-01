@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "steering_functions_lite/state_space.h"
 #include "steering_functions_lite/math_utils.h"
 

@@ -6,10 +6,9 @@
 #include <utility>
 #include <vector>
 
-#include "ompl/base/StateSpace.h"
-
 #include "my/hybrid_astar/constants.hpp"
 #include "my/hybrid_astar/types.hpp"
+#include "my/hybrid_astar/steering_state_space.hpp"
 #include "my/hybrid_astar/collision_checker.hpp"
 #include "my/hybrid_astar/obstacle_heuristic.hpp"
 #include "my/hybrid_astar/distance_heuristic.hpp"
@@ -81,7 +80,7 @@ struct HybridMotionTable
   bool downsample_obstacle_heuristic;
   bool use_quadratic_cost_penalty;
   bool allow_primitive_interpolation;
-  ompl::base::StateSpacePtr state_space;
+  SteeringStateSpacePtr state_space;
   std::vector<std::vector<double>> delta_xs;
   std::vector<std::vector<double>> delta_ys;
   std::vector<TrigValues> trig_values;

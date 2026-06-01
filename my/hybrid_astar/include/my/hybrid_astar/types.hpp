@@ -7,9 +7,6 @@
 #include <memory>
 #include <cmath>
 
-#include "ompl/base/spaces/DubinsStateSpace.h"
-#include "ompl/base/spaces/ReedsSheppStateSpace.h"
-
 #include "my/hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
@@ -170,16 +167,7 @@ inline double wrapAngle(double angle)
   return angle;
 }
 
-inline ompl::base::StateSpacePtr createStateSpace(
-  const MotionModel & model, double turning_radius)
-{
-  if (model == MotionModel::DUBIN) {
-    return std::make_shared<ompl::base::DubinsStateSpace>(turning_radius);
-  } else if (model == MotionModel::REEDS_SHEPP) {
-    return std::make_shared<ompl::base::ReedsSheppStateSpace>(turning_radius);
-  }
-  throw std::runtime_error("Invalid motion model for state space creation");
-}
+// createStateSpace is now createSteeringStateSpace in steering_state_space.hpp
 
 }  // namespace hybrid_astar
 

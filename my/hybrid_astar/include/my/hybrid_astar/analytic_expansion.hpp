@@ -1,10 +1,6 @@
 #ifndef HYBRID_ASTAR__ANALYTIC_EXPANSION_HPP_
 #define HYBRID_ASTAR__ANALYTIC_EXPANSION_HPP_
 
-#include <ompl/base/ScopedState.h>
-#include <ompl/base/spaces/DubinsStateSpace.h>
-#include <ompl/base/spaces/ReedsSheppStateSpace.h>
-
 #include <functional>
 #include <list>
 #include <memory>
@@ -13,6 +9,7 @@
 #include "my/hybrid_astar/node_hybrid.hpp"
 #include "my/hybrid_astar/types.hpp"
 #include "my/hybrid_astar/constants.hpp"
+#include "my/hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {
@@ -86,7 +83,7 @@ public:
 
   AnalyticExpansionNodes getAnalyticPath(
     const NodePtr & node, const NodePtr & goal,
-    const NodeGetter & getter, const ompl::base::StateSpacePtr & state_space);
+    const NodeGetter & getter, const SteeringStateSpacePtr & state_space);
 
   float refineAnalyticPath(
     NodePtr & node,
@@ -98,7 +95,7 @@ public:
     const NodePtr & node, const NodePtr & goal,
     const AnalyticExpansionNodes & expanded_nodes);
 
-  int countDirectionChanges(const ompl::base::ReedsSheppStateSpace::ReedsSheppPath & path);
+  int countDirectionChanges(const std::vector<steering_lite::Control> & controls);
 
 protected:
   MotionModel _motion_model;

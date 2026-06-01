@@ -120,23 +120,20 @@ typename AnalyticExpansion<NodeT>::NodePtr AnalyticExpansion<NodeT>::tryAnalytic
 
 template<typename NodeT>
 int AnalyticExpansion<NodeT>::countDirectionChanges(
-  const ompl::base::ReedsSheppStateSpace::ReedsSheppPath & path)
+  const std::vector<steering_lite::Control> & controls)
 {
-  const double * lengths = path.length_;
   int changes = 0;
   int last_dir = 0;
-  for (int i = 0; i < 5; ++i) {
-    if (lengths[i] == 0.0) {
+  for (const auto & c : controls) {
+    if (std::abs(c.delta_s) < 1e-9) {
       continue;
     }
-
-    int currentDirection = (lengths[i] > 0.0) ? 1 : -1;
+    int currentDirection = (c.delta_s > 0.0) ? 1 : -1;
     if (last_dir != 0 && currentDirection != last_dir) {
       ++changes;
     }
     last_dir = currentDirection;
   }
-
   return changes;
 }
 
@@ -145,9 +142,9 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   const NodePtr & node,
   const NodePtr & goal,
   const NodeGetter & node_getter,
-  const ompl::base::StateSpacePtr & state_space)
+  const SteeringStateSpacePtr & state_space)
 {
-  ompl::base::ScopedState<> from(state_space), to(state_space), s(state_space);
+  SteeringState from, to, s;
   from[0] = node->pose.x;
   from[1] = node->pose.y;
   from[2] = _ctx->motion_table.getAngleFromBin(node->pose.theta);
@@ -155,12 +152,13 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   to[1] = goal->pose.y;
   to[2] = _ctx->motion_table.getAngleFromBin(goal->pose.theta);
 
-  float d = state_space->distance(from(), to());
+  float d = static_cast<float>(state_space->distance(from, to));
 
-  auto rs_state_space = dynamic_cast<ompl::base::ReedsSheppStateSpace *>(state_space.get());
+  // Count direction changes from the control sequence (Reeds-Shepp only)
   int direction_changes = 0;
-  if (rs_state_space) {
-    direction_changes = countDirectionChanges(rs_state_space->reedsShepp(from.get(), to.get()));
+  if (state_space->model() == MotionModel::REEDS_SHEPP) {
+    auto controls = state_space->getControls(from, to);
+    direction_changes = countDirectionChanges(controls);
   }
 
   constexpr float sqrt_2 = 1.4142135623730950488f;
@@ -186,7 +184,7 @@ typename AnalyticExpansion<NodeT>::AnalyticExpansionNodes AnalyticExpansion<Node
   node_costs.reserve(num_intervals);
 
   for (float i = 1; i <= num_intervals; i++) {
-    state_space->interpolate(from(), to(), i / num_intervals, s());
+    state_space->interpolate(from, to, i / num_intervals, s);
     reals = s.reals();
     theta = wrapAngle(reals[2]);
     angle = _ctx->motion_table.getAngle(theta);
@@ -315,9 +313,9 @@ float AnalyticExpansion<NodeT>::refineAnalyticPath(
 
   while (min_turn_rad < max_min_turn_rad) {
     min_turn_rad += 0.5;
-    ompl::base::StateSpacePtr state_space =
-      createStateSpace(_ctx->motion_table.motion_model, min_turn_rad);
-    refined_analytic_nodes = getAnalyticPath(node, goal_node, getter, state_space);
+    SteeringStateSpacePtr steer_space =
+      createSteeringStateSpace(_ctx->motion_table.motion_model, min_turn_rad);
+    refined_analytic_nodes = getAnalyticPath(node, goal_node, getter, steer_space);
     score = scoringFn(refined_analytic_nodes);
 
     if (score <= best_score &&

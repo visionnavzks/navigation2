@@ -7,11 +7,8 @@
 #include <limits>
 #include <utility>
 
-#include "ompl/base/ScopedState.h"
-#include "ompl/base/spaces/DubinsStateSpace.h"
-#include "ompl/base/spaces/ReedsSheppStateSpace.h"
-
 #include "my/hybrid_astar/node_hybrid.hpp"
+#include "my/hybrid_astar/steering_state_space.hpp"
 
 using namespace std::chrono;  // NOLINT
 
@@ -100,7 +97,7 @@ void HybridMotionTable::initCommon(
     }
   }
 
-  state_space = createStateSpace(model, min_turning_radius);
+  state_space = createSteeringStateSpace(model, min_turning_radius);
 
   delta_xs.resize(projections.size());
   delta_ys.resize(projections.size());
