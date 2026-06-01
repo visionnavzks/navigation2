@@ -1,7 +1,7 @@
 #include <algorithm>
 
-#include "my/hybrid_astar/obstacle_heuristic.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/obstacle_heuristic.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
 
 namespace hybrid_astar
 {

@@ -3,7 +3,7 @@
 #include <vector>
 #include "state.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     class StateSpace
@@ -25,4 +25,4 @@ namespace steering_lite
         static State integrate_ode_step(const State& state, const Control& control, double integration_step);
     };
 
-} // namespace steering_lite
+} // namespace dubins_rs

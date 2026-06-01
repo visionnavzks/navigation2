@@ -4,8 +4,8 @@
 #include <utility>
 #include <vector>
 #include <memory>
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/types.hpp"
 
 namespace hybrid_astar
 {

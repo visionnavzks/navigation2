@@ -10,7 +10,7 @@
 #include "steering_functions_lite/reeds_shepp_state_space.h"
 #include "steering_functions_lite/state_space.h"
 
-using namespace steering_lite;
+using namespace dubins_rs;
 
 static int passed = 0;
 static int failed = 0;

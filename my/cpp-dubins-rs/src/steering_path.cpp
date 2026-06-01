@@ -4,7 +4,7 @@
 
 #include <cassert>
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     SteeringPath::SteeringPath(PathType path_type, double kappa_max, double discretization)
@@ -78,4 +78,4 @@ namespace steering_lite
         return planner_->get_all_paths(start, goal);
     }
 
-} // namespace steering_lite
+} // namespace dubins_rs

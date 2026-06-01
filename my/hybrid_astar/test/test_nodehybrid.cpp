@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "my/hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
 
 using namespace hybrid_astar;
 

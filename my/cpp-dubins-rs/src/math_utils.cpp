@@ -1,6 +1,6 @@
 #include "steering_functions_lite/math_utils.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     double sgn(double x)
@@ -202,4 +202,4 @@ namespace steering_lite
         y_f = y_i + direction * length * std::sin(theta);
     }
 
-} // namespace steering_lite
+} // namespace dubins_rs

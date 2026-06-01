@@ -5,7 +5,7 @@
 #include <limits>
 #include <chrono>
 
-#include "my/hybrid_astar/smac_planner_hybrid.hpp"
+#include "hybrid_astar/smac_planner_hybrid.hpp"
 
 // #define BENCHMARK_TESTING
 

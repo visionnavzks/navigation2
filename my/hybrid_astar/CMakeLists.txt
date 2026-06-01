@@ -5,10 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-find_package(nlohmann_json REQUIRED)
-find_package(Eigen3 REQUIRED)
-
-# ── steering_functions_lite (replaces OMPL Dubins / Reeds-Shepp) ──────
+# ── steering_functions_lite (Dubins / Reeds-Shepp, replaces OMPL) ────
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../cpp-dubins-rs
                  ${CMAKE_CURRENT_BINARY_DIR}/steering_functions_lite)
 
@@ -33,8 +30,6 @@ target_include_directories(hybrid_astar
 target_link_libraries(hybrid_astar
   PUBLIC
     steering_functions_lite
-    nlohmann_json::nlohmann_json
-    Eigen3::Eigen
 )
 
 # Planner plugin

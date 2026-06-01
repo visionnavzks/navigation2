@@ -3,7 +3,7 @@
 #include <vector>
 #include "state_space.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     enum class DubinsDirectionMode
@@ -54,4 +54,4 @@ namespace steering_lite
         DubinsDirectionMode direction_mode_;
     };
 
-} // namespace steering_lite
+} // namespace dubins_rs

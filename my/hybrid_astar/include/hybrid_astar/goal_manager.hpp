@@ -6,9 +6,9 @@
 #include <vector>
 #include <functional>
 
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/node_basic.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/node_basic.hpp"
 
 namespace hybrid_astar
 {

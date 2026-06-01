@@ -3,7 +3,7 @@
 #include <cmath>
 #include <utility>
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     constexpr double HALF_PI = 1.5707963267948966192;
@@ -33,4 +33,4 @@ namespace steering_lite
                               double direction, double length,
                               double& x_f, double& y_f);
 
-} // namespace steering_lite
+} // namespace dubins_rs

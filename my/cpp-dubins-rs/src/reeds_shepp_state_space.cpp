@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     namespace
@@ -476,4 +476,4 @@ namespace steering_lite
         return shortest_rs_path(x, y, phi).length() / kappa_;
     }
 
-} // namespace steering_lite
+} // namespace dubins_rs

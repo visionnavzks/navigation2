@@ -7,12 +7,12 @@
 #include <functional>
 #include <mutex>
 
-#include "my/hybrid_astar/a_star.hpp"
-#include "my/hybrid_astar/smoother.hpp"
-#include "my/hybrid_astar/utils.hpp"
-#include "my/hybrid_astar/costmap_downsampler.hpp"
-#include "my/hybrid_astar/collision_checker.hpp"
-#include "my/hybrid_astar/types.hpp"
+#include "hybrid_astar/a_star.hpp"
+#include "hybrid_astar/smoother.hpp"
+#include "hybrid_astar/utils.hpp"
+#include "hybrid_astar/costmap_downsampler.hpp"
+#include "hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/types.hpp"
 
 namespace hybrid_astar
 {

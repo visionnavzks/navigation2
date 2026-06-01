@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "my/hybrid_astar/smoother.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/smoother.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
 
 using namespace hybrid_astar;
 

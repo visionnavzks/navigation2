@@ -1,4 +1,4 @@
-#include "my/hybrid_astar/costmap_downsampler.hpp"
+#include "hybrid_astar/costmap_downsampler.hpp"
 
 #include <algorithm>
 

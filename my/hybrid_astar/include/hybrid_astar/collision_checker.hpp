@@ -5,9 +5,9 @@
 #include <vector>
 #include <cmath>
 
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
-#include "my/hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/types.hpp"
 
 namespace hybrid_astar
 {

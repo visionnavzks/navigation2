@@ -3,10 +3,10 @@
 
 #include <vector>
 
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {

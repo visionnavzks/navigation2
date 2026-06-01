@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
-#include "my/hybrid_astar/a_star.hpp"
-#include "my/hybrid_astar/collision_checker.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/a_star.hpp"
+#include "hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/constants.hpp"
 
 using namespace hybrid_astar;
 

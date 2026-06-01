@@ -3,7 +3,7 @@
 #include <vector>
 #include "state_space.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     class ReedsSheppStateSpace : public StateSpace
@@ -48,4 +48,4 @@ namespace steering_lite
         double kappa_inv_;
     };
 
-} // namespace steering_lite
+} // namespace dubins_rs

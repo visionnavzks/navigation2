@@ -1,9 +1,9 @@
 #include <cmath>
 #include <gtest/gtest.h>
-#include "my/hybrid_astar/distance_heuristic.hpp"
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/costmap_2d.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/distance_heuristic.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
 
 using namespace hybrid_astar;
 

@@ -5,8 +5,8 @@
 #include <string>
 #include <cmath>
 
-#include "my/hybrid_astar/costmap_2d.hpp"
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
 {

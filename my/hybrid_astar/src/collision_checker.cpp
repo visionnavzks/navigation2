@@ -1,4 +1,4 @@
-#include "my/hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/collision_checker.hpp"
 
 namespace hybrid_astar
 {

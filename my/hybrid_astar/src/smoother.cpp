@@ -4,7 +4,7 @@
 #include <vector>
 #include <cmath>
 
-#include "my/hybrid_astar/smoother.hpp"
+#include "hybrid_astar/smoother.hpp"
 
 #define SMAC_DEBUG(fmt, ...) fprintf(stderr, "[hybrid_astar] " fmt "\n", ##__VA_ARGS__)
 

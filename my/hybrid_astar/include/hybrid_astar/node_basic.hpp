@@ -1,10 +1,10 @@
 #ifndef HYBRID_ASTAR__NODE_BASIC_HPP_
 #define HYBRID_ASTAR__NODE_BASIC_HPP_
 
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/collision_checker.hpp"
 
 namespace hybrid_astar
 {

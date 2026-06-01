@@ -6,12 +6,12 @@
 #include <utility>
 #include <vector>
 
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
-#include "my/hybrid_astar/collision_checker.hpp"
-#include "my/hybrid_astar/obstacle_heuristic.hpp"
-#include "my/hybrid_astar/distance_heuristic.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/obstacle_heuristic.hpp"
+#include "hybrid_astar/distance_heuristic.hpp"
 
 namespace hybrid_astar
 {

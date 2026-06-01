@@ -3,7 +3,7 @@
 #include "steering_functions_lite/state_space.h"
 #include "steering_functions_lite/math_utils.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     State StateSpace::integrate_ode_step(const State& state, const Control& control, double integration_step)
@@ -133,4 +133,4 @@ namespace steering_lite
         return all_paths;
     }
 
-} // namespace steering_lite
+} // namespace dubins_rs

@@ -6,10 +6,10 @@
 #include <memory>
 #include <vector>
 
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {
@@ -95,7 +95,7 @@ public:
     const NodePtr & node, const NodePtr & goal,
     const AnalyticExpansionNodes & expanded_nodes);
 
-  int countDirectionChanges(const std::vector<steering_lite::Control> & controls);
+  int countDirectionChanges(const std::vector<dubins_rs::Control> & controls);
 
 protected:
   MotionModel _motion_model;

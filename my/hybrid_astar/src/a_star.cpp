@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-#include "my/hybrid_astar/a_star.hpp"
+#include "hybrid_astar/a_star.hpp"
 using namespace std::chrono;  // NOLINT
 
 namespace hybrid_astar

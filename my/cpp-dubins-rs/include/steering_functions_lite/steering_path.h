@@ -6,7 +6,7 @@
 #include "state_space.h"
 #include "dubins_state_space.h"
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     enum class PathType
@@ -46,4 +46,4 @@ namespace steering_lite
         std::unique_ptr<StateSpace> planner_;
     };
 
-} // namespace steering_lite
+} // namespace dubins_rs

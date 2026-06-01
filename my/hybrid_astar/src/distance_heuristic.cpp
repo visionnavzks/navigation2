@@ -1,6 +1,6 @@
-#include "my/hybrid_astar/distance_heuristic.hpp"
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/distance_heuristic.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
 
 namespace hybrid_astar
 {

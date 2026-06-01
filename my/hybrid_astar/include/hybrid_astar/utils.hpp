@@ -6,8 +6,8 @@
 #include <string>
 #include <cmath>
 
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
 {

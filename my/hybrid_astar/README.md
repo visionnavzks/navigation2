@@ -538,7 +538,7 @@ chmod +x build.sh
 ./build.sh
 ```
 
-依赖：`ompl`、`nlohmann_json`、`Eigen3`、`GTest`
+依赖：`steering_functions_lite`（`../cpp-dubins-rs` 子目录）、`GTest`（仅测试）
 
 ---
 

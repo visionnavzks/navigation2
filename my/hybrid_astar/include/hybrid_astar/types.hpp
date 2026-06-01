@@ -7,7 +7,7 @@
 #include <memory>
 #include <cmath>
 
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
 {

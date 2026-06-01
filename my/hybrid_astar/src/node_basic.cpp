@@ -1,4 +1,4 @@
-#include "my/hybrid_astar/node_basic.hpp"
+#include "hybrid_astar/node_basic.hpp"
 
 namespace hybrid_astar
 {

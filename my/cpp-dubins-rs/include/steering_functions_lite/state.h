@@ -4,7 +4,7 @@
 #include <ostream>
 #include <string>
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     struct State
@@ -70,4 +70,4 @@ namespace steering_lite
         }
     };
 
-} // namespace steering_lite
+} // namespace dubins_rs

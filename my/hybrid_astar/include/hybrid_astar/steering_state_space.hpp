@@ -9,7 +9,7 @@
 #include "steering_functions_lite/reeds_shepp_state_space.h"
 #include "steering_functions_lite/state.h"
 
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
 {
@@ -33,14 +33,14 @@ struct SteeringState
     return {state[0], state[1], state[2]};
   }
 
-  /// Convert to the steering_lite::State used by the library.
-  steering_lite::State toSteeringLite() const
+  /// Convert to the dubins_rs::State used by the library.
+  dubins_rs::State toSteeringLite() const
   {
-    return steering_lite::State(state[0], state[1], state[2], 0.0, 0.0);
+    return dubins_rs::State(state[0], state[1], state[2], 0.0, 0.0);
   }
 };
 
-/// Wrapper around steering_lite (Dubins / Reeds-Shepp) that exposes
+/// Wrapper around dubins_rs (Dubins / Reeds-Shepp) that exposes
 /// distance() and interpolate() with the same signatures OMPL used,
 /// so the rest of hybrid_astar needs only minimal adjustments.
 class SteeringStateSpace
@@ -52,10 +52,10 @@ public:
     const double kappa = 1.0 / turning_radius;
     const double disc = 0.05;  // fine enough for interpolation
     if (model == MotionModel::DUBIN) {
-      space_ = std::make_unique<steering_lite::DubinsStateSpace>(
-        kappa, disc, steering_lite::DubinsDirectionMode::ForwardOrReverse);
+      space_ = std::make_unique<dubins_rs::DubinsStateSpace>(
+        kappa, disc, dubins_rs::DubinsDirectionMode::ForwardOrReverse);
     } else if (model == MotionModel::REEDS_SHEPP) {
-      space_ = std::make_unique<steering_lite::ReedsSheppStateSpace>(kappa, disc);
+      space_ = std::make_unique<dubins_rs::ReedsSheppStateSpace>(kappa, disc);
     }
   }
 
@@ -68,7 +68,7 @@ public:
     // Reeds-Shepp has a dedicated fast distance method
     if (model_ == MotionModel::REEDS_SHEPP) {
       const auto * rs =
-        dynamic_cast<const steering_lite::ReedsSheppStateSpace *>(space_.get());
+        dynamic_cast<const dubins_rs::ReedsSheppStateSpace *>(space_.get());
       if (rs) {
         return rs->get_distance(sl_s1, sl_s2);
       }
@@ -101,7 +101,7 @@ public:
   /// Return the shortest-path control sequence (each control has a signed
   /// delta_s whose sign indicates forward/backward motion).  Useful for
   /// analysing direction changes.
-  std::vector<steering_lite::Control> getControls(
+  std::vector<dubins_rs::Control> getControls(
     const SteeringState & s1, const SteeringState & s2) const
   {
     return space_->get_controls(s1.toSteeringLite(), s2.toSteeringLite());
@@ -113,7 +113,7 @@ public:
 private:
   MotionModel model_;
   double turning_radius_;
-  std::unique_ptr<steering_lite::StateSpace> space_;
+  std::unique_ptr<dubins_rs::StateSpace> space_;
 };
 
 using SteeringStateSpacePtr = std::shared_ptr<SteeringStateSpace>;

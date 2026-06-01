@@ -8,15 +8,15 @@
 #include <utility>
 #include <vector>
 
-#include "my/hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/costmap_2d.hpp"
 
 #include "robin_hood.h"
-#include "my/hybrid_astar/analytic_expansion.hpp"
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/node_basic.hpp"
-#include "my/hybrid_astar/goal_manager.hpp"
-#include "my/hybrid_astar/types.hpp"
-#include "my/hybrid_astar/constants.hpp"
+#include "hybrid_astar/analytic_expansion.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/node_basic.hpp"
+#include "hybrid_astar/goal_manager.hpp"
+#include "hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
 
 namespace hybrid_astar
 {

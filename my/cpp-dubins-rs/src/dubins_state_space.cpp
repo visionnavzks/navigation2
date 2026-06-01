@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace steering_lite
+namespace dubins_rs
 {
 
     namespace
@@ -317,4 +317,4 @@ namespace steering_lite
         return discretization_;
     }
 
-} // namespace steering_lite
+} // namespace dubins_rs

@@ -2,7 +2,7 @@
 #include <vector>
 #include <memory>
 
-#include "my/hybrid_astar/analytic_expansion.hpp"
+#include "hybrid_astar/analytic_expansion.hpp"
 
 namespace hybrid_astar
 {
@@ -120,7 +120,7 @@ typename AnalyticExpansion<NodeT>::NodePtr AnalyticExpansion<NodeT>::tryAnalytic
 
 template<typename NodeT>
 int AnalyticExpansion<NodeT>::countDirectionChanges(
-  const std::vector<steering_lite::Control> & controls)
+  const std::vector<dubins_rs::Control> & controls)
 {
   int changes = 0;
   int last_dir = 0;

@@ -7,8 +7,8 @@
 #include <limits>
 #include <utility>
 
-#include "my/hybrid_astar/node_hybrid.hpp"
-#include "my/hybrid_astar/steering_state_space.hpp"
+#include "hybrid_astar/node_hybrid.hpp"
+#include "hybrid_astar/steering_state_space.hpp"
 
 using namespace std::chrono;  // NOLINT
 

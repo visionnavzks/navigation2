@@ -1,8 +1,8 @@
 #ifndef HYBRID_ASTAR__DISTANCE_HEURISTIC_HPP_
 #define HYBRID_ASTAR__DISTANCE_HEURISTIC_HPP_
 
-#include "my/hybrid_astar/constants.hpp"
-#include "my/hybrid_astar/types.hpp"
+#include "hybrid_astar/constants.hpp"
+#include "hybrid_astar/types.hpp"
 
 namespace hybrid_astar
 {
