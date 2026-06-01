@@ -15,7 +15,9 @@ class NodeBasic
 public:
   explicit NodeBasic(const uint64_t new_index)
   : graph_node_ptr(nullptr),
-    index(new_index)
+    index(new_index),
+    motion_index(0u),
+    turn_dir(TurnDirection::UNKNOWN)
   {
   }
 

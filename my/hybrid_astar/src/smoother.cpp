@@ -131,7 +131,7 @@ bool Smoother::smoothImpl(
 
   int its = 0;
   double change = tolerance_;
-  const unsigned int & path_size = path.size();
+  const size_t path_size = path.size();
   double x_i, y_i, y_m1, y_ip1, y_i_org;
   unsigned int mx, my;
 
@@ -160,7 +160,7 @@ bool Smoother::smoothImpl(
       return false;
     }
 
-    for (unsigned int i = 1; i != path_size - 1; i++) {
+    for (size_t i = 1; i != path_size - 1; i++) {
       for (unsigned int j = 0; j != 2; j++) {
         x_i = getFieldByDim(path[i], j);
         y_i = getFieldByDim(new_path[i], j);
@@ -197,7 +197,10 @@ bool Smoother::smoothImpl(
 
   if (do_refinement_ && refinement_ctr_ < refinement_num_) {
     refinement_ctr_++;
-    if (!smoothImpl(new_path, reversing_segment, costmap, max_time)) {
+    const steady_clock::time_point now = steady_clock::now();
+    const double remaining = std::max(
+      0.0, max_time - duration_cast<duration<double>>(now - a).count());
+    if (!smoothImpl(new_path, reversing_segment, costmap, remaining)) {
       return false;
     }
   }
@@ -283,8 +286,9 @@ void Smoother::findBoundaryExpansion(
     y = reals[1];
 
     unsigned int mx, my;
-    costmap->worldToMap(x, y, mx, my);
-    if (static_cast<float>(costmap->getCost(mx, my)) >= INSCRIBED_COST) {
+    if (!costmap->worldToMap(x, y, mx, my) ||
+      static_cast<float>(costmap->getCost(mx, my)) >= INSCRIBED_COST)
+    {
       expansion.in_collision = true;
     }
 

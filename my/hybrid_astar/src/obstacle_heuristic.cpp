@@ -6,8 +6,8 @@ namespace hybrid_astar
 
 void ObstacleHeuristic::resetObstacleHeuristic(
   Costmap2D * costmap,
-  const unsigned int & start_x, const unsigned int & start_y,
-  const unsigned int & goal_x, const unsigned int & goal_y,
+  const float & start_x, const float & start_y,
+  const float & goal_x, const float & goal_y,
   const bool downsample_obstacle_heuristic)
 {
   this->costmap = costmap;
@@ -27,24 +27,36 @@ void ObstacleHeuristic::resetObstacleHeuristic(
       obstacle_heuristic_lookup_table_.begin(),
       obstacle_heuristic_lookup_table_.end(), 0.0f);
   } else {
-    unsigned int obstacle_size = obstacle_heuristic_lookup_table_.size();
     obstacle_heuristic_lookup_table_.resize(size, 0.0f);
-    std::fill_n(
-      obstacle_heuristic_lookup_table_.begin(), obstacle_size, 0.0f);
+    std::fill(
+      obstacle_heuristic_lookup_table_.begin(),
+      obstacle_heuristic_lookup_table_.end(), 0.0f);
   }
 
   obstacle_heuristic_queue_.clear();
   obstacle_heuristic_queue_.reserve(size);
 
+  const float goal_x_floor = std::max(0.0f, std::floor(goal_x));
+  const float goal_y_floor = std::max(0.0f, std::floor(goal_y));
+  unsigned int gx = static_cast<unsigned int>(goal_x_floor);
+  unsigned int gy = static_cast<unsigned int>(goal_y_floor);
+  if (gx >= cached_size_x_) {gx = cached_size_x_ - 1u;}
+  if (gy >= cached_size_y_) {gy = cached_size_y_ - 1u;}
   unsigned int goal_index;
   if (downsample_obstacle_heuristic) {
-    goal_index = (goal_y / 2) * cached_size_x_ + (goal_x / 2);
+    goal_index = (gy / 2u) * cached_size_x_ + (gx / 2u);
   } else {
-    goal_index = goal_y * cached_size_x_ + goal_x;
+    goal_index = gy * cached_size_x_ + gx;
   }
 
+  const float start_x_floor = std::floor(start_x);
+  const float start_y_floor = std::floor(start_y);
   obstacle_heuristic_queue_.emplace_back(
-    distanceHeuristic2D(goal_index, cached_size_x_, start_x, start_y), goal_index);
+    distanceHeuristic2D(
+      goal_index, cached_size_x_,
+      static_cast<unsigned int>(start_x_floor),
+      static_cast<unsigned int>(start_y_floor)),
+    goal_index);
 
   obstacle_heuristic_lookup_table_[goal_index] = -0.00001f;
 }
@@ -58,14 +70,18 @@ float ObstacleHeuristic::getObstacleHeuristic(
   const unsigned int size_x = cached_size_x_;
   const unsigned int size_y = cached_size_y_;
 
-  unsigned int start_y, start_x;
+  float start_x_f, start_y_f;
   if (downsample_obstacle_heuristic) {
-    start_y = floor(node_coords.y / 2.0f);
-    start_x = floor(node_coords.x / 2.0f);
+    start_y_f = std::floor(node_coords.y / 2.0f);
+    start_x_f = std::floor(node_coords.x / 2.0f);
   } else {
-    start_y = floor(node_coords.y);
-    start_x = floor(node_coords.x);
+    start_y_f = std::floor(node_coords.y);
+    start_x_f = std::floor(node_coords.x);
   }
+  if (start_x_f < 0.0f) {start_x_f = 0.0f;}
+  if (start_y_f < 0.0f) {start_y_f = 0.0f;}
+  const unsigned int start_x = static_cast<unsigned int>(start_x_f);
+  const unsigned int start_y = static_cast<unsigned int>(start_y_f);
 
   const unsigned int start_index = start_y * size_x + start_x;
   const float & requested_node_cost = obstacle_heuristic_lookup_table_[start_index];
@@ -112,6 +128,14 @@ float ObstacleHeuristic::getObstacleHeuristic(
       }
       new_idx = static_cast<unsigned int>(new_idx_int);
 
+      const int new_my = static_cast<int>(new_idx / size_x);
+      const int new_mx_signed = static_cast<int>(new_idx - static_cast<unsigned int>(new_my) * size_x);
+      if (new_mx_signed < 0 || static_cast<unsigned int>(new_mx_signed) >= size_x ||
+        new_my < 0 || static_cast<unsigned int>(new_my) >= size_y)
+      {
+        continue;
+      }
+
       {
         if (downsample_obstacle_heuristic) {
           unsigned int y_offset = (new_idx / size_x) * 2;
@@ -141,13 +165,16 @@ float ObstacleHeuristic::getObstacleHeuristic(
           continue;
         }
 
-        my = new_idx / size_x;
-        mx = new_idx - (my * size_x);
+        my = static_cast<unsigned int>(new_my);
+        mx = static_cast<unsigned int>(new_mx_signed);
 
-        if (mx >= size_x - 3 || mx <= 3) {
+        if (size_x <= 3u || size_y <= 3u) {
           continue;
         }
-        if (my >= size_y - 3 || my <= 3) {
+        if (mx <= 3u || mx >= size_x - 3u) {
+          continue;
+        }
+        if (my <= 3u || my >= size_y - 3u) {
           continue;
         }
 

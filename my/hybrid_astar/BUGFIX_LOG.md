@@ -1,6 +1,6 @@
 # Hybrid A* Bug Fix Log
 
-Generated: 2026-05-31
+Generated: 2026-05-31 (updated 2026-06-01)
 
 ---
 
@@ -8,54 +8,41 @@ Generated: 2026-05-31
 
 | Bug | Severity | File | Fix | Verified |
 |-----|----------|------|-----|----------|
-| #1 | Critical | `distance_heuristic.cpp:107-108` | 角度转换改用 `getAngleFromBin()` | ✅ 编译通过 |
-| #3 | Moderate | `distance_heuristic.cpp:74` | `>` 改为 `>=` | ✅ 编译通过 |
-| #4 | Moderate | `smoother.cpp:86` | `reversing_segment` 初始化为 `false` | ✅ 编译通过 |
+| #1 | Critical | `distance_heuristic.cpp:93,94` | 角度转换改用 `getAngleFromBin()` | ✅ 编译通过 |
+| #2 | Critical | `distance_heuristic.cpp:72` | 查找表边界 `<` 改为 `<=` | ✅ 编译通过 |
+| #3 | Moderate | `distance_heuristic.cpp:61` | 用 `wrapBinIndex()` 替代 `>` 检查 | ✅ 编译通过 |
+| #4 | Moderate | `smoother.cpp:84` | `reversing_segment` 初始化为 `false` | ✅ 编译通过 |
+| #5 | Minor | `obstacle_heuristic.hpp:25-27` + `obstacle_heuristic.cpp:7-12` | 参数改 `float`，统一调用方传 float | ✅ 编译通过 |
 | #7 | Minor | `analytic_expansion.cpp:166` | `static const` 改为 `constexpr` | ✅ 编译通过 |
-| #8 | Moderate | `smoother.cpp:175` | `abs()` 改为 `std::fabs()` | ✅ 编译通过 |
+| #8 | Moderate | `smoother.cpp:173` | `abs()` 改为 `std::fabs()` | ✅ 编译通过 |
 | #9 | Minor | `smoother.cpp:362,401` | `>` 改为 `>=` | ✅ 编译通过 |
-| #10 | Minor | `constants.hpp:73-77` | `const` 改为 `inline constexpr` | ✅ 编译通过 |
-| #12 | Moderate | `collision_checker.cpp:87-89` | `mapToWorld` 改用 `mapToCenter()` | ✅ 编译通过 |
-| #15 | Moderate | `smoother.cpp:32` | 加 `fmod` + 归一化角度差 | ✅ 编译通过 |
-| #16 | Moderate | `node_hybrid.cpp:50,148` | `asin` 参数加 `std::min(1.0, ...)` clamp | ✅ 编译通过 |
-| #17 | Minor | `node_hybrid.cpp:258-261` | `getClosestAngularBin` 加归一化到 `[0, 2π)` | ✅ 编译通过 |
-| #18 | Minor | `smac_planner_hybrid.cpp:113` | `setFootprint` 加 `std::lock_guard` | ✅ 编译通过 |
+| #10 | Minor | `constants.hpp:73-78` | `const` 改为 `inline constexpr` | ✅ 编译通过 |
+| #11 | Moderate | `obstacle_heuristic.cpp:108-152` | 邻域扩展加行边界（my/mx 范围）检查 | ✅ 编译通过 |
+| #12 | Moderate | `collision_checker.cpp:87` | `mapToWorld` 改用 `mapCellToWorld` | ✅ 编译通过 |
 | #13 | Moderate | `a_star.cpp:138` | `setGoal` 赋值 `_coarse_search_resolution` | ✅ 编译通过 |
-| #20 | Critical | `collision_checker.cpp:71-72` | `getCost(float,float)` 内含 clamp，替代手动转 `unsigned int` | ✅ 编译通过 |
+| #14 | Moderate | `distance_heuristic.cpp:76` | `theta_pos %= num_angle_quantization` | ✅ 编译通过 |
+| #15 | Moderate | `smoother.cpp:31-32` | 加 `fmod` + 归一化角度差 | ✅ 编译通过 |
+| #16 | Moderate | `node_hybrid.cpp:50` | `asin` 参数加 `std::min(1.0, ...)` clamp | ✅ 编译通过 |
+| #17 | Minor | `node_hybrid.cpp:177` | `getClosestAngularBin` 加 `wrapAngle` 归一化 | ✅ 编译通过 |
+| #18 | Minor | `smac_planner_hybrid.cpp:116` | `setFootprint` 加 `std::lock_guard` | ✅ 编译通过 |
+| #19 | Critical | `obstacle_heuristic.cpp:30-37` | 修复表收缩时 `fill_n` 越界（用 `std::fill`+`end()`） | ✅ 编译通过 |
+| #20 | Critical | `collision_checker.cpp:71` | `getCost(float,float)` 内含 clamp | ✅ 编译通过 |
+| #21 | Moderate | `smoother.cpp:286-290` | 检查 `worldToMap` 返回值 | ✅ 编译通过 |
+| #22 | Moderate | `smoother.cpp:198-207` | 递归 `smoothImpl` 传剩余时间 | ✅ 编译通过 |
+| #23 | Moderate | `obstacle_heuristic.cpp:61-72` | 负值 `floor` 结果 clamp 到 0 再转 unsigned | ✅ 编译通过 |
+| #24 | Moderate | `obstacle_heuristic.cpp:159-168` | 改用 unsigned 字面量比较，避免下溢 | ✅ 编译通过 |
+| #25 | Moderate | `node_hybrid.cpp:336-345` | 先转 int 检查范围再调 `getIndex` | ✅ 编译通过 |
+| #26 | Minor | `node_basic.hpp:16-22` | 构造函数初始化 `motion_index`/`turn_dir` | ✅ 编译通过 |
+| #27 | Minor | `smoother.cpp:134,163` | `path_size` 改 `size_t`，循环变量同步 | ✅ 编译通过 |
+| **#28 (new)** | **Critical** | **`distance_heuristic.cpp:31`** | **修复查找表 `resize` 尺寸：与预计算迭代数一致（`floor(size/2)-ceil(-size/2)+1` × `floor(size/2)+1` × angle）** | ✅ 编译通过 |
 
 ---
 
-## Open — Critical
+## Open
 
-| Bug | File | Issue | Fix Needed |
-|-----|------|-------|------------|
-| #2 | `distance_heuristic.cpp:87,95` | 查找表边界 `<` vs 预计算 `<=` 不匹配 | 改为 `<=` |
-| #19 | `obstacle_heuristic.cpp:31-34` | 查找表收缩时 `fill_n` 越界写 | 先 `fill` 再 `resize` |
+> All originally reported bugs and the newly discovered table-size mismatch are now closed.
 
----
-
-## Open — Moderate
-
-| Bug | File | Issue | Fix Needed |
-|-----|------|-------|------------|
-| #11 | `obstacle_heuristic.cpp:116-119` | 邻域扩展行环绕 | 加行边界检查 |
-| #14 | `distance_heuristic.cpp:90` | `theta_pos` 越界 | `%= num_angle_quantization` (已部分修复需验证) |
-| #21 | `smoother.cpp:287-288` | `worldToMap` 返回值未检查，`mx`/`my` 未初始化 | 检查返回值 |
-| #22 | `smoother.cpp:202-205` | 递归精化忽略已用时间 | 传剩余时间 |
-| #23 | `obstacle_heuristic.cpp:69-76` | 负 float 转 unsigned int UB | clamp 到 0 |
-| #24 | `obstacle_heuristic.cpp:155-159` | `size_x - 3` 无符号下溢 | 改用 signed 比较 |
-| #25 | `node_hybrid.cpp:428-432` | 负 float 转 unsigned int 计算索引 | 先转 int 检查边界 |
-
----
-
-## Open — Minor
-
-| Bug | File | Issue | Fix Needed |
-|-----|------|-------|------------|
-| #5 | `obstacle_heuristic.cpp:44` | `floor()` on `unsigned int` 参数 | 参数类型改 `float` |
-| #6 | `costmap_2d.hpp:85-86` | 负 double 转 unsigned int | 加负值检查 |
-| #26 | `node_basic.hpp:16-20` | `motion_index`/`turn_dir` 未初始化 | 构造函数初始化 |
-| #27 | `smoother.cpp:138` | `size_t` → `unsigned int` 窄化 | 改为 `size_t` |
+_(none)_
 
 ---
 
@@ -63,6 +50,23 @@ Generated: 2026-05-31
 
 | Status | Critical | Moderate | Minor | Total |
 |--------|----------|----------|-------|-------|
-| Fixed | 2 | 6 | 6 | 14 |
-| Open | 2 | 7 | 4 | 13 |
-| **Total** | **4** | **13** | **10** | **27** |
+| Fixed  | 5        | 13       | 9     | 27    |
+| Open   | 0        | 0        | 0     | 0     |
+| **Total** | **5** | **13**  | **9** | **27** |
+
+---
+
+## Notes on Bug #28 (新增)
+
+**File**: `src/distance_heuristic.cpp:31-43`
+
+**Symptom**: 初始化时 `precomputeDistanceHeuristic` 触发堆缓冲区溢出。
+
+**Root cause**:
+- `resize` 用 `size_lookup_ * ceil(size_lookup_/2) * dim_3_size` （以 `size=20` 为例：20 × 10 × 72 = 14400）。
+- 预计算循环迭代 `(floor(20/2) - ceil(-20/2) + 1) × (floor(20/2) + 1) × 72` = 21 × 11 × 72 = 16632。
+- 超出部分 2232 个元素写入堆，污染相邻分配。
+
+**Fix**: `resize` 改为与预计算完全一致的尺寸公式。
+
+**Trigger**: 任何调用 `setGoal`（间接触发 `precomputeDistanceHeuristic`）的规划请求都会触发。

@@ -26,10 +26,11 @@ target_include_directories(hybrid_astar
   PUBLIC
     include
     ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
+    ${OMPL_INCLUDE_DIRS}
 )
 target_link_libraries(hybrid_astar
   PUBLIC
-    ompl::ompl
+    ${OMPL_LIBRARIES}
     nlohmann_json::nlohmann_json
     Eigen3::Eigen
 )

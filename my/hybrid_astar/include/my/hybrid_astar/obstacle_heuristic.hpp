@@ -22,8 +22,8 @@ public:
 
   void resetObstacleHeuristic(
     Costmap2D * costmap,
-    const unsigned int & start_x, const unsigned int & start_y,
-    const unsigned int & goal_x, const unsigned int & goal_y,
+    const float & start_x, const float & start_y,
+    const float & goal_x, const float & goal_y,
     const bool downsample_obstacle_heuristic);
 
   float getObstacleHeuristic(

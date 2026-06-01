@@ -60,6 +60,7 @@ struct HybridMotionTable
 
   void initCommon(
     const unsigned int & size_x_in,
+    const unsigned int & size_y_in,
     const unsigned int & num_angle_quantization_in,
     SearchInfo & search_info,
     MotionModel model);
@@ -67,6 +68,7 @@ struct HybridMotionTable
   MotionModel motion_model = MotionModel::UNKNOWN;
   MotionPoses projections;
   unsigned int size_x;
+  unsigned int size_y;
   unsigned int num_angle_quantization;
   float num_angle_quantization_float;
   float min_turning_radius;

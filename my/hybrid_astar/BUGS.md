@@ -1,6 +1,6 @@
 # Hybrid A* Bug Report
 
-Generated: 2026-05-31
+Generated: 2026-05-31 (updated 2026-06-01)
 
 ---
 
@@ -434,11 +434,34 @@ const size_t path_size = path.size();
 
 ---
 
+## Bug 28 (Critical): Distance heuristic lookup table undersized for precompute loop
+
+**File**: `src/distance_heuristic.cpp:31-43`
+
+The `resize` call allocates `size_lookup_ * ceil(size_lookup_/2) * dim_3_size` entries, but the precompute loop iterates over `floor(size_lookup_/2) - ceil(-size_lookup_/2) + 1` x-positions (e.g., 21 for `size_lookup_=20`) and `floor(size_lookup_/2) + 1` y-positions (e.g., 11). For `size_lookup_=20`, the table holds 20·10·72=14400 entries but the loop writes 21·11·72=16632 — a heap buffer overflow of 2232 elements on every planner initialization.
+
+**Trigger**: Any call that triggers `precomputeDistanceHeuristic` (i.e. any `setGoal`).
+
+**Fix**: Resize with the same formula the precompute loop uses:
+```cpp
+dist_heuristic_lookup_table_.resize(
+  (static_cast<int>(floor(size_lookup_/2)) -
+   static_cast<int>(ceil(-size_lookup_/2)) + 1) *
+  (static_cast<int>(floor(size_lookup_/2)) + 1) * dim_3_size_int);
+```
+
+---
+
 ## Summary
 
 | Severity | Count | Bugs |
 |----------|-------|------|
-| Critical | 4 | #1, #2, #19, #20 |
+| Critical | 5 | #1, #2, #19, #20, #28 |
 | Moderate | 13 | #3, #4, #8, #11, #12, #13, #14, #15, #16, #21, #22, #23, #24, #25 |
-| Minor | 10 | #5, #6, #7, #9, #10, #17, #18, #26, #27 |
-| **Total** | **27** | |
+| Minor | 9 | #5, #6, #7, #9, #10, #17, #18, #26, #27 |
+| **Total** | **27 (28 incl. new)** | |
+
+> Bug #6 was re-evaluated: the actual code (`costmap_2d.hpp:88-93`) already
+> guards against negative `map_x`/`map_y` before the unsigned cast, so it does
+> not exhibit the described behavior. Marked closed.
+> Bug #28 was discovered during re-verification; see BUGFIX_LOG.md.

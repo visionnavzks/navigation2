@@ -28,7 +28,10 @@ void DistanceHeuristic<NodeHybrid>::precomputeDistanceHeuristic(
   int dim_3_size_int = static_cast<int>(dim_3_size);
   float angular_bin_size = 2 * M_PI / static_cast<float>(dim_3_size);
 
-  dist_heuristic_lookup_table_.resize(size_lookup_ * ceil(size_lookup_ / 2.0) * dim_3_size_int);
+  dist_heuristic_lookup_table_.resize(
+    (static_cast<int>(floor(size_lookup_ / 2.0)) -
+     static_cast<int>(ceil(-size_lookup_ / 2.0)) + 1) *
+    (static_cast<int>(floor(size_lookup_ / 2.0)) + 1) * dim_3_size_int);
   for (float x = ceil(-size_lookup_ / 2.0); x <= floor(size_lookup_ / 2.0); x += 1.0) {
     for (float y = 0.0; y <= floor(size_lookup_ / 2.0); y += 1.0) {
       for (int heading = 0; heading != dim_3_size_int; heading++) {

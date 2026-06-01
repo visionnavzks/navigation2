@@ -20,11 +20,13 @@ namespace hybrid_astar
 
 void HybridMotionTable::initCommon(
   const unsigned int & size_x_in,
+  const unsigned int & size_y_in,
   const unsigned int & num_angle_quantization_in,
   SearchInfo & search_info,
   MotionModel model)
 {
   size_x = size_x_in;
+  size_y = size_y_in;
   change_penalty = search_info.change_penalty;
   non_straight_penalty = search_info.non_straight_penalty;
   cost_penalty = search_info.cost_penalty;
@@ -134,20 +136,20 @@ void HybridMotionTable::initCommon(
 
 void HybridMotionTable::initDubin(
   const unsigned int & size_x_in,
-  const unsigned int & /*size_y_in*/,
+  const unsigned int & size_y_in,
   const unsigned int & num_angle_quantization_in,
   SearchInfo & search_info)
 {
-  initCommon(size_x_in, num_angle_quantization_in, search_info, MotionModel::DUBIN);
+  initCommon(size_x_in, size_y_in, num_angle_quantization_in, search_info, MotionModel::DUBIN);
 }
 
 void HybridMotionTable::initReedsShepp(
   const unsigned int & size_x_in,
-  const unsigned int & /*size_y_in*/,
+  const unsigned int & size_y_in,
   const unsigned int & num_angle_quantization_in,
   SearchInfo & search_info)
 {
-  initCommon(size_x_in, num_angle_quantization_in, search_info, MotionModel::REEDS_SHEPP);
+  initCommon(size_x_in, size_y_in, num_angle_quantization_in, search_info, MotionModel::REEDS_SHEPP);
 }
 
 MotionPoses HybridMotionTable::getProjections(const NodeHybrid * node)
@@ -332,9 +334,17 @@ void NodeHybrid::getNeighbors(
   const MotionPoses & motion_projections = _ctx->motion_table.getProjections(this);
 
   for (unsigned int i = 0; i != motion_projections.size(); i++) {
+    const int px_signed = static_cast<int>(motion_projections[i]._x);
+    const int py_signed = static_cast<int>(motion_projections[i]._y);
+    if (px_signed < 0 || py_signed < 0 ||
+      static_cast<unsigned int>(px_signed) >= _ctx->motion_table.size_x ||
+      static_cast<unsigned int>(py_signed) >= _ctx->motion_table.size_y)
+    {
+      continue;
+    }
     index = NodeHybrid::getIndex(
-      static_cast<unsigned int>(motion_projections[i]._x),
-      static_cast<unsigned int>(motion_projections[i]._y),
+      static_cast<unsigned int>(px_signed),
+      static_cast<unsigned int>(py_signed),
       static_cast<unsigned int>(motion_projections[i]._theta),
       _ctx->motion_table.size_x, _ctx->motion_table.num_angle_quantization);
 
