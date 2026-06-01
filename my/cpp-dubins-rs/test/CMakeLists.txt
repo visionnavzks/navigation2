@@ -1,0 +1,4 @@
+add_executable(test_steering test_steering.cpp)
+target_link_libraries(test_steering PRIVATE steering_functions_lite)
+
+add_test(NAME test_steering COMMAND test_steering)
