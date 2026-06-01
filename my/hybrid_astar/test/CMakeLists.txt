@@ -16,6 +16,19 @@ function(add_hybrid_test TEST_NAME TEST_SOURCE)
   add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
 endfunction()
 
+function(add_hybrid_planner_test TEST_NAME TEST_SOURCE)
+  add_executable(${TEST_NAME} ${TEST_SOURCE})
+  target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  target_link_libraries(${TEST_NAME}
+    PRIVATE
+      hybrid_astar_planner
+      GTest::GTest
+      GTest::Main
+      Threads::Threads
+  )
+  add_test(NAME ${TEST_NAME} COMMAND ${TEST_NAME})
+endfunction()
+
 # Collision checker test
 add_hybrid_test(test_collision_checker test_collision_checker.cpp)
 
@@ -39,3 +52,7 @@ add_hybrid_test(test_obstacle_heuristic test_obstacle_heuristic.cpp)
 
 # Distance heuristic test
 add_hybrid_test(test_distance_heuristic test_distance_heuristic.cpp)
+
+# ESDF + capsule footprint test
+add_hybrid_test(test_esdf_collision test_esdf_collision.cpp)
+add_hybrid_planner_test(test_esdf_integration test_esdf_integration.cpp)

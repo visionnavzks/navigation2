@@ -24,6 +24,15 @@ void GridCollisionChecker::setFootprint(
   possible_collision_cost_ = static_cast<float>(possible_collision_cost);
   footprint_is_radius_ = radius;
 
+  // Legacy and ESDF paths are mutually exclusive. Switching to the legacy
+  // path must clear the ESDF configuration so the planner doesn't
+  // accidentally query an unconfigured holder.
+  use_esdf_footprint_ = false;
+  cost_check_points_.clear();
+  robot_radius_ = 0.0;
+  safe_distance_ = 0.0;
+  esdf_holder_ = nullptr;
+
   if (radius) {
     return;
   }
@@ -54,6 +63,27 @@ void GridCollisionChecker::setFootprint(
   }
 
   unoriented_footprint_ = footprint;
+}
+
+void GridCollisionChecker::setEsdfFootprint(
+  const std::vector<double> & cost_check_points,
+  double robot_radius,
+  double safe_distance,
+  EsdfHolder * esdf_holder)
+{
+  // Switching to the ESDF path must invalidate the legacy pre-rotated
+  // footprint, so callers can't accidentally read stale data through the
+  // legacy API.
+  oriented_footprints_.clear();
+  unoriented_footprint_.clear();
+  footprint_is_radius_ = false;
+  possible_collision_cost_ = -1.0f;
+
+  use_esdf_footprint_ = true;
+  cost_check_points_ = cost_check_points;
+  robot_radius_ = std::max(robot_radius, 0.0);
+  safe_distance_ = std::max(safe_distance, 0.0);
+  esdf_holder_ = esdf_holder;
 }
 
 bool GridCollisionChecker::inCollision(
@@ -136,6 +166,79 @@ float GridCollisionChecker::getCost() const
 bool GridCollisionChecker::outsideRange(const unsigned int & max, const float & value) const
 {
   return value < 0.0f || value >= static_cast<float>(max);
+}
+
+bool GridCollisionChecker::inCollisionEsdf(
+  double wx, double wy, double theta, bool traverse_unknown) const
+{
+  (void)traverse_unknown;  // ESDF is fully signed; the unknown-as-obstacle
+                            // behavior is handled at the costmap level by
+                            // pre-letting the costmap_2d layer mark unknowns
+                            // as lethal before ESDF construction.
+  if (!use_esdf_footprint_ || esdf_holder_ == nullptr || !esdf_holder_->valid()) {
+    return false;
+  }
+  const double min_clearance = getMinClearance(wx, wy, theta);
+  if (!std::isfinite(min_clearance)) {
+    return true;
+  }
+  return min_clearance < robot_radius_;
+}
+
+double GridCollisionChecker::getMinClearance(
+  double wx, double wy, double theta) const
+{
+  if (!use_esdf_footprint_ || esdf_holder_ == nullptr || !esdf_holder_->valid()) {
+    return std::numeric_limits<double>::infinity();
+  }
+  if (cost_check_points_.empty()) {
+    // No checkpoints: a single point at the robot center. If robot_radius is
+    // also zero this matches the original point-robot behavior.
+    return esdf_holder_->clearanceAtWorld(wx, wy);
+  }
+
+  const double cos_t = std::cos(theta);
+  const double sin_t = std::sin(theta);
+  double min_clearance = std::numeric_limits<double>::infinity();
+  for (size_t offset = 0; offset + 2 < cost_check_points_.size(); offset += 3) {
+    const double lx = cost_check_points_[offset + 0];
+    const double ly = cost_check_points_[offset + 1];
+    const double world_x = wx + cos_t * lx - sin_t * ly;
+    const double world_y = wy + sin_t * lx + cos_t * ly;
+    const double d = esdf_holder_->clearanceAtWorld(world_x, world_y);
+    if (d < min_clearance) {
+      min_clearance = d;
+    }
+  }
+  return min_clearance;
+}
+
+double GridCollisionChecker::getSoftPenalty(
+  double wx, double wy, double theta) const
+{
+  if (!use_esdf_footprint_ || safe_distance_ <= 1e-9) {
+    return 0.0;
+  }
+  const double min_clearance = getMinClearance(wx, wy, theta);
+  if (!std::isfinite(min_clearance)) {
+    // Off-map or in-obstacle: treat as maximum penalty so the A* cost
+    // reflects that this node is unusable. (Hard rejection is the job of
+    // inCollisionEsdf; the penalty is just for ordering.)
+    return 1.0;
+  }
+  const double surface_distance = min_clearance - robot_radius_;
+  if (surface_distance >= safe_distance_) {
+    return 0.0;
+  }
+  // Map the surface distance to a normalized gap in [0, 1]:
+  //   surface <= 0  -> gap = 1 (point is at or inside the obstacle)
+  //   0 < surface < safe -> gap = (safe - surface) / safe in (0, 1)
+  //   surface >= safe -> gap = 0 (returned above as a fast path)
+  // We use the standard clamp-then-subtract form so the result is
+  // guaranteed to be non-negative and finite.
+  const double clamped_surface = std::min(std::max(surface_distance, 0.0), safe_distance_);
+  const double normalized_gap = (safe_distance_ - clamped_surface) / safe_distance_;
+  return normalized_gap * normalized_gap;
 }
 
 }  // namespace hybrid_astar

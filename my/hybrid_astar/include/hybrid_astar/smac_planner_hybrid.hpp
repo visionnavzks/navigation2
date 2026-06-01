@@ -12,6 +12,7 @@
 #include "hybrid_astar/utils.hpp"
 #include "hybrid_astar/costmap_downsampler.hpp"
 #include "hybrid_astar/collision_checker.hpp"
+#include "hybrid_astar/esdf_holder.hpp"
 #include "hybrid_astar/types.hpp"
 
 namespace hybrid_astar
@@ -42,6 +43,30 @@ struct SmacPlannerHybridConfig
   double circumscribed_cost{-1.0};
   double inflation_radius{0.5};
   double circumscribed_radius{0.5};
+
+  // ---- ESDF + capsule footprint configuration ----
+  //
+  // Footprint interpretation, in order of precedence:
+  //   1. If use_esdf_footprint == true (or cost_check_points is non-empty), the
+  //      planner switches to ESDF-based collision checking and uses the multi-
+  //      checkpoint "capsule" model: each triple (lx, ly, weight) in
+  //      cost_check_points describes one local point on the robot that is
+  //      transformed into the world frame at every search node, then checked
+  //      against the cached ESDF.
+  //   2. Otherwise, the legacy polygon footprint (robot_footprint) or single-
+  //      radius path is used. This is the original behavior; do not change the
+  //      defaults unless you want to opt in.
+  bool use_esdf_footprint{false};
+  bool use_exact_esdf{true};
+  std::vector<double> cost_check_points{};
+  // Per-checkpoint inflation radius (m). The minimum ESDF distance at any
+  // checkpoint must be >= this value (typically the inscribed/circumscribed
+  // radius). 0 means "treat every checkpoint as a point".
+  double robot_radius{0.0};
+  // Soft-penalty threshold (m). When (min_clearance - robot_radius) drops below
+  // this value, a smooth quadratic penalty is added to the cell cost. Set to 0
+  // to disable soft penalties and only do hard rejection.
+  double safe_distance{0.0};
 };
 
 class SmacPlannerHybrid
@@ -69,6 +94,7 @@ protected:
   std::unique_ptr<Smoother> _smoother;
   Costmap2D * _costmap;
   std::unique_ptr<CostmapDownsampler> _costmap_downsampler;
+  EsdfHolder _esdf_holder;
 
   SmacPlannerHybridConfig _config;
   float _angle_bin_size;

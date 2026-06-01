@@ -90,6 +90,20 @@ void AStarAlgorithm<NodeT>::setCollisionChecker(GridCollisionChecker * collision
 }
 
 template<typename NodeT>
+void AStarAlgorithm<NodeT>::setEsdfResources(
+  EsdfHolder * holder,
+  const std::vector<double> & cost_check_points,
+  double robot_radius,
+  double safe_distance)
+{
+  if (_shared_ctx && _shared_ctx->obstacle_heuristic) {
+    _shared_ctx->obstacle_heuristic->setEsdfHolder(holder);
+    _shared_ctx->obstacle_heuristic->setEsdfFootprintParams(
+      cost_check_points, robot_radius, safe_distance);
+  }
+}
+
+template<typename NodeT>
 typename AStarAlgorithm<NodeT>::NodePtr AStarAlgorithm<NodeT>::addToGraph(
   const uint64_t & index)
 {

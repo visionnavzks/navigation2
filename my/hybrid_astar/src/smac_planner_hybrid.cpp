@@ -81,10 +81,27 @@ void SmacPlannerHybrid::configure(
   }
 
   _collision_checker = GridCollisionChecker(_costmap, _angle_quantizations);
-  _collision_checker.setFootprint(
-    _config.robot_footprint,
-    _config.use_radius,
-    circumscribed_cost);
+
+  // Decide which footprint backend to use. The ESDF path is enabled by
+  // either an explicit flag or by the presence of cost_check_points.
+  const bool want_esdf_footprint =
+    _config.use_esdf_footprint || !_config.cost_check_points.empty();
+
+  if (want_esdf_footprint) {
+    // ESDF needs the costmap to be built before the collision checker
+    // queries it. Build with the active (possibly downsampled) costmap.
+    _esdf_holder.rebuild(costmap, _config.use_exact_esdf);
+    _collision_checker.setEsdfFootprint(
+      _config.cost_check_points,
+      _config.robot_radius,
+      _config.safe_distance,
+      &_esdf_holder);
+  } else {
+    _collision_checker.setFootprint(
+      _config.robot_footprint,
+      _config.use_radius,
+      circumscribed_cost);
+  }
 
   _a_star = std::make_unique<AStarAlgorithm<NodeHybrid>>(_motion_model, _config.search_info);
   _a_star->initialize(
@@ -95,6 +112,13 @@ void SmacPlannerHybrid::configure(
     _config.max_planning_time,
     _lookup_table_dim,
     _angle_quantizations);
+  if (want_esdf_footprint) {
+    _a_star->setEsdfResources(
+      &_esdf_holder,
+      _config.cost_check_points,
+      _config.robot_radius,
+      _config.safe_distance);
+  }
 
   if (_config.smooth_path) {
     _smoother = std::make_unique<Smoother>(_config.smoother_params);
@@ -133,6 +157,12 @@ Path SmacPlannerHybrid::createPlan(
   if (_config.downsample_costmap && _config.downsampling_factor > 1) {
     costmap = _costmap_downsampler->downsample(_config.downsampling_factor);
     _collision_checker.setCostmap(costmap);
+  }
+
+  // If the ESDF path is active, the cached ESDF must be rebuilt against the
+  // (possibly downsampled) costmap before the A* reads it.
+  if (_config.use_esdf_footprint || !_config.cost_check_points.empty()) {
+    _esdf_holder.rebuild(costmap, _config.use_exact_esdf);
   }
 
   _a_star->setCollisionChecker(&_collision_checker);

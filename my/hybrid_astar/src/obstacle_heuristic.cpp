@@ -1,7 +1,9 @@
 #include <algorithm>
+#include <cmath>
 
 #include "hybrid_astar/obstacle_heuristic.hpp"
 #include "hybrid_astar/costmap_2d.hpp"
+#include "hybrid_astar/esdf_holder.hpp"
 
 namespace hybrid_astar
 {
@@ -143,7 +145,7 @@ float ObstacleHeuristic::getObstacleHeuristic(
         if (downsample_obstacle_heuristic) {
           unsigned int y_offset = (new_idx / size_x) * 2;
           unsigned int x_offset = (new_idx - ((new_idx / size_x) * size_x)) * 2;
-          cost = costmap->getCost(x_offset, y_offset);
+          cost = cellCostForHeuristic(x_offset, y_offset);
           for (unsigned int k = 0; k < 2u; ++k) {
             unsigned int mxd = x_offset + k;
             if (mxd >= costmap->getSizeInCellsX()) {
@@ -157,11 +159,11 @@ float ObstacleHeuristic::getObstacleHeuristic(
               if (k == 0 && j == 0) {
                 continue;
               }
-              cost = std::min(cost, static_cast<float>(costmap->getCost(mxd, myd)));
+              cost = std::min(cost, cellCostForHeuristic(mxd, myd));
             }
           }
         } else {
-          cost = static_cast<float>(costmap->getCost(new_idx));
+          cost = cellCostForHeuristic(new_idx % size_x, new_idx / size_x);
         }
 
         if (cost >= INSCRIBED_COST) {
@@ -209,6 +211,47 @@ float ObstacleHeuristic::getObstacleHeuristic(
     }
   }
   return downsample_obstacle_heuristic ? 2.0f * requested_node_cost : requested_node_cost;
+}
+
+float ObstacleHeuristic::cellCostForHeuristic(unsigned int mx, unsigned int my)
+{
+  // Legacy path: use the raw costmap cell cost.
+  if (esdf_holder_ == nullptr || !esdf_holder_->valid()) {
+    return static_cast<float>(costmap->getCost(mx, my));
+  }
+
+  // ESDF path: compute the soft penalty at the cell center using the
+  // capsule footprint (or a single-circle fallback). The footprint is
+  // queried without rotation (theta=0): the heuristic is a 2D distance
+  // field independent of orientation. The penalty is mapped to
+  // [0, MAX_NON_OBSTACLE_COST] so the existing cost_penalty weighting
+  // scales correctly.
+  const double resolution = costmap->getResolution();
+  const double wx = costmap->getOriginX() + (static_cast<double>(mx) + 0.5) * resolution;
+  const double wy = costmap->getOriginY() + (static_cast<double>(my) + 0.5) * resolution;
+  double min_clearance = esdf_holder_->clearanceAtWorld(wx, wy);
+  if (!cost_check_points_.empty()) {
+    min_clearance = std::numeric_limits<double>::infinity();
+    for (size_t offset = 0; offset + 2 < cost_check_points_.size(); offset += 3) {
+      const double lx = cost_check_points_[offset + 0];
+      const double ly = cost_check_points_[offset + 1];
+      const double d = esdf_holder_->clearanceAtWorld(wx + lx, wy + ly);
+      if (d < min_clearance) {
+        min_clearance = d;
+      }
+    }
+  }
+
+  if (!std::isfinite(min_clearance)) {
+    return static_cast<float>(MAX_NON_OBSTACLE_COST);
+  }
+  const double surface_distance = min_clearance - robot_radius_;
+  if (surface_distance >= safe_distance_) {
+    return 0.0f;
+  }
+  const double normalized_gap = (safe_distance_ - surface_distance) / safe_distance_;
+  const double penalty = normalized_gap * normalized_gap;
+  return static_cast<float>(penalty * MAX_NON_OBSTACLE_COST);
 }
 
 }  // namespace hybrid_astar

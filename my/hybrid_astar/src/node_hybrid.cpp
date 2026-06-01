@@ -225,6 +225,26 @@ bool NodeHybrid::isNodeValid(
     return _is_node_valid;
   }
 
+  if (collision_checker->usesEsdfFootprint()) {
+    // World coords: pose is in cell units, convert with the costmap attached
+    // to the collision checker.
+    const Costmap2D * costmap = collision_checker->getCostmap();
+    const double wx = costmap->getOriginX() +
+      (static_cast<double>(this->pose.x) + 0.5) * costmap->getResolution();
+    const double wy = costmap->getOriginY() +
+      (static_cast<double>(this->pose.y) + 0.5) * costmap->getResolution();
+    const double theta = _ctx->motion_table.getAngleFromBin(
+      static_cast<unsigned int>(this->pose.theta));
+    _is_node_valid = !collision_checker->inCollisionEsdf(wx, wy, theta, traverse_unknown);
+    // Soft penalty (0..1) becomes the cell cost analogue: the existing
+    // `cost_penalty * normalized_cost` formula in getTraversalCost now
+    // reflects how close the robot is to obstacles instead of the raw
+    // costmap value. The legacy path still uses the raw cell cost.
+    const double penalty = collision_checker->getSoftPenalty(wx, wy, theta);
+    _cell_cost = static_cast<float>(penalty * MAX_NON_OBSTACLE_COST);
+    return _is_node_valid;
+  }
+
   _is_node_valid = !collision_checker->inCollision(
     this->pose.x, this->pose.y, this->pose.theta, traverse_unknown);
   _cell_cost = collision_checker->getCost();

@@ -21,8 +21,16 @@
 #include <stdexcept>
 #include <string>
 
+#include "esdf_core/exceptions.hpp"
+
 namespace constrained_smoother
 {
+
+// Re-export the esdf_core exceptions so existing constrained_smoother call
+// sites that reference `constrained_smoother::InvalidCostmap` etc. continue
+// to compile.
+using InvalidCostmap = esdf_core::InvalidCostmap;
+using PrecomputedEsdfSizeMismatch = esdf_core::PrecomputedEsdfSizeMismatch;
 
 // ---- Stable public codes and reason enums ----
 
@@ -210,40 +218,10 @@ inline bool throwOrStoreSmoothingFailure(
 }
 
 // ---- Additional setup exceptions ----
-
-class InvalidCostmap : public std::runtime_error
-{
-public:
-  explicit InvalidCostmap(const std::string & msg)
-  : std::runtime_error(msg) {}
-
-  ErrorCode code() const noexcept
-  {
-    return ErrorCode::InvalidCostmap;
-  }
-
-  const char * codeString() const noexcept
-  {
-    return toErrorCodeString(code());
-  }
-};
-
-class PrecomputedEsdfSizeMismatch : public std::runtime_error
-{
-public:
-  explicit PrecomputedEsdfSizeMismatch(const std::string & msg)
-  : std::runtime_error(msg) {}
-
-  ErrorCode code() const noexcept
-  {
-    return ErrorCode::PrecomputedEsdfSizeMismatch;
-  }
-
-  const char * codeString() const noexcept
-  {
-    return toErrorCodeString(code());
-  }
-};
+//
+// `InvalidCostmap` and `PrecomputedEsdfSizeMismatch` are now provided by the
+// esdf_core package (see esdf_core/exceptions.hpp). They are re-exported as
+// type aliases at the top of this file so existing call sites still work.
 
 }  // namespace constrained_smoother
 

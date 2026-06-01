@@ -16,155 +16,17 @@
 #ifndef CONSTRAINED_SMOOTHER__COSTMAP2D_HPP_
 #define CONSTRAINED_SMOOTHER__COSTMAP2D_HPP_
 
-#include <cstring>
-#include <stdexcept>
-#include <vector>
+// This header is a thin shim that re-exports esdf_core::Costmap2D into the
+// constrained_smoother namespace. The actual implementation lives in the
+// esdf_core package so it can be shared with other consumers (e.g.
+// hybrid_astar) without pulling in Ceres.
+
+#include "esdf_core/costmap2d.hpp"
 
 namespace constrained_smoother
 {
 
-/**
- * @class constrained_smoother::Costmap2D
- * @brief A lightweight 2D costmap representation, independent of ROS.
- *
- * Stores an occupancy grid as a flat unsigned char array in row-major order.
- * Provides the minimal interface required by the constrained smoother.
- */
-class Costmap2D
-{
-public:
-  Costmap2D()
-  : size_x_(0), size_y_(0), resolution_(1.0), origin_x_(0.0), origin_y_(0.0), data_(nullptr)
-  {
-  }
-
-  /**
-   * @brief Construct a costmap with given dimensions and resolution.
-   * @param size_x Number of cells in x
-   * @param size_y Number of cells in y
-   * @param resolution Meters per cell
-   * @param origin_x World x coordinate of the lower-left corner
-   * @param origin_y World y coordinate of the lower-left corner
-   */
-  Costmap2D(
-    unsigned int size_x, unsigned int size_y, double resolution,
-    double origin_x, double origin_y)
-  : size_x_(size_x), size_y_(size_y), resolution_(resolution),
-    origin_x_(origin_x), origin_y_(origin_y)
-  {
-    data_storage_.resize(size_x_ * size_y_, 0);
-    data_ = data_storage_.data();
-  }
-
-  /**
-   * @brief Construct a costmap wrapping an external data buffer (non-owning).
-   * @param size_x Number of cells in x
-   * @param size_y Number of cells in y
-   * @param resolution Meters per cell
-   * @param origin_x World x coordinate of the lower-left corner
-   * @param origin_y World y coordinate of the lower-left corner
-   * @param data Pointer to externally managed cost data (row-major, size_x * size_y)
-   */
-  Costmap2D(
-    unsigned int size_x, unsigned int size_y, double resolution,
-    double origin_x, double origin_y,
-    unsigned char * data)
-  : size_x_(size_x), size_y_(size_y), resolution_(resolution),
-    origin_x_(origin_x), origin_y_(origin_y), data_(data)
-  {
-  }
-
-  Costmap2D(const Costmap2D & other)
-  : size_x_(other.size_x_), size_y_(other.size_y_),
-    resolution_(other.resolution_),
-    origin_x_(other.origin_x_), origin_y_(other.origin_y_),
-    data_storage_(other.data_storage_), data_(nullptr)
-  {
-    if (other.data_ != nullptr) {
-      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
-    }
-  }
-
-  Costmap2D & operator=(const Costmap2D & other)
-  {
-    if (this != &other) {
-      size_x_ = other.size_x_;
-      size_y_ = other.size_y_;
-      resolution_ = other.resolution_;
-      origin_x_ = other.origin_x_;
-      origin_y_ = other.origin_y_;
-      data_storage_ = other.data_storage_;
-      data_ = (other.data_ != nullptr && !data_storage_.empty()) ? data_storage_.data() : nullptr;
-    }
-    return *this;
-  }
-
-  Costmap2D(Costmap2D && other) noexcept
-  : size_x_(other.size_x_), size_y_(other.size_y_),
-    resolution_(other.resolution_),
-    origin_x_(other.origin_x_), origin_y_(other.origin_y_),
-    data_storage_(std::move(other.data_storage_))
-  {
-    data_ = data_storage_.empty() ? nullptr : data_storage_.data();
-    other.size_x_ = 0;
-    other.size_y_ = 0;
-    other.data_ = nullptr;
-  }
-
-  Costmap2D & operator=(Costmap2D && other) noexcept
-  {
-    if (this != &other) {
-      size_x_ = other.size_x_;
-      size_y_ = other.size_y_;
-      resolution_ = other.resolution_;
-      origin_x_ = other.origin_x_;
-      origin_y_ = other.origin_y_;
-      data_storage_ = std::move(other.data_storage_);
-      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
-      other.size_x_ = 0;
-      other.size_y_ = 0;
-      other.data_ = nullptr;
-    }
-    return *this;
-  }
-
-  unsigned int getSizeInCellsX() const {return size_x_;}
-  unsigned int getSizeInCellsY() const {return size_y_;}
-  double getResolution() const {return resolution_;}
-  double getOriginX() const {return origin_x_;}
-  double getOriginY() const {return origin_y_;}
-  unsigned char * getCharMap() const {return data_;}
-
-  unsigned char getCost(unsigned int mx, unsigned int my) const
-  {
-    if (data_ == nullptr) {
-      throw std::runtime_error("Costmap2D::getCost: data_ is null (uninitialized costmap)");
-    }
-    return data_[my * size_x_ + mx];
-  }
-
-  void setCost(unsigned int mx, unsigned int my, unsigned char cost)
-  {
-    if (data_ == nullptr) {
-      throw std::runtime_error("Costmap2D::setCost: data_ is null (uninitialized costmap)");
-    }
-    data_[my * size_x_ + mx] = cost;
-  }
-
-  static constexpr unsigned char NO_INFORMATION = 255;
-  static constexpr unsigned char LETHAL_OBSTACLE = 254;
-  static constexpr unsigned char INSCRIBED_INFLATED_OBSTACLE = 253;
-  static constexpr unsigned char FREE_SPACE = 0;
-
-private:
-  unsigned int size_x_;
-  unsigned int size_y_;
-  double resolution_;
-  double origin_x_;
-  double origin_y_;
-  std::vector<unsigned char> data_storage_;  // owned storage (when applicable)
-  unsigned char * data_;
-};
+using Costmap2D = esdf_core::Costmap2D;
 
 }  // namespace constrained_smoother
 

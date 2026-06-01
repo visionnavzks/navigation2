@@ -16,9 +16,25 @@ endif()
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
 
-# Include distance_transform library
-include_directories(./distance_transform/include)
-include_directories(./distance_transform/extern/DopeVector/include)
+# esdf_core is the shared costmap + ESDF library (no Ceres dep).
+# We add it as a subdirectory when it's sitting next to us in the my/ tree.
+# When the user has already installed it system-wide, find_package will
+# succeed and we fall through to the IMPORTED target.
+if(NOT TARGET esdf_core)
+  set(_esdf_core_dir "${CMAKE_CURRENT_SOURCE_DIR}/../esdf_core")
+  if(EXISTS "${_esdf_core_dir}/CMakeLists.txt")
+    # Suppress esdf_core's own tests when embedded; we only need the library
+    # interface. (EXCLUDE_FROM_ALL alone still leaves the test registered
+    # in ctest, which then reports "Not Run" because the binary is never
+    # built by the parent `all` target.)
+    set(_esdf_core_build_testing ${BUILD_TESTING})
+    set(BUILD_TESTING OFF CACHE INTERNAL "" FORCE)
+    add_subdirectory("${_esdf_core_dir}" "${CMAKE_CURRENT_BINARY_DIR}/esdf_core" EXCLUDE_FROM_ALL)
+    set(BUILD_TESTING ${_esdf_core_build_testing} CACHE INTERNAL "" FORCE)
+  else()
+    find_package(esdf_core REQUIRED)
+  endif()
+endif()
 
 # Check Ceres version for API compatibility
 if(${CERES_VERSION} VERSION_LESS_EQUAL 2.0.0)
@@ -33,6 +49,7 @@ target_include_directories(${PROJECT_NAME}
     "$<INSTALL_INTERFACE:include>"
 )
 target_link_libraries(${PROJECT_NAME} INTERFACE
+  esdf_core
   Ceres::ceres
   Eigen3::Eigen
 )

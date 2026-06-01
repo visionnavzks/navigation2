@@ -67,6 +67,15 @@ public:
 
   void setCollisionChecker(GridCollisionChecker * collision_checker);
 
+  /// Provide the ESDF holder (and capsule params) so the obstacle heuristic
+  /// can use the ESDF-derived soft penalty instead of the raw costmap cost.
+  /// Optional: leaving it at the default (nullptr) keeps the legacy path.
+  void setEsdfResources(
+    EsdfHolder * holder,
+    const std::vector<double> & cost_check_points,
+    double robot_radius,
+    double safe_distance);
+
   void setGoal(
     const float & mx,
     const float & my,

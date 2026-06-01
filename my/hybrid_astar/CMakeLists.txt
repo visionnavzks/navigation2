@@ -9,6 +9,23 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../cpp-dubins-rs
                  ${CMAKE_CURRENT_BINARY_DIR}/steering_functions_lite)
 
+# ── esdf_core (shared costmap + ESDF, no Ceres dep) ──────────────────
+if(NOT TARGET esdf_core)
+  set(_esdf_core_dir "${CMAKE_CURRENT_SOURCE_DIR}/../esdf_core")
+  if(EXISTS "${_esdf_core_dir}/CMakeLists.txt")
+    # Suppress esdf_core's own tests when embedded; we only need the library
+    # interface. (EXCLUDE_FROM_ALL alone still leaves the test registered
+    # in ctest, which then reports "Not Run" because the binary is never
+    # built by the parent `all` target.)
+    set(_esdf_core_build_testing ${BUILD_TESTING})
+    set(BUILD_TESTING OFF CACHE INTERNAL "" FORCE)
+    add_subdirectory("${_esdf_core_dir}" "${CMAKE_CURRENT_BINARY_DIR}/esdf_core" EXCLUDE_FROM_ALL)
+    set(BUILD_TESTING ${_esdf_core_build_testing} CACHE INTERNAL "" FORCE)
+  else()
+    find_package(esdf_core REQUIRED)
+  endif()
+endif()
+
 set(HYBRID_ASTAR_SOURCES
   src/a_star.cpp
   src/analytic_expansion.cpp
@@ -30,6 +47,7 @@ target_include_directories(hybrid_astar
 target_link_libraries(hybrid_astar
   PUBLIC
     steering_functions_lite
+    esdf_core
 )
 
 # Planner plugin
