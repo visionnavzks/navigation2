@@ -1,0 +1,12 @@
+[package]
+name = "hybrid_astar"
+version = "0.1.0"
+edition = "2021"
+description = "Hybrid A* path planner – Rust port of the C++ hybrid_astar crate"
+license = "MIT"
+
+[dependencies]
+hashbrown = "0.15"
+
+[dev-dependencies]
+approx = "0.5"
