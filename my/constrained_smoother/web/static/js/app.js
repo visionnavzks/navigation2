@@ -116,10 +116,28 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.maxCurvatureLabel': '最大曲率 (1/m): <span id="val_max_curvature">2.5</span>',
     'weights.maxCurvatureHint': '限制转弯曲率。值越小，最小转弯半径越大。',
     'planner.title': '规划器',
+    'planner.typeLabel': '规划算法',
+    'planner.typeAstar': '栅格 A* (ESDF)',
+    'planner.typeHybridAstar': 'Hybrid A* (Ackermann)',
+    'planner.typeHint': '栅格 A* 在 2D ESDF 上搜索并返回离散折线。Hybrid A* 在 SE(2) 上使用 Dubin 或 Reeds-Shepp 曲线搜索，可遵守最小转弯半径。两者的输出都会被送入运动学平滑器。',
+    'planner.unavailableHint': '没有检测到 Hybrid A* 绑定。拉取最新代码后重新运行 run_web_app.sh 即可启用。',
     'planner.penaltyWeightLabel': 'A* 惩罚权重: <span id="val_planner_penalty_weight">1.0</span>',
     'planner.penaltyWeightHint': '缩放共享二次铰链损失下 A* 对低净空栅格的绕行强度。它只影响规划器，不影响平滑器的障碍权重。',
     'planner.hingeThresholdLabel': '障碍表面净空 (m): <span id="val_surface_clearance_margin_m">0.50</span>',
     'planner.hingeThresholdHint': 'C++ A* 规划器与运动学平滑器共用的障碍表面净空边界。检查点到障碍物表面的距离超过该值后，ESDF 铰链惩罚为 0。真正的检查点中心无惩罚净空等于这个值再加上机器人检查半径。',
+    'planner.hybridMotionModelLabel': '运动模型',
+    'planner.hybridMotionDubin': 'Dubin (仅前进)',
+    'planner.hybridMotionReedsShepp': 'Reeds-Shepp (前进 + 倒车)',
+    'planner.hybridMotionHint': 'Dubin 路径只前进，使用 3 个运动原语（直行、左转、右转）。Reeds-Shepp 增加倒车，并且是唯一能产生 cusp 尖点的模式。',
+    'planner.hybridMinTurnRadiusLabel': '最小转弯半径 (m): <span id="val_hybrid_minimum_turning_radius_m">1.50</span>',
+    'planner.hybridMinTurnRadiusHint': '设置运动学模型能执行的最小圆弧。较大半径会形成更宽的扫掠，可能让窄通道无解；较小半径让规划器能做更急的转弯。',
+    'planner.hybridToleranceLabel': '终点容差 (m): <span id="val_hybrid_tolerance_m">0.25</span>',
+    'planner.hybridToleranceHint': '当搜索节点离终点足够近时 Hybrid A* 停止搜索。放宽该值能加速搜索，也能在终点格子不可达时找到近似解。',
+    'planner.hybridMaxTimeLabel': '最大规划时间 (s): <span id="val_hybrid_max_planning_time_s">5.0</span>',
+    'planner.hybridMaxTimeHint': 'Hybrid A* 搜索的硬墙钟预算。超时后会返回当时最接近终点的“on-approach”路径。',
+    'planner.hybridAngleBinsLabel': '角度量化桶数: <span id="val_hybrid_angle_bins">72</span>',
+    'planner.hybridAngleBinsHint': '搜索中的离散航向槽数量。72 桶对应 5 度分辨率。值越大内存与耗时越多，但轨迹会更平滑。',
+    'planner.hybridAllowUnknown': '允许在未知栅格中规划',
     'robot.title': '机器人',
     'robot.footprintModel': '足迹模型',
     'robot.footprintCapsule': '胶囊检查点',
@@ -176,8 +194,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.mapAxesHint': '世界坐标叠加层',
     'layers.startGoal': '起点 / 终点',
     'layers.startGoalHint': '已选择的端点',
-    'layers.astarRawPath': 'A* 原始路径',
-    'layers.astarRawPathHint': '稠密的栅格连通规划结果',
+    'layers.astarRawPath': '规划器原始路径',
+    'layers.astarRawPathHint': '规划器的稠密输出 (A* 折线或 Hybrid A* 曲线)',
     'layers.referencePath': '参考路径',
     'layers.referencePathHint': '降采样后的优化器输入',
     'layers.smoothedPath': '平滑路径',
@@ -188,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.robotProjectionHint': '沿平滑路径扫过的检查圆与虚线矩形验证轮廓',
     'run.title': '运行统计',
     'run.optimizer': '优化器',
-    'run.astarTime': 'A* 时间',
+    'run.astarTime': '规划器耗时',
     'run.smoothTime': '平滑时间',
     'run.astarPoints': 'A* 点数',
     'run.referencePoints': '参考点数',
@@ -633,6 +651,10 @@ document.addEventListener('DOMContentLoaded', () => {
     max_time: value => Number(value).toFixed(1),
     path_downsampling_factor: value => String(Math.round(value)),
     path_upsampling_factor: value => String(Math.round(value)),
+    hybrid_minimum_turning_radius_m: value => Number(value).toFixed(2),
+    hybrid_tolerance_m: value => Number(value).toFixed(2),
+    hybrid_max_planning_time_s: value => Number(value).toFixed(1),
+    hybrid_angle_bins: value => String(Math.round(value)),
   };
   const numericInputConfig = {
     param_tol: value => formatScientific(value),
@@ -650,8 +672,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const optimizerScopedSelectIds = [];
   const optimizerScopedCheckboxIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
   const numericInputs = Object.keys(numericInputConfig);
-  const selectParamIds = [];
-  const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
+  const selectParamIds = ['planner_type', 'hybrid_motion_model'];
+  const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation', 'hybrid_allow_unknown'];
 
   const sliders = Object.keys(sliderConfig);
   const layerBindings = {
@@ -840,6 +862,39 @@ document.addEventListener('DOMContentLoaded', () => {
     deviationInput.disabled = !enabledInput.checked;
   }
 
+  function applyPlannerVisibility() {
+    const plannerSelect = document.getElementById('planner_type');
+    const plannerBadge = document.getElementById('planner-badge');
+    const plannerType = plannerSelect ? plannerSelect.value : 'astar';
+    document.querySelectorAll('[data-planner-group]').forEach(node => {
+      const groups = (node.getAttribute('data-planner-group') || '').split(/\s+/);
+      const visible = groups.includes(plannerType);
+      node.hidden = !visible;
+    });
+    if (plannerBadge) {
+      plannerBadge.textContent = plannerType === 'hybrid_astar' ? 'Hybrid A*' : 'A*';
+    }
+  }
+
+  function setHybridAstarAvailability(available) {
+    const plannerSelect = document.getElementById('planner_type');
+    if (!plannerSelect) {
+      return;
+    }
+    const option = plannerSelect.querySelector('option[value="hybrid_astar"]');
+    if (option) {
+      option.disabled = !available;
+    }
+    if (!available && plannerSelect.value === 'hybrid_astar') {
+      plannerSelect.value = 'astar';
+      applyPlannerVisibility();
+    }
+    const hint = document.getElementById('planner-unavailable-hint');
+    if (hint) {
+      hint.hidden = !!available;
+    }
+  }
+
   sliders.forEach(id => {
     const input = document.getElementById(id);
     if (!input || !document.getElementById('val_' + id)) {
@@ -888,7 +943,12 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    input.addEventListener('change', () => scheduleAutoPlan());
+    input.addEventListener('change', () => {
+      if (id === 'planner_type') {
+        applyPlannerVisibility();
+      }
+      scheduleAutoPlan();
+    });
   });
 
   checkboxParamIds.forEach(id => {
@@ -4187,6 +4247,8 @@ document.addEventListener('DOMContentLoaded', () => {
       runBtn.disabled = false;
       resetView();
       hideLoupe();
+      setHybridAstarAvailability(state.costmap.hybrid_astar_available !== false);
+      applyPlannerVisibility();
       setStatus(t('status.costmapLoaded'), '');
       runPlanning({reason: 'initial'});
     } catch (error) {

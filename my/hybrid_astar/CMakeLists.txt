@@ -55,6 +55,32 @@ add_library(hybrid_astar_planner src/smac_planner_hybrid.cpp)
 target_include_directories(hybrid_astar_planner PUBLIC include)
 target_link_libraries(hybrid_astar_planner PUBLIC hybrid_astar)
 
+# ---- pybind11 module ----
+option(BUILD_PYTHON "Build Python bindings" OFF)
+if(BUILD_PYTHON)
+  find_package(pybind11 REQUIRED)
+  pybind11_add_module(py_hybrid_astar pybind/py_hybrid_astar.cpp)
+  target_link_libraries(py_hybrid_astar PRIVATE hybrid_astar_planner)
+  # Hide every symbol contributed by the static dependency libraries (esdf_core,
+  # hybrid_astar, hybrid_astar_planner, steering_functions_lite, robin_hood, ...)
+  # so they cannot collide with copies of the same symbols pulled in by sibling
+  # pybind11 modules (notably py_constrained_smoother) when both are loaded into
+  # the same Python interpreter. Without this flag, the second module loaded
+  # crashes inside esdf_core because the dynamic linker resolves duplicated weak
+  # symbols across modules with mismatched object layouts.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(py_hybrid_astar PRIVATE LINKER:--exclude-libs,ALL)
+  endif()
+  set_target_properties(py_hybrid_astar PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+  )
+  install(TARGETS py_hybrid_astar DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
 # Tests
-enable_testing()
-add_subdirectory(test)
+option(BUILD_TESTS "Build tests" ON)
+if(BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(test)
+endif()

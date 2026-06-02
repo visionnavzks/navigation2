@@ -234,9 +234,18 @@
             <section id="panel-planner" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-planner" hidden>
               <div class="section-heading">
                 <h2 data-i18n="planner.title">Planner</h2>
-                <span class="pill">A*</span>
+                <span id="planner-badge" class="pill">A*</span>
               </div>
-              <div class="param-group">
+              <div class="param-group param-group--stacked">
+                <label for="planner_type" data-i18n="planner.typeLabel">Planner Algorithm</label>
+                <select id="planner_type">
+                  <option value="astar" selected data-i18n="planner.typeAstar">Grid A* (ESDF)</option>
+                  <option value="hybrid_astar" data-i18n="planner.typeHybridAstar">Hybrid A* (Ackermann)</option>
+                </select>
+                <p class="param-hint" data-i18n="planner.typeHint">Grid A* searches the 2D ESDF and returns a discrete polyline. Hybrid A* searches SE(2) with Dubin or Reeds-Shepp curves to honor a minimum turning radius. Either output is then fed to the Kinematic Smoother.</p>
+                <p id="planner-unavailable-hint" class="param-hint param-hint--warning" data-i18n="planner.unavailableHint" hidden>Hybrid A* bindings were not built. Re-run run_web_app.sh after pulling the latest sources.</p>
+              </div>
+              <div class="param-group" data-planner-group="astar">
                 <label data-i18n-html="planner.penaltyWeightLabel">A* Penalty Weight: <span id="val_planner_penalty_weight">1.0</span></label>
                 <input type="range" id="planner_penalty_weight" min="0.0" max="10.0" step="0.1" value="1.0">
                 <p class="param-hint" data-i18n="planner.penaltyWeightHint">Scales how strongly A* detours away from low-clearance cells under the shared quadratic hinge loss. This affects the planner only, not the smoother obstacle weight.</p>
@@ -246,6 +255,38 @@
                 <input type="range" id="surface_clearance_margin_m" min="0.05" max="2.00" step="0.05" value="0.50">
                 <p class="param-hint" data-i18n="planner.hingeThresholdHint">Shared obstacle surface clearance margin used by the C++ A* planner and kinematic smoother. Once the checkpoint-to-obstacle surface distance exceeds this value, the ESDF hinge penalty becomes zero. The total checkpoint-center no-penalty clearance is this value plus the robot check radius.</p>
               </div>
+              <div class="param-group param-group--stacked" data-planner-group="hybrid_astar" hidden>
+                <label for="hybrid_motion_model" data-i18n="planner.hybridMotionModelLabel">Motion Model</label>
+                <select id="hybrid_motion_model">
+                  <option value="DUBIN" selected data-i18n="planner.hybridMotionDubin">Dubin (forward only)</option>
+                  <option value="REEDS_SHEPP" data-i18n="planner.hybridMotionReedsShepp">Reeds-Shepp (forward + reverse)</option>
+                </select>
+                <p class="param-hint" data-i18n="planner.hybridMotionHint">Dubin paths only drive forward and use 3 motion primitives (straight, left, right). Reeds-Shepp adds reverse motion and is the only mode that produces cusps.</p>
+              </div>
+              <div class="param-group" data-planner-group="hybrid_astar" hidden>
+                <label data-i18n-html="planner.hybridMinTurnRadiusLabel">Minimum Turning Radius (m): <span id="val_hybrid_minimum_turning_radius_m">1.50</span></label>
+                <input type="range" id="hybrid_minimum_turning_radius_m" min="0.10" max="5.00" step="0.05" value="1.50">
+                <p class="param-hint" data-i18n="planner.hybridMinTurnRadiusHint">Sets the smallest arc the kinematic model can execute. Larger radii produce wider sweeps and may make tight corridors infeasible; smaller radii let the planner make sharper turns.</p>
+              </div>
+              <div class="param-group" data-planner-group="hybrid_astar" hidden>
+                <label data-i18n-html="planner.hybridToleranceLabel">Goal Tolerance (m): <span id="val_hybrid_tolerance_m">0.25</span></label>
+                <input type="range" id="hybrid_tolerance_m" min="0.10" max="2.00" step="0.05" value="0.25">
+                <p class="param-hint" data-i18n="planner.hybridToleranceHint">Hybrid A* stops once a node lands within this distance of the goal. Loosening it speeds up the search and helps when the exact goal cell is not reachable.</p>
+              </div>
+              <div class="param-group" data-planner-group="hybrid_astar" hidden>
+                <label data-i18n-html="planner.hybridMaxTimeLabel">Max Planning Time (s): <span id="val_hybrid_max_planning_time_s">5.0</span></label>
+                <input type="range" id="hybrid_max_planning_time_s" min="0.5" max="30.0" step="0.5" value="5.0">
+                <p class="param-hint" data-i18n="planner.hybridMaxTimeHint">Hard wall-clock budget for the Hybrid A* search. When this expires the planner returns the closest-on-approach path it had so far.</p>
+              </div>
+              <div class="param-group" data-planner-group="hybrid_astar" hidden>
+                <label data-i18n-html="planner.hybridAngleBinsLabel">Angle Quantization Bins: <span id="val_hybrid_angle_bins">72</span></label>
+                <input type="range" id="hybrid_angle_bins" min="16" max="180" step="4" value="72">
+                <p class="param-hint" data-i18n="planner.hybridAngleBinsHint">Number of discrete heading slots in the search. 72 bins means a 5 deg resolution. Higher values cost more memory and time but produce smoother trajectories.</p>
+              </div>
+              <label class="constraint-toggle" for="hybrid_allow_unknown" data-planner-group="hybrid_astar" hidden>
+                <input type="checkbox" id="hybrid_allow_unknown" checked>
+                <span data-i18n="planner.hybridAllowUnknown">Allow planning through unknown cells</span>
+              </label>
             </section>
 
             <section id="panel-robot" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-robot" hidden>
@@ -385,8 +426,8 @@
                   <input type="checkbox" id="layer_astar" checked>
                   <span class="swatch swatch-astar"></span>
                   <span class="layer-copy-wrap">
-                    <span class="layer-name" data-i18n="layers.astarRawPath">A* Raw Path</span>
-                    <span class="layer-copy" data-i18n="layers.astarRawPathHint">dense grid-connected plan</span>
+                    <span class="layer-name" data-i18n="layers.astarRawPath">Planner Raw Path</span>
+                    <span class="layer-copy" data-i18n="layers.astarRawPathHint">dense planner output (A* polyline or Hybrid A* curve)</span>
                   </span>
                 </label>
                 <label class="layer-toggle">
@@ -685,7 +726,7 @@
                   <strong id="info-optimizer">--</strong>
                 </div>
                 <div class="metric-card subtle">
-                  <span class="metric-label" data-i18n="run.astarTime">A* Time</span>
+                  <span class="metric-label" data-i18n="run.astarTime">Planner Time</span>
                   <strong id="info-astar-time">--</strong>
                 </div>
                 <div class="metric-card subtle">

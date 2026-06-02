@@ -60,7 +60,25 @@ cmake \
 
 cmake --build "$build_dir" --parallel "$parallel_jobs"
 
-export PYTHONPATH="${build_dir}:${script_dir}${PYTHONPATH:+:${PYTHONPATH}}"
+# ---- Hybrid A* pybind module (sibling project) ----
+hybrid_astar_dir="${HYBRID_ASTAR_DIR:-${script_dir}/../hybrid_astar}"
+hybrid_build_dir="${HYBRID_ASTAR_BUILD_DIR:-${hybrid_astar_dir}/build-${python_build_tag}}"
+if [[ -d "$hybrid_astar_dir" ]]; then
+  cmake \
+    -S "$hybrid_astar_dir" \
+    -B "$hybrid_build_dir" \
+    -DBUILD_PYTHON=ON \
+    -DBUILD_TESTS=OFF \
+    -DPYBIND11_FINDPYTHON=ON \
+    -DPython_EXECUTABLE="${venv_dir}/bin/python" \
+    -Dpybind11_DIR="$pybind11_dir"
+  cmake --build "$hybrid_build_dir" --parallel "$parallel_jobs"
+  hybrid_pythonpath="${hybrid_build_dir}:${hybrid_astar_dir}"
+else
+  hybrid_pythonpath=""
+fi
+
+export PYTHONPATH="${build_dir}:${script_dir}${hybrid_pythonpath:+:${hybrid_pythonpath}}${PYTHONPATH:+:${PYTHONPATH}}"
 export CS_WEBAPP_DEBUG="${CS_WEBAPP_DEBUG:-0}"
 export CS_WEBAPP_RELOADER="${CS_WEBAPP_RELOADER:-0}"
 export CS_WEBAPP_HOST="${CS_WEBAPP_HOST:-127.0.0.1}"

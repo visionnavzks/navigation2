@@ -32,6 +32,13 @@ if os.path.isdir(_build_dir):
 import py_constrained_smoother as pcs  # noqa: E402
 from astar import downsample_path  # noqa: E402
 
+try:
+    import py_hybrid_astar as pha  # noqa: E402
+    HAS_HYBRID_ASTAR = True
+except ImportError:
+    pha = None
+    HAS_HYBRID_ASTAR = False
+
 
 def _env_flag(name, default):
     value = os.environ.get(name)
@@ -381,6 +388,211 @@ def _run_astar_stage(
         "astar_time_ms": astar_time_ms,
         "stage": stage,
     }
+
+
+def _run_hybrid_astar_stage(
+    costmap_grid,
+    esdf_grid,
+    footprint_model,
+    hybrid_config,
+    start_x,
+    start_y,
+    goal_x,
+    goal_y,
+    reference_spacing_target_m,
+    start_yaw_rad,
+    goal_yaw_rad,
+    keep_start_orientation,
+    keep_goal_orientation,
+):
+    """Run hybrid_astar::SmacPlannerHybrid and produce the same stage contract.
+
+    The returned `eigen_path` is fed to the Kinematic Smoother as the reference
+    chain, so we down-sample the dense Hybrid A* output to a comparable spacing
+    and tag each pose with a direction sign derived from the path heading vs.
+    its own theta (so the smoother can reproduce reverse segments).
+    """
+    if not HAS_HYBRID_ASTAR:
+        raise ApiError(
+            ERROR_INVALID_REQUEST,
+            "Hybrid A* is not available: the py_hybrid_astar module was not built.",
+            status_code=400,
+            source="planner",
+        )
+
+    size_y, size_x = costmap_grid.shape
+    flat_costs = costmap_grid.flatten().tolist()
+    ha_costmap = pha.make_costmap(
+        int(size_x),
+        int(size_y),
+        float(DEFAULT_RESOLUTION),
+        float(DEFAULT_ORIGIN_X),
+        float(DEFAULT_ORIGIN_Y),
+        flat_costs,
+    )
+
+    config = pha.SmacPlannerHybridConfig()
+    config.motion_model_for_search = hybrid_config["motion_model"]
+    config.tolerance = float(hybrid_config["tolerance"])
+    config.angle_quantization_bins = int(hybrid_config["angle_bins"])
+    config.max_planning_time = float(hybrid_config["max_planning_time"])
+    config.allow_unknown = bool(hybrid_config["allow_unknown"])
+    config.smooth_path = False  # let the Kinematic Smoother stage handle that
+    config.goal_heading_mode = "DEFAULT"
+
+    # Footprint: re-use the same circular / capsule model the rest of the demo
+    # speaks. Hybrid A* supports two paths - polygon footprint or the ESDF
+    # capsule. We use the polygon-radius mode for "point" robots and the ESDF
+    # capsule for everything else so the planner sees the same geometry as the
+    # smoother.
+    if footprint_model["mode"] == "point":
+        config.use_radius = True
+        config.circumscribed_radius = float(footprint_model["check_radius"])
+        config.inflation_radius = float(footprint_model["check_radius"])
+        config.use_esdf_footprint = False
+    else:
+        config.use_radius = False
+        config.use_esdf_footprint = True
+        config.use_exact_esdf = True
+        config.robot_radius = float(footprint_model["check_radius"])
+        config.safe_distance = float(footprint_model["safe_distance"])
+        # cost_check_points: (lx, ly, weight) triples
+        cost_check_points = []
+        for index in range(0, len(footprint_model["planner_points"]), 2):
+            local_x = float(footprint_model["planner_points"][index])
+            local_y = float(footprint_model["planner_points"][index + 1])
+            cost_check_points.extend([local_x, local_y, 1.0])
+        config.cost_check_points = cost_check_points
+
+    config.search_info.minimum_turning_radius = float(hybrid_config["minimum_turning_radius"])
+    config.search_info.reverse_penalty = float(hybrid_config["reverse_penalty"])
+    config.search_info.cost_penalty = float(hybrid_config["cost_penalty"])
+
+    planner = pha.SmacPlannerHybrid()
+    planner.configure(ha_costmap, config)
+
+    t0 = time.time()
+    plan_result = planner.create_plan(
+        pha.Pose(float(start_x), float(start_y), float(start_yaw_rad)),
+        pha.Pose(float(goal_x), float(goal_y), float(goal_yaw_rad)),
+    )
+    elapsed_ms = (time.time() - t0) * 1000.0
+
+    if not plan_result["ok"] or not plan_result["path"]:
+        failure = _diagnose_astar_no_path(
+            costmap_grid,
+            esdf_grid,
+            footprint_model,
+            start_x,
+            start_y,
+            goal_x,
+            goal_y,
+        )
+        failure["planner"] = "hybrid_astar"
+        failure["hybrid_astar_message"] = str(plan_result["message"])
+        cpp_message = str(plan_result["message"]).strip()
+        message = "Hybrid A* could not find a path"
+        if cpp_message:
+            message += f" ({cpp_message})"
+        message += ". " + failure["message"]
+        raise ApiError(
+            ERROR_ASTAR_NO_PATH,
+            message,
+            status_code=409,
+            source="planner",
+            details=failure,
+        )
+    raw_path = plan_result["path"]
+
+    # raw_path is [(x, y, theta), ...]. Downsample by arc length while preserving
+    # the per-pose direction sign so cusps survive into the smoother stage.
+    raw_xy = [(float(p[0]), float(p[1])) for p in raw_path]
+    raw_thetas = [float(p[2]) for p in raw_path]
+    direction_signs = _hybrid_astar_direction_signs(raw_xy, raw_thetas)
+    sparse_indices = _downsample_hybrid_path_indices(raw_xy, reference_spacing_target_m)
+    sparse_xy = [raw_xy[i] for i in sparse_indices]
+    eigen_path = [
+        [raw_xy[i][0], raw_xy[i][1], direction_signs[i]]
+        for i in sparse_indices
+    ]
+    reference_with_yaw = _reconstruct_path_with_yaw(
+        eigen_path,
+        start_yaw=start_yaw_rad,
+        goal_yaw=goal_yaw_rad,
+        keep_start_orientation=keep_start_orientation,
+        keep_goal_orientation=keep_goal_orientation,
+    )
+
+    stage = _make_pipeline_stage(
+        "planner",
+        "Hybrid A*",
+        "ok",
+        f"Hybrid A* produced {len(raw_xy)} dense pose(s) and "
+        f"{len(sparse_xy)} reference pose(s).",
+        elapsed_ms=elapsed_ms,
+        path_key="reference_path",
+        details={
+            "motion_model": hybrid_config["motion_model"],
+            "minimum_turning_radius_m": float(hybrid_config["minimum_turning_radius"]),
+        },
+    )
+
+    return {
+        # Hybrid A* maintains its own ESDF internally, so the Kinematic Smoother
+        # cannot piggy-back on it. Returning planner=None forces the smoother to
+        # build its own ESDF, which is the supported standalone path.
+        "planner": None,
+        "raw_path": raw_xy,
+        "sparse_path": sparse_xy,
+        "eigen_path": eigen_path,
+        "reference_with_yaw": reference_with_yaw,
+        "astar_time_ms": elapsed_ms,
+        "stage": stage,
+    }
+
+
+def _hybrid_astar_direction_signs(xy_points, thetas):
+    """Compare each segment heading against the pose theta to recover gear sign."""
+    pose_count = len(xy_points)
+    if pose_count == 0:
+        return []
+    signs = [1.0] * pose_count
+    for index in range(pose_count):
+        if pose_count == 1:
+            signs[index] = 1.0
+            continue
+        if index < pose_count - 1:
+            dx = xy_points[index + 1][0] - xy_points[index][0]
+            dy = xy_points[index + 1][1] - xy_points[index][1]
+        else:
+            dx = xy_points[index][0] - xy_points[index - 1][0]
+            dy = xy_points[index][1] - xy_points[index - 1][1]
+        if math.hypot(dx, dy) <= 1e-9:
+            signs[index] = signs[index - 1] if index > 0 else 1.0
+            continue
+        heading = math.atan2(dy, dx)
+        diff = _normalize_angle_rad(heading - float(thetas[index]))
+        signs[index] = -1.0 if abs(diff) > math.pi / 2.0 else 1.0
+    return signs
+
+
+def _downsample_hybrid_path_indices(xy_points, target_spacing_m):
+    """Pick indices so consecutive picks are ~target_spacing_m apart (keep cusps)."""
+    if len(xy_points) <= 2:
+        return list(range(len(xy_points)))
+    target = max(float(target_spacing_m), 1e-6)
+    indices = [0]
+    accumulated = 0.0
+    for index in range(1, len(xy_points)):
+        dx = xy_points[index][0] - xy_points[index - 1][0]
+        dy = xy_points[index][1] - xy_points[index - 1][1]
+        accumulated += math.hypot(dx, dy)
+        if accumulated >= target:
+            indices.append(index)
+            accumulated = 0.0
+    if indices[-1] != len(xy_points) - 1:
+        indices.append(len(xy_points) - 1)
+    return indices
 
 
 def _parse_manual_reference_path(raw_path):
@@ -1002,6 +1214,13 @@ class PlanRequestConfig:
     gradient_tolerance: float
     optimizer_debug: bool
     planner_penalty_weight: float
+    planner_type: str
+    hybrid_motion_model: str
+    hybrid_minimum_turning_radius_m: float
+    hybrid_tolerance_m: float
+    hybrid_max_planning_time_s: float
+    hybrid_angle_bins: int
+    hybrid_allow_unknown: bool
 
     @classmethod
     def from_payload(cls, req):
@@ -1014,6 +1233,14 @@ class PlanRequestConfig:
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
             linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
+
+        planner_type = str(req.get("planner_type", "astar")).strip().lower()
+        if planner_type not in {"astar", "hybrid_astar"}:
+            planner_type = "astar"
+
+        hybrid_motion_model = str(req.get("hybrid_motion_model", "DUBIN")).strip().upper()
+        if hybrid_motion_model not in {"DUBIN", "REEDS_SHEPP"}:
+            hybrid_motion_model = "DUBIN"
 
         costmap_weight = float(req.get("costmap_weight", 1.0))
 
@@ -1081,6 +1308,25 @@ class PlanRequestConfig:
             gradient_tolerance=max(0.0, float(req.get("gradient_tol", 1e-10))),
             optimizer_debug=_coerce_bool(req.get("optimizer_debug"), False),
             planner_penalty_weight=max(0.0, float(req.get("planner_penalty_weight", 1.0))),
+            planner_type=planner_type,
+            hybrid_motion_model=hybrid_motion_model,
+            hybrid_minimum_turning_radius_m=max(
+                0.05,
+                float(req.get("hybrid_minimum_turning_radius_m", 1.5)),
+            ),
+            hybrid_tolerance_m=max(
+                DEFAULT_RESOLUTION,
+                float(req.get("hybrid_tolerance_m", 0.25)),
+            ),
+            hybrid_max_planning_time_s=max(
+                0.1,
+                float(req.get("hybrid_max_planning_time_s", 5.0)),
+            ),
+            hybrid_angle_bins=max(
+                8,
+                min(360, int(req.get("hybrid_angle_bins", 72))),
+            ),
+            hybrid_allow_unknown=_coerce_bool(req.get("hybrid_allow_unknown"), True),
         )
 
     @property
@@ -1379,6 +1625,7 @@ def _serialize_costmap_state():
         "data": COSTMAP_GRID.flatten().tolist(),
         "esdf": ESDF_GRID.flatten().tolist() if ESDF_GRID is not None else None,
         "metadata": COSTMAP_METADATA,
+        "hybrid_astar_available": HAS_HYBRID_ASTAR,
     }
 
 
@@ -1391,6 +1638,31 @@ def _run_planner_stage(config, costmap_grid, esdf_grid, planner_costmap, footpri
     if config.manual_reference_path is not None:
         planner_stage_result = _run_manual_reference_stage(
             config.manual_reference_path,
+            start_yaw_rad,
+            goal_yaw_rad,
+            config.keep_start_orientation,
+            config.keep_goal_orientation,
+        )
+    elif config.planner_type == "hybrid_astar":
+        planner_stage_result = _run_hybrid_astar_stage(
+            costmap_grid,
+            esdf_grid,
+            footprint_model,
+            {
+                "motion_model": config.hybrid_motion_model,
+                "minimum_turning_radius": config.hybrid_minimum_turning_radius_m,
+                "tolerance": config.hybrid_tolerance_m,
+                "max_planning_time": config.hybrid_max_planning_time_s,
+                "angle_bins": config.hybrid_angle_bins,
+                "allow_unknown": config.hybrid_allow_unknown,
+                "reverse_penalty": 2.0,
+                "cost_penalty": 2.0,
+            },
+            config.start_x,
+            config.start_y,
+            config.goal_x,
+            config.goal_y,
+            config.reference_spacing_target_m,
             start_yaw_rad,
             goal_yaw_rad,
             config.keep_start_orientation,
@@ -1717,6 +1989,14 @@ def _build_plan_response_payload(
         # Planner / optimizer configuration echoed back to the frontend.
         "reference_spacing_target_m": round(config.reference_spacing_target_m, 3),
         "planner_penalty_weight": round(config.planner_penalty_weight, 3),
+        "planner_type": config.planner_type,
+        "hybrid_astar_available": HAS_HYBRID_ASTAR,
+        "hybrid_motion_model": config.hybrid_motion_model,
+        "hybrid_minimum_turning_radius_m": round(config.hybrid_minimum_turning_radius_m, 3),
+        "hybrid_tolerance_m": round(config.hybrid_tolerance_m, 3),
+        "hybrid_max_planning_time_s": round(config.hybrid_max_planning_time_s, 2),
+        "hybrid_angle_bins": int(config.hybrid_angle_bins),
+        "hybrid_allow_unknown": bool(config.hybrid_allow_unknown),
         "optimizer_type": config.optimizer_type,
         "optimizer_label": optimizer_label,
         "start_yaw_deg": round(config.start_yaw_deg, 2),
