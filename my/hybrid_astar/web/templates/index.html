@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hybrid A* Debugger</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar panel">
+      <div class="topbar-copy">
+        <div class="topbar-title-row">
+          <div>
+            <h1 data-i18n="hero.title">Hybrid A* Planner Debugger</h1>
+            <p class="subtitle" data-i18n="hero.subtitle">Interactive costmap editor with Hybrid A* path planning visualization. Drag start/goal markers and obstacle blocks to explore planner behavior.</p>
+          </div>
+          <label class="language-switch" for="language-switch">
+            <span data-i18n="language.label">Language</span>
+            <select id="language-switch" aria-labelledby="language-switch-label">
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <div class="topbar-summary">
+        <div class="summary-card summary-card--status">
+          <span id="hero-status" class="summary-status" data-i18n="hero.status">Left-drag endpoints or obstacle blocks to edit the scene. Scroll to zoom, double-click to reset view.</span>
+        </div>
+      </div>
+    </header>
+
+    <div class="dashboard-grid">
+      <!-- Left: Controls -->
+      <aside class="dashboard-controls panel">
+        <section class="control-panel stack-section">
+          <div class="section-heading">
+            <h2 data-i18n="session.title">Session</h2>
+          </div>
+
+          <div id="status-msg" class="status-msg"></div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="session.start">Start</span>
+              <strong id="start-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="session.goal">Goal</span>
+              <strong id="goal-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="session.cursor">Cursor</span>
+              <strong id="cursor-coord">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="session.zoom">Zoom</span>
+              <strong id="zoom-level">1.00x</strong>
+            </div>
+          </div>
+
+          <div class="mini-grid compact">
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="session.startHeading">Start Heading</span>
+              <strong id="start-heading-readout">0 deg</strong>
+            </div>
+            <div class="metric-card subtle">
+              <span class="metric-label" data-i18n="session.goalHeading">Goal Heading</span>
+              <strong id="goal-heading-readout">0 deg</strong>
+            </div>
+          </div>
+
+          <div class="param-group">
+            <label data-i18n-html="session.startHeadingLabel">Start Heading: <span id="val_start_theta_deg">0</span> deg</label>
+            <input type="range" id="start_theta_deg" min="-180" max="180" step="1" value="0">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="session.goalHeadingLabel">Goal Heading: <span id="val_goal_theta_deg">0</span> deg</label>
+            <input type="range" id="goal_theta_deg" min="-180" max="180" step="1" value="0">
+          </div>
+
+          <div class="btn-row">
+            <button id="run-btn" class="btn btn--primary" data-i18n="session.planBtn">▶ Plan</button>
+            <button id="clear-path-btn" class="btn btn--secondary" data-i18n="session.clearBtn">Clear Path</button>
+            <button id="reset-view-btn" class="btn btn--secondary" data-i18n="session.resetBtn">Reset View</button>
+          </div>
+        </section>
+
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="motion.title">Motion Model</h2></div>
+          <div class="param-group">
+            <label for="motion_model" data-i18n="motion.modelLabel">Model</label>
+            <select id="motion_model">
+              <option value="DUBIN" selected data-i18n="motion.dubin">Dubin (forward only)</option>
+              <option value="REEDS_SHEPP" data-i18n="motion.reedsShepp">Reeds-Shepp (forward + reverse)</option>
+            </select>
+            <p class="param-hint" data-i18n="motion.hint">Dubin uses 3 primitives (straight, left, right). Reeds-Shepp adds reverse and can produce cusps.</p>
+          </div>
+        </section>
+
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="planner.title">Planner Parameters</h2></div>
+
+          <div class="param-group">
+            <label data-i18n-html="planner.minTurnRadius">Min Turning Radius (m): <span id="val_minimum_turning_radius">1.50</span></label>
+            <input type="range" id="minimum_turning_radius" min="0.3" max="10.0" step="0.1" value="1.5">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.tolerance">Tolerance (m): <span id="val_tolerance">0.25</span></label>
+            <input type="range" id="tolerance" min="0.0" max="2.0" step="0.05" value="0.25">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.angleBins">Angle Bins: <span id="val_angle_bins">72</span></label>
+            <input type="range" id="angle_bins" min="12" max="144" step="12" value="72">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.maxTime">Max Planning Time (s): <span id="val_max_planning_time">5.0</span></label>
+            <input type="range" id="max_planning_time" min="0.5" max="30.0" step="0.5" value="5.0">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.maxIter">Max Iterations: <span id="val_max_iterations">1000000</span></label>
+            <input type="range" id="max_iterations" min="1000" max="5000000" step="1000" value="1000000">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.reversePenalty">Reverse Penalty: <span id="val_reverse_penalty">2.00</span></label>
+            <input type="range" id="reverse_penalty" min="0.0" max="10.0" step="0.1" value="2.0">
+          </div>
+          <div class="param-group">
+            <label data-i18n-html="planner.costPenalty">Cost Penalty: <span id="val_cost_penalty">2.00</span></label>
+            <input type="range" id="cost_penalty" min="0.0" max="10.0" step="0.1" value="2.0">
+          </div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="smooth_path" checked>
+              <span data-i18n="planner.smoothPath">Smooth Path</span>
+            </label>
+          </div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="allow_unknown" checked>
+              <span data-i18n="planner.allowUnknown">Allow Unknown</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="layers.title">Layers</h2></div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-costmap" checked>
+              <span data-i18n="layers.costmap">Costmap</span>
+            </label>
+          </div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-path" checked>
+              <span data-i18n="layers.path">Planned Path</span>
+            </label>
+          </div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-axes" checked>
+              <span data-i18n="layers.axes">Map Axes</span>
+            </label>
+          </div>
+          <div class="param-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="show-grid">
+              <span data-i18n="layers.grid">Grid Lines</span>
+            </label>
+          </div>
+        </section>
+      </aside>
+
+      <!-- Center: Canvas -->
+      <main class="dashboard-visual">
+        <div class="canvas-toolbar">
+          <span id="cursor-world" class="toolbar-coord">--</span>
+          <span id="cursor-cell" class="toolbar-coord">--</span>
+        </div>
+        <div class="canvas-wrap">
+          <canvas id="map-canvas" width="800" height="800"></canvas>
+        </div>
+      </main>
+
+      <!-- Right: Insights -->
+      <aside class="dashboard-insights panel">
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="map.title">Map Overview</h2></div>
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="map.grid">Grid</span>
+              <strong id="map-grid-size">200 × 200</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="map.resolution">Resolution</span>
+              <strong id="map-resolution">0.10 m</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="map.origin">Origin</span>
+              <strong id="map-origin">(0, 0)</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="stats.title">Run Statistics</h2></div>
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="stats.status">Status</span>
+              <strong id="run-status">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="stats.time">Time</span>
+              <strong id="run-time">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="stats.poses">Path Poses</span>
+              <strong id="run-path-length">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="stats.length">Path Length</span>
+              <strong id="run-path-distance">--</strong>
+            </div>
+          </div>
+          <div id="run-message" class="run-message"></div>
+        </section>
+
+        <section class="control-panel stack-section">
+          <div class="section-heading"><h2 data-i18n="loupe.title">Cursor Inspector</h2></div>
+          <div class="mini-grid compact">
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="loupe.cost">Cell Cost</span>
+              <strong id="loupe-cost">--</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label" data-i18n="loupe.world">World XY</span>
+              <strong id="loupe-world">--</strong>
+            </div>
+          </div>
+          <div class="loupe-preview">
+            <canvas id="loupe-canvas" width="120" height="120"></canvas>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+/* Hybrid A* Debugger — minimal theme matching constrained_smoother aesthetic */
+:root {
+  --bg: #f5efe4;
+  --panel: rgba(255, 252, 246, 0.92);
+  --border: rgba(104, 86, 58, 0.14);
+  --ink: #223127;
+  --muted: #687066;
+  --accent: #147a6a;
+  --accent-strong: #0f5c50;
+  --warm: #d97a2b;
+  --rose: #bf3657;
+  --blue: #2b71ba;
+  --danger: #c44e36;
+  --radius-xl: 22px;
+  --radius-lg: 18px;
+  --radius-md: 14px;
+  --radius-sm: 12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+/* ---- Topbar ---- */
+.topbar {
+  padding: 16px 24px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+  z-index: 10;
+}
+.topbar h1 { font-size: 1.3rem; font-weight: 700; }
+.topbar .subtitle { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
+.topbar-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.topbar-summary { flex: 1; min-width: 200px; }
+.summary-card--status {
+  background: rgba(20, 122, 106, 0.06);
+  border: 1px solid rgba(20, 122, 106, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  color: var(--accent-strong);
+}
+.language-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.language-switch select {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* ---- Dashboard grid ---- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 280px;
+  gap: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-controls {
+  padding: 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 80px);
+  border-right: 1px solid var(--border);
+}
+
+.dashboard-visual {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+
+.dashboard-insights {
+  padding: 12px;
+  overflow-y: auto;
+  max-height: calc(100vh - 80px);
+  border-left: 1px solid var(--border);
+}
+
+/* ---- Canvas ---- */
+.canvas-toolbar {
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: flex;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #e8e0d4;
+}
+#map-canvas {
+  cursor: crosshair;
+  image-rendering: pixelated;
+}
+
+/* ---- Control panels ---- */
+.stack-section {
+  margin-bottom: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.section-heading h2 {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.param-group {
+  margin-bottom: 8px;
+}
+.param-group label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.param-group input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.param-group select {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  background: #fff;
+}
+.param-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.checkbox-label input { accent-color: var(--accent); }
+
+/* ---- Metric cards ---- */
+.mini-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.mini-grid.compact .metric-card {
+  padding: 6px 8px;
+}
+.metric-card {
+  background: rgba(0,0,0,0.03);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+}
+.metric-card.subtle { background: transparent; padding: 4px 0; }
+.metric-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.metric-card strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 1px;
+}
+
+/* ---- Buttons ---- */
+.btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn--primary:hover { background: var(--accent-strong); }
+.btn--secondary {
+  background: rgba(0,0,0,0.06);
+  color: var(--ink);
+}
+.btn--secondary:hover { background: rgba(0,0,0,0.1); }
+
+/* ---- Status ---- */
+.status-msg {
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  display: none;
+}
+.status-msg.visible { display: block; }
+.status-msg.error {
+  background: rgba(196, 78, 54, 0.1);
+  color: var(--danger);
+  border: 1px solid rgba(196, 78, 54, 0.2);
+}
+.status-msg.ok {
+  background: rgba(20, 122, 106, 0.08);
+  color: var(--accent-strong);
+  border: 1px solid rgba(20, 122, 106, 0.15);
+}
+
+.run-message {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 4px;
+  word-break: break-word;
+}
+
+/* ---- Loupe ---- */
+.loupe-preview {
+  display: flex;
+  justify-content: center;
+  margin-top: 6px;
+}
+#loupe-canvas {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  image-rendering: pixelated;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: 260px 1fr;
+  }
+  .dashboard-insights { display: none; }
+}
+@media (max-width: 700px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-controls {
+    max-height: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
