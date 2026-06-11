@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ceres 2D 平滑器 — A* + Ceres 路径规划</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  margin:0;padding:16px;background:#f5f7fa;color:#2c3e50;min-height:100vh}
+h1{margin:0 0 16px;font-size:22px;color:#1a3a5c}
+.main-layout{display:grid;grid-template-columns:270px 1fr 300px;gap:12px;align-items:start}
+@media(max-width:1100px){.main-layout{grid-template-columns:1fr}}
+.panel{background:#fff;border:1px solid #e1e5eb;border-radius:6px;padding:14px 16px;
+  box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.panel h2{font-size:13px;color:#1a3a5c;font-weight:600;margin:0 0 12px;padding-bottom:8px;
+  border-bottom:1px solid #e1e5eb;letter-spacing:.5px}
+.section{margin-bottom:16px}.section:last-child{margin-bottom:0}
+.section h3{font-size:12px;color:#6c7a89;font-weight:600;margin:0 0 8px;letter-spacing:.3px}
+.field{display:flex;flex-direction:column;margin-bottom:8px}
+.field label{font-size:12px;color:#6c7a89;margin-bottom:4px}
+.field input[type=number],.field select{width:100%;padding:6px 8px;font-size:13px;
+  border:1px solid #cfd6dd;border-radius:4px}
+.field input:focus{outline:none;border-color:#2e86de}
+.field-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.field-row label{margin:0;font-size:12px;color:#6c7a89}
+.field-row input[type=checkbox]{width:auto;flex:none;margin:0}
+button{padding:8px 12px;font-size:13px;border:none;border-radius:4px;cursor:pointer;
+  font-weight:500;transition:background .15s;width:100%;text-align:center}
+button+button{margin-top:6px}
+.btn-primary{background:#2e86de;color:#fff}.btn-primary:hover{background:#1e6bb8}
+.btn-primary:disabled{background:#95a5a6;cursor:not-allowed}
+.btn-secondary{background:#ecf0f1;color:#2c3e50}.btn-secondary:hover{background:#d5dbdf}
+.btn-secondary.active{background:#f39c12;color:#fff}
+.plot-panel{padding:12px}
+#plot{width:100%;aspect-ratio:72/46;height:auto;min-height:360px}
+.hint{font-size:12px;color:#7f8c8d;margin-top:8px}
+.result-block{display:flex;flex-direction:column;padding:8px 0;border-bottom:1px solid #f0f3f7}
+.result-block:last-child{border-bottom:none}
+.result-block .label{font-size:11px;color:#95a5a6;text-transform:uppercase;letter-spacing:.5px}
+.result-block .value{font-size:20px;font-weight:600;color:#1a3a5c;margin-top:2px}
+.result-block .sub{font-size:11px;color:#7f8c8d;margin-top:2px}
+.status{font-size:16px;font-weight:600}
+.status.ok{color:#27ae60}.status.fail{color:#c0392b}.status.running{color:#f39c12}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;
+  background:#ecf0f1;color:#6c7a89}
+.badge.ok{background:#e8f8ef;color:#27ae60}.badge.fail{background:#fce8e8;color:#c0392b}
+details.section{margin-bottom:16px}
+details>summary{font-size:12px;color:#1a3a5c;font-weight:600;cursor:pointer;padding:4px 0;
+  list-style:none;user-select:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"▸";display:inline-block;width:12px;transition:transform .15s;color:#6c7a89}
+details[open]>summary::before{transform:rotate(90deg)}
+details.category{margin:8px 0 4px;padding:0 8px;background:#fafbfc;border:1px solid #e8edf2;border-radius:5px}
+details.category>summary{font-size:11px;color:#34495e;font-weight:600;padding:6px 0;letter-spacing:.2px}
+details.category[open]>summary{border-bottom:1px solid #eaeef2;margin-bottom:6px}
+details.category .field:last-child{margin-bottom:6px}
+.field small{font-size:11px;color:#95a5a6;margin-top:2px}
+#plot .imagelayer image,#plot .layer-below image{image-rendering:pixelated;image-rendering:crisp-edges}
+.legend-panel{margin-top:8px;padding:10px 12px;background:#fafbfc;border:1px solid #e1e5eb;
+  border-radius:6px;font-size:12px;color:#2c3e50}
+.legend-section{padding:4px 0}
+.legend-section+.legend-section{border-top:1px solid #eaeef2;margin-top:4px;padding-top:8px}
+.legend-title{font-size:12px;font-weight:600;color:#1a3a5c;margin-bottom:6px;letter-spacing:.3px}
+.legend-title small{font-weight:400;color:#95a5a6}
+.legend-items{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.legend-item{display:inline-flex;align-items:center;gap:5px;color:#34495e;white-space:nowrap;user-select:none}
+.leg-swatch{display:inline-block;width:14px;height:14px;flex:none;box-sizing:border-box}
+.leg-swatch.line{height:3px;border-radius:1.5px;border:none!important}
+.leg-swatch.line-dash{height:3px;border-radius:0;
+  background-image:linear-gradient(to right,currentColor 50%,transparent 50%);
+  background-size:6px 100%;border:none!important}
+.leg-swatch.marker{border-radius:50%;border:1px solid rgba(0,0,0,.1)}
+</style>
+</head>
+<body>
+<h1>🚗 Ceres 2D 平滑器 — A* + Ceres 路径规划</h1>
+
+<div class="main-layout">
+  <!-- LEFT: Parameters -->
+  <div class="panel">
+    <details open>
+    <summary style="cursor:pointer;list-style:none">
+      <h2 style="display:inline;margin:0">⚙️ 参数设置</h2>
+      <small style="color:#6c7a89;font-weight:normal;margin-left:6px">▸ 点击折叠</small>
+    </summary>
+
+    <div class="section">
+      <h3>📍 起点</h3>
+      <div class="field"><label>X (米)</label><input id="start-x" type="number" step="0.1" value="14.95"></div>
+      <div class="field"><label>Y (米)</label><input id="start-y" type="number" step="0.1" value="28.44"></div>
+    </div>
+
+    <div class="section">
+      <h3>🎯 终点</h3>
+      <div class="field"><label>X (米)</label><input id="goal-x" type="number" step="0.1" value="44.27"></div>
+      <div class="field"><label>Y (米)</label><input id="goal-y" type="number" step="0.1" value="32.39"></div>
+    </div>
+
+    <div class="section">
+      <h3>🖱 地图交互</h3>
+      <button id="btn-set-start" class="btn-secondary" onclick="toggleMode('start')">📍 点击地图设置起点</button>
+      <button id="btn-set-goal" class="btn-secondary" onclick="toggleMode('goal')">🎯 点击地图设置终点</button>
+      <div class="field-row" style="margin-top:6px">
+        <input id="show-esdf" type="checkbox"><label for="show-esdf">显示 ESDF 热力图</label>
+      </div>
+      <div class="field">
+        <label>ESDF color schema</label>
+        <select id="esdf-scheme"></select>
+      </div>
+      <div class="field-row">
+        <input id="show-grid" type="checkbox"><label for="show-grid">显示网格</label>
+      </div>
+      <div class="field-row">
+        <input id="show-robot" type="checkbox"><label for="show-robot">显示机器人投影</label>
+      </div>
+      <div class="field-row">
+        <input id="show-safety" type="checkbox"><label for="show-safety">显示安全裕度圈</label>
+      </div>
+    </div>
+
+    <details class="section">
+      <summary>🔧 高级参数 (A* / Ceres Smoother)</summary>
+
+      <details class="category">
+        <summary>🔍 A* 搜索</summary>
+        <div class="field"><label>downsample · 路径降采样</label>
+          <input id="p-downsample" type="number" step="1" min="1" max="10" value="3">
+          <small>每隔 N 个点取一个, 减少优化变量</small></div>
+        <div class="field"><label>robot_radius · 车体半径 (米)</label>
+          <input id="p-robot-radius" type="number" step="0.05" min="0" value="0.5">
+          <small>A* 膨胀 + Ceres 障碍阈值统一使用此值</small></div>
+      </details>
+
+      <details class="category">
+        <summary>✨ Ceres 平滑器</summary>
+        <div class="field"><label>w_smooth · 平滑权重</label>
+          <input id="p-w-smooth" type="number" step="10" min="0" value="100"></div>
+        <div class="field"><label>w_curvature · 曲率权重</label>
+          <input id="p-w-curvature" type="number" step="50" min="0" value="1000"></div>
+        <div class="field"><label>w_reference · 参考路径权重</label>
+          <input id="p-w-reference" type="number" step="1" min="0" value="0">
+          <small>设为 0 表示只锁定起终点；大障碍权重时路径会明显偏离 A* 参考线</small></div>
+        <div class="field"><label>w_length · 长度权重 (橡皮筋)</label>
+          <input id="p-w-length" type="number" step="0.1" min="0" value="0.5"></div>
+        <div class="field"><label>w_obstacle · 障碍物权重</label>
+          <input id="p-w-obstacle" type="number" step="1" min="0" value="1"></div>
+        <div class="field"><label>w_penetrate · 墙内惩罚权重</label>
+          <input id="p-w-penetration" type="number" step="10" min="0" value="0"></div>
+        <div class="field"><label>safety_margin · 安全裕度 (米)</label>
+          <input id="p-safe-distance" type="number" step="0.05" min="0" value="1.0">
+          <small>从车身边缘算起；实际阈值 = safety_margin + robot_radius</small></div>
+        <div class="field"><label>min_turning_radius · 最小转弯半径 (米)</label>
+          <input id="p-min-turn" type="number" step="0.1" min="0.1" value="0.5"></div>
+        <div class="field"><label>max_iterations · Ceres 最大迭代</label>
+          <input id="p-max-iter" type="number" step="10" min="10" value="200"></div>
+        <div class="field"><label>max_time · 求解器时间上限 (秒)</label>
+          <input id="p-max-time" type="number" step="0.1" min="0.1" value="2.0"></div>
+        <div class="field"><label>target_spacing · 路径点间距 (米)</label>
+          <input id="p-target-spacing" type="number" step="0.05" min="0.01" value="0.3"></div>
+        <div class="field"><label>resample_before_smooth · 平滑前重采样输入</label>
+          <input id="p-resample-in" type="checkbox" checked></div>
+        <div class="field"><label>resample_after_smooth · 平滑后重采样</label>
+          <input id="p-resample" type="checkbox"></div>
+
+      </details>
+
+      <button class="btn-secondary" style="margin-top:10px" onclick="resetParams()">↻ 恢复默认值</button>
+    </details>
+
+    <div class="section">
+      <h3>▶ 操作</h3>
+      <button id="btn-plan" class="btn-primary" onclick="runPlan()">▶ 开始规划</button>
+      <button class="btn-secondary" onclick="clearResult()">↻ 重置结果</button>
+    </div>
+    </details>
+  </div>
+
+  <!-- CENTER: Plot -->
+  <div class="panel plot-panel" style="position:relative">
+    <div id="plot"></div>
+    <div class="hint" id="hint">提示：在左侧输入或点击地图设置起点/终点，然后点击"开始规划"。
+      <br><span style="color:#e67e22">⚠ 默认坐标位于 y≈28.7m 的开阔走廊；勾选 <b>显示 ESDF 热力图</b> 可看到自由/障碍分布。</span></div>
+    <div class="legend-panel">
+      <div class="legend-section">
+        <div class="legend-title">🗺 地图</div>
+        <div class="legend-items">
+          <span class="legend-item"><i class="leg-swatch" style="background:#fff;border:1px solid #ccc"></i>自由空间</span>
+          <span class="legend-item"><i class="leg-swatch" style="background:#000"></i>障碍物</span>
+          <span class="legend-item"><i class="leg-swatch" style="background:#808080"></i>Unknown</span>
+          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch" style="background:linear-gradient(to right,#7f1d1d,#ef4444,#fef08a,#86efac,#166534)"></i><span id="lg-esdf-label">ESDF</span></span>
+        </div>
+      </div>
+      <div class="legend-section">
+        <div class="legend-title">📍 起终点</div>
+        <div class="legend-items">
+          <span class="legend-item"><i class="leg-swatch marker" style="background:#22c55e"></i>起点</span>
+          <span class="legend-item"><i class="leg-swatch marker" style="background:#ef4444"></i>终点</span>
+        </div>
+      </div>
+      <div class="legend-section" id="lg-paths" style="display:none">
+        <div class="legend-title">➖ 路径</div>
+        <div class="legend-items" id="lg-paths-items"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Results -->
+  <div class="panel">
+    <h2>📊 规划结果</h2>
+    <div class="result-block">
+      <div class="label">状态</div>
+      <div class="value status" id="r-status">— 等待中</div>
+    </div>
+    <div class="result-block">
+      <div class="label">鼠标像素信息</div>
+      <div class="value" id="r-hover-pixel">—</div>
+      <div class="sub" id="r-hover-world">世界坐标: —</div>
+      <div class="sub" id="r-hover-esdf">ESDF: —</div>
+      <div class="sub" id="r-hover-occ">占用: —</div>
+    </div>
+    <div class="result-block">
+      <div class="label">失败原因</div>
+      <div class="value" id="r-reason" style="font-size:13px;line-height:1.4;color:#c0392b;font-weight:500;display:none"></div>
+    </div>
+    <div class="result-block">
+      <div class="label">A* 路径点</div>
+      <div class="value" id="r-raw-pts">—</div>
+      <div class="sub" id="r-raw-len"></div>
+    </div>
+    <div class="result-block">
+      <div class="label">降采样点</div>
+      <div class="value" id="r-ds-pts">—</div>
+    </div>
+    <div class="result-block">
+      <div class="label">平滑点</div>
+      <div class="value" id="r-sm-pts">—</div>
+      <div class="sub" id="r-sm-len"></div>
+    </div>
+    <div class="result-block">
+      <div class="label">A* 耗时</div>
+      <div class="value" id="r-plan-ms">—</div>
+      <div class="sub" id="r-plan-sub">毫秒</div>
+    </div>
+    <div class="result-block">
+      <div class="label">Ceres 耗时</div>
+      <div class="value" id="r-smooth-ms">—</div>
+      <div class="sub">毫秒</div>
+    </div>
+    <div class="result-block">
+      <div class="label">Ceres 求解器代价</div>
+      <div class="value" id="r-cost">—</div>
+      <div class="sub" id="r-cost-breakdown"></div>
+    </div>
+    <div class="result-block">
+      <div class="label">最小净空 (min clearance)</div>
+      <div class="value" id="r-min-clr">—</div>
+      <div class="sub">米</div>
+    </div>
+    <div class="result-block">
+      <div class="label">平滑状态</div>
+      <div class="value"><span class="badge" id="r-smooth-ok">—</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let mode=null, costmapMeta=null, lastResult=null, esdfImg=null;
+let markerDrag=null, suppressPlotClickUntil=0;
+
+async function init(){
+  const r=await fetch('/api/costmap'); costmapMeta=await r.json();
+  const schemeSelect=document.getElementById('esdf-scheme');
+  const schemes=costmapMeta.esdf_schemes||[];
+  schemeSelect.innerHTML=schemes.map(s=>`<option value="${s.key}">${s.label}</option>`).join('');
+  // Preload ESDF image
+  esdfImg=new Image(); esdfImg.src='data:image/png;base64,'+getEsdfScheme().png;
+  esdfImg.onload=()=>drawPlot();
+  clearHoverPanel();
+  drawPlot();
+  // 自动规划：页面初始化后自动发起一次规划（使用当前输入参数）
+  scheduleAutoReplan(true);
+  document.getElementById('plot').addEventListener('click',onPlotClick);
+  ['start-x','start-y','goal-x','goal-y'].forEach(id=>
+    document.getElementById(id).addEventListener('input',()=>drawPlot()));
+}
+
+function onPlotClick(evt){
+  if(Date.now()<suppressPlotClickUntil)return;
+  if(!mode)return;
+  const gd=document.getElementById('plot'), drag=gd.querySelector('.nsewdrag');
+  const xa=gd._fullLayout&&gd._fullLayout.xaxis, ya=gd._fullLayout&&gd._fullLayout.yaxis;
+  if(!drag||!xa||!ya)return;
+  const rect=drag.getBoundingClientRect();
+  const px=evt.clientX-rect.left, py=evt.clientY-rect.top;
+  if(px<0||py<0||px>rect.width||py>rect.height)return;
+  const x=+xa.p2d(px).toFixed(2), y=+ya.p2d(py).toFixed(2);
+  const placedMode=mode;
+  if(placedMode==='start'){document.getElementById('start-x').value=x;document.getElementById('start-y').value=y;}
+  else{document.getElementById('goal-x').value=x;document.getElementById('goal-y').value=y;}
+  toggleMode(placedMode); drawPlot(); scheduleAutoReplan(placedMode==='goal');
+}
+
+function toggleMode(m){
+  const bs=document.getElementById('btn-set-start'),bg=document.getElementById('btn-set-goal'),h=document.getElementById('hint');
+  if(mode===m){mode=null;bs.classList.remove('active');bg.classList.remove('active');
+    h.textContent='提示：可拖动起点/终点，或点击左侧按钮后在地图上点选位置。';}
+  else{mode=m;bs.classList.toggle('active',m==='start');bg.classList.toggle('active',m==='goal');
+    h.textContent=m==='start'?'👉 请在地图上点击以设置起点':'👉 请在地图上点击以设置终点';}
+}
+
+function drawPlot(){
+  if(!costmapMeta)return;
+  const sg=getStartGoal();
+  const showEsdf=document.getElementById('show-esdf').checked;
+  const esdfScheme=getEsdfScheme();
+  const showGrid=document.getElementById('show-grid').checked;
+  const traces=[];
+  // Trace 0: start marker (draggable)
+  traces.push({type:'scatter',mode:'markers',showlegend:false,legendgroup:'start',name:'S',
+    x:[sg.sx],y:[sg.sy],marker:{size:16,color:'rgba(34,197,94,0.3)',line:{color:'#22c55e',width:2.5},cursor:'grab'},
+    text:['S'],textposition:'middle center',textfont:{size:10,color:'#fff',family:'Arial Black'},hoverinfo:'text',hovertext:'起点 (拖动我)'});
+  // Trace 1: goal marker (draggable)
+  traces.push({type:'scatter',mode:'markers+text',showlegend:false,legendgroup:'goal',name:'G',
+    x:[sg.gx],y:[sg.gy],marker:{size:16,color:'rgba(239,68,68,0.3)',line:{color:'#ef4444',width:2.5},cursor:'grab'},
+    text:['G'],textposition:'middle center',textfont:{size:10,color:'#fff',family:'Arial Black'},hoverinfo:'text',hovertext:'终点 (拖动我)'});
+
+  if(lastResult&&lastResult.found){
+    traces.push({type:'scatter',mode:'lines',showlegend:false,legendgroup:'raw',
+      x:lastResult.raw_x,y:lastResult.raw_y,line:{color:'#9ca3af',width:1,dash:'dot'},hoverinfo:'skip'});
+    traces.push({type:'scatter',mode:'markers',showlegend:false,legendgroup:'ds',
+      x:lastResult.ds_x,y:lastResult.ds_y,marker:{size:3,color:'#facc15'},hoverinfo:'skip'});
+    traces.push({type:'scatter',mode:'lines+markers',showlegend:false,legendgroup:'smooth',
+      x:lastResult.smooth_x,y:lastResult.smooth_y,
+      line:{color:'#22c55e',width:3},
+      marker:{size:6,color:'rgba(255,255,255,0.5)',line:{color:'#22c55e',width:1.5}},
+      hoverinfo:'skip'});
+  }
+
+  const bgImg=showEsdf?{source:'data:image/png;base64,'+esdfScheme.png,
+    xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
+    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below',opacity:1}
+    :{source:'data:image/png;base64,'+costmapMeta.png,
+    xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
+    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below'};
+
+  // Robot footprint shapes
+  const robotShapes=[];
+  const showRobot=document.getElementById('show-robot').checked;
+  const showSafety=document.getElementById('show-safety').checked;
+  if((showRobot||showSafety)&&lastResult&&lastResult.found){
+    const rr=+document.getElementById('p-robot-radius').value||0.5;
+    const sm=+document.getElementById('p-safe-distance').value||1.0;
+    for(let i=0;i<lastResult.smooth_x.length;i++){
+      if(showRobot){
+        robotShapes.push({type:'circle',xref:'x',yref:'y',
+          x0:lastResult.smooth_x[i]-rr,y0:lastResult.smooth_y[i]-rr,
+          x1:lastResult.smooth_x[i]+rr,y1:lastResult.smooth_y[i]+rr,
+          line:{color:'rgba(34,197,94,0.4)',width:1},
+          fillcolor:'rgba(34,197,94,0.08)'});
+      }
+      if(showSafety){
+        const sr=rr+sm;
+        robotShapes.push({type:'circle',xref:'x',yref:'y',
+          x0:lastResult.smooth_x[i]-sr,y0:lastResult.smooth_y[i]-sr,
+          x1:lastResult.smooth_x[i]+sr,y1:lastResult.smooth_y[i]+sr,
+          line:{color:'rgba(251,191,36,0.35)',width:1,dash:'dot'},
+          fillcolor:'rgba(251,191,36,0.04)'});
+      }
+    }
+  }
+
+  const gd=document.getElementById('plot');
+  const prevRanges={};
+  if(gd&&gd._fullLayout){
+    const ax=gd._fullLayout.xaxis, ay=gd._fullLayout.yaxis;
+    if(ax&&ax.range) prevRanges.xaxis={range:ax.range.slice()};
+    if(ay&&ay.range) prevRanges.yaxis={range:ay.range.slice()};
+  }
+
+  const layout={title:'A* + Ceres 平滑结果',images:[bgImg],
+    xaxis:{title:'X (米)',range:prevRanges.xaxis?prevRanges.xaxis.range:[0,costmapMeta.extent_x],
+      constrain:'domain',showgrid:showGrid,gridcolor:'#dfe6ee',gridwidth:1,dtick:5},
+    yaxis:{title:'Y (米)',range:prevRanges.yaxis?prevRanges.yaxis.range:[0,costmapMeta.extent_y],
+      scaleanchor:'x',scaleratio:1,showgrid:showGrid,gridcolor:'#dfe6ee',gridwidth:1,dtick:5},
+    showlegend:false,margin:{l:55,r:30,t:50,b:45},hovermode:'closest',dragmode:'pan',
+    shapes:robotShapes};
+  Plotly.react('plot',traces,layout,{responsive:true,displaylogo:false,scrollZoom:true}).then(()=>setupDrag());
+  renderLegend();
+}
+
+function getEsdfScheme(){
+  const schemes=costmapMeta?.esdf_schemes||[];
+  const selected=document.getElementById('esdf-scheme')?.value;
+  return schemes.find(s=>s.key===selected)||schemes[0]||{
+    key:'default',label:'ESDF',swatch:'linear-gradient(to right,#7f1d1d,#fef08a,#166534)',
+    png:costmapMeta?.esdf_png||''
+  };
+}
+
+function eventToPlotPoint(evt){
+  const gd=document.getElementById('plot'), drag=gd.querySelector('.nsewdrag');
+  const xa=gd._fullLayout&&gd._fullLayout.xaxis, ya=gd._fullLayout&&gd._fullLayout.yaxis;
+  if(!drag||!xa||!ya||!costmapMeta)return null;
+  const rect=drag.getBoundingClientRect();
+  const px=evt.clientX-rect.left, py=evt.clientY-rect.top;
+  if(px<0||py<0||px>rect.width||py>rect.height)return null;
+  return {
+    x:Math.max(0,Math.min(costmapMeta.extent_x,+xa.p2d(px).toFixed(2))),
+    y:Math.max(0,Math.min(costmapMeta.extent_y,+ya.p2d(py).toFixed(2))),
+    px,py
+  };
+}
+
+function hitEndpoint(evt){
+  if(evt.button!==0)return null;
+  const pt=eventToPlotPoint(evt);
+  if(!pt)return null;
+  const gd=document.getElementById('plot');
+  const xa=gd._fullLayout.xaxis, ya=gd._fullLayout.yaxis;
+  const sg=getStartGoal();
+  const endpoints=[
+    {kind:'start',curve:0,x:sg.sx,y:sg.sy},
+    {kind:'goal',curve:1,x:sg.gx,y:sg.gy}
+  ];
+  let best=null;
+  endpoints.forEach(ep=>{
+    const dx=pt.px-xa.d2p(ep.x), dy=pt.py-ya.d2p(ep.y);
+    const dist=Math.hypot(dx,dy);
+    if(dist<=18&&(!best||dist<best.dist))best={...ep,dist};
+  });
+  return best;
+}
+
+function setEndpoint(kind,x,y,live=false){
+  const curve=kind==='start'?0:1;
+  if(kind==='start'){
+    document.getElementById('start-x').value=x;
+    document.getElementById('start-y').value=y;
+  }else{
+    document.getElementById('goal-x').value=x;
+    document.getElementById('goal-y').value=y;
+  }
+  if(live){
+    Plotly.restyle('plot',{x:[[x]],y:[[y]]},[curve]);
+  }
+}
+
+function onEndpointPointerDown(evt){
+  const hit=hitEndpoint(evt);
+  if(!hit)return;
+  const gd=document.getElementById('plot');
+  evt.preventDefault();
+  evt.stopImmediatePropagation();
+  markerDrag={
+    kind:hit.kind,
+    curve:hit.curve,
+    pointerId:evt.pointerId,
+    dragmode:(gd._fullLayout&&gd._fullLayout.dragmode)||'pan',
+    moved:false
+  };
+  suppressPlotClickUntil=Date.now()+500;
+  document.body.style.cursor='grabbing';
+  try{gd.setPointerCapture(evt.pointerId);}catch(e){}
+  Plotly.relayout(gd,{dragmode:false});
+}
+
+function onEndpointPointerMove(evt){
+  if(!markerDrag)return;
+  evt.preventDefault();
+  evt.stopImmediatePropagation();
+  const pt=eventToPlotPoint(evt);
+  if(!pt)return;
+  markerDrag.moved=true;
+  setEndpoint(markerDrag.kind,pt.x,pt.y,true);
+}
+
+function onEndpointPointerUp(evt){
+  if(!markerDrag)return;
+  const gd=document.getElementById('plot');
+  evt.preventDefault();
+  evt.stopImmediatePropagation();
+  const moved=markerDrag.moved;
+  const movedKind=markerDrag.kind;
+  const dragmode=markerDrag.dragmode||'pan';
+  try{gd.releasePointerCapture(markerDrag.pointerId);}catch(e){}
+  markerDrag=null;
+  document.body.style.cursor='';
+  Plotly.relayout(gd,{dragmode});
+  if(moved){
+    drawPlot();
+    scheduleAutoReplan(movedKind==='goal');
+  }
+}
+
+// --- Endpoint drag + click-to-move. Endpoint drag captures the pointer before
+// Plotly's pan handler sees it, while ordinary map drags still use Plotly pan. ---
+function setupDrag(){
+  const gd=document.getElementById('plot');
+  if(!gd._endpointHandlersBound){
+    gd._endpointHandlersBound=true;
+    gd.addEventListener('pointerdown',onEndpointPointerDown,true);
+    window.addEventListener('pointermove',onEndpointPointerMove,true);
+    window.addEventListener('pointerup',onEndpointPointerUp,true);
+  }
+  if(gd._plotlyClickBound)return;
+  gd._plotlyClickBound=true;
+  gd.on('plotly_click',(data)=>{
+    if(Date.now()<suppressPlotClickUntil)return;
+    if(mode) return; // don't interfere with click-to-place mode
+    if(!data.points||!data.points.length) return;
+    const pt=data.points[0];
+    const wx=Math.max(0,Math.min(costmapMeta.extent_x,+pt.x.toFixed(2)));
+    const wy=Math.max(0,Math.min(costmapMeta.extent_y,+pt.y.toFixed(2)));
+    if(pt.curveNumber===0){
+      // Clicked on start marker.
+      setEndpoint('start',wx,wy);
+    } else if(pt.curveNumber===1){
+      // Clicked on goal marker.
+      setEndpoint('goal',wx,wy);
+    } else return;
+    drawPlot();
+    scheduleAutoReplan(pt.curveNumber===1);
+  });
+
+  // --- Hover: query ESDF at cursor position, show in right panel.
+  let hoverTimer=null;
+  if(!gd._hoverBound){
+    gd._hoverBound=true;
+    gd.addEventListener('mousemove',(evt)=>{
+      const pt=eventToPlotPoint(evt);
+      if(!pt){
+        clearTimeout(hoverTimer);
+        clearHoverPanel();
+        return;
+      }
+      const x=+pt.x, y=+pt.y;
+      clearTimeout(hoverTimer);
+      hoverTimer=setTimeout(()=>{
+        fetch(`/api/query?x=${x.toFixed(3)}&y=${y.toFixed(3)}`)
+          .then(r=>r.json()).then(d=>{
+            if(d.error||!d.in_bounds){
+              clearHoverPanel();
+              return;
+            }
+          const occLabel=d.occ===0?'空白':d.occ===1?'障碍物':'未知';
+          const occColor=d.occ===0?'#22c55e':d.occ===1?'#ef4444':'#facc15';
+            updateHoverPanel(d, occLabel, occColor);
+          }).catch(()=>{clearHoverPanel();});
+      },50);
+    });
+    gd.addEventListener('mouseleave',()=>{
+      clearTimeout(hoverTimer);
+      clearHoverPanel();
+    });
+  }
+}
+
+function updateHoverPanel(d, occLabel, occColor){
+  const pixelEl=document.getElementById('r-hover-pixel');
+  const worldEl=document.getElementById('r-hover-world');
+  const esdfEl=document.getElementById('r-hover-esdf');
+  const occEl=document.getElementById('r-hover-occ');
+  if(!pixelEl||!worldEl||!esdfEl||!occEl)return;
+  if(!d||d.error||!d.in_bounds){
+    clearHoverPanel();
+    return;
+  }
+  pixelEl.textContent=`(${d.pixel_x}, ${d.pixel_y})`;
+  worldEl.textContent=`世界坐标: ${d.x}m, ${d.y}m`;
+  esdfEl.textContent=`ESDF: ${d.esdf?.toFixed(3) ?? '—'} m`;
+  const occText=occLabel || (d.occ===0?'空白':d.occ===1?'障碍物':'未知');
+  const safeColor=occColor || (d.occ===0?'#22c55e':d.occ===1?'#ef4444':'#facc15');
+  occEl.innerHTML=`占用: <span style="color:${safeColor}">${occText}</span> (${d.occ})`;
+}
+
+function clearHoverPanel(){
+  const pixelEl=document.getElementById('r-hover-pixel');
+  const worldEl=document.getElementById('r-hover-world');
+  const esdfEl=document.getElementById('r-hover-esdf');
+  const occEl=document.getElementById('r-hover-occ');
+  if(pixelEl) pixelEl.textContent='—';
+  if(worldEl) worldEl.textContent='世界坐标: —';
+  if(esdfEl) esdfEl.textContent='ESDF: —';
+  if(occEl) occEl.textContent='占用: —';
+}
+
+function renderLegend(){
+  const scheme=getEsdfScheme();
+  const esdfSwatch=document.getElementById('lg-esdf-swatch');
+  const esdfLabel=document.getElementById('lg-esdf-label');
+  if(esdfSwatch)esdfSwatch.style.background=scheme.swatch;
+  if(esdfLabel)esdfLabel.textContent=scheme.key==='signed'?'ESDF signed':'ESDF clearance';
+  const sec=document.getElementById('lg-paths'),items=document.getElementById('lg-paths-items');
+  if(!lastResult||!lastResult.found){sec.style.display='none';return;}
+  sec.style.display='';
+  items.innerHTML=[
+    '<span class="legend-item"><i class="leg-swatch line" style="background:#9ca3af"></i>A* 原始路径</span>',
+    '<span class="legend-item"><i class="leg-swatch marker" style="background:#facc15"></i>降采样点</span>',
+    '<span class="legend-item"><i class="leg-swatch line" style="background:#22c55e"></i>Ceres 平滑</span>',
+  ].join('');
+}
+
+function getStartGoal(){
+  return{sx:+document.getElementById('start-x').value,sy:+document.getElementById('start-y').value,
+    gx:+document.getElementById('goal-x').value,gy:+document.getElementById('goal-y').value};
+}
+
+function getParams(){
+  const params={downsample:+document.getElementById('p-downsample').value,
+    w_smooth:+document.getElementById('p-w-smooth').value,
+    w_curvature:+document.getElementById('p-w-curvature').value,
+    w_reference:+document.getElementById('p-w-reference').value,
+    w_length:+document.getElementById('p-w-length').value,
+    w_obstacle:+document.getElementById('p-w-obstacle').value,
+    w_penetration:+document.getElementById('p-w-penetration').value,
+    safety_margin:+document.getElementById('p-safe-distance').value,
+    min_turning_radius:+document.getElementById('p-min-turn').value,
+    max_iterations:+document.getElementById('p-max-iter').value,
+    max_time_seconds:+document.getElementById('p-max-time').value,
+    target_spacing:+document.getElementById('p-target-spacing').value,
+    resample_after_smooth:document.getElementById('p-resample').checked,
+    resample_before_smooth:document.getElementById('p-resample-in').checked};
+  const rr=document.getElementById('p-robot-radius').value;
+  if(rr!=='')params.robot_radius=+rr;
+  return params;
+}
+
+const resultMetricIds=[
+  'r-raw-pts','r-ds-pts','r-sm-pts','r-plan-ms','r-smooth-ms','r-cost','r-min-clr','r-smooth-ok'
+];
+
+function setStatus(text,cls=''){
+  const el=document.getElementById('r-status');
+  el.textContent=text;
+  el.className='value status'+(cls?' '+cls:'');
+}
+
+function clearMetrics(){
+  resultMetricIds.forEach(id=>{
+    document.getElementById(id).textContent='—';
+    if(id==='r-smooth-ok')document.getElementById(id).className='badge';
+  });
+  document.getElementById('r-raw-len').textContent='';
+  document.getElementById('r-sm-len').textContent='';
+  document.getElementById('r-plan-sub').textContent='毫秒';
+  document.getElementById('r-cost-breakdown').textContent='';
+}
+
+function formatCostBreakdown(c){
+  if(!c)return '';
+  const minD = Number.isFinite(c.min_obstacle_distance) ? `${c.min_obstacle_distance.toFixed(4)}m` : '—';
+  const minMargin = Number.isFinite(c.min_obstacle_margin) ? `${c.min_obstacle_margin.toFixed(4)}m` : '—';
+  const penetration = Number.isFinite(c.penetration) ? c.penetration.toFixed(2) : '0.00';
+  const penetrationActive = c.penetration_active_points ?? 0;
+  return `路径项 ${c.total.toFixed(2)} = 长度 ${c.length.toFixed(2)} + 平滑 ${c.smooth.toFixed(2)} + 曲率 ${c.curvature.toFixed(2)} + 障碍外侧 ${c.obstacle.toFixed(2)} + 穿透 ${penetration} / 阈值 ${c.obstacle_threshold.toFixed(2)}m, `+
+    `外侧触发 ${c.obstacle_active_points} 点, 穿透点 ${penetrationActive} 点, min_d ${minD}, min_margin ${minMargin}`;
+}
+
+function renderPlanFailure(d){
+  setStatus('✗ 规划失败','fail');
+  document.getElementById('r-reason').textContent=d.reason||'';
+  document.getElementById('r-reason').style.display='';
+  clearMetrics();
+}
+
+function renderPlanSuccess(d){
+  setStatus('✓ 规划成功','ok');
+  document.getElementById('r-reason').style.display='none';
+  document.getElementById('r-raw-pts').textContent=d.raw_points;
+  document.getElementById('r-raw-len').textContent=d.raw_length+' m';
+  document.getElementById('r-ds-pts').textContent=d.ds_points;
+  document.getElementById('r-sm-pts').textContent=d.smooth_points;
+  document.getElementById('r-sm-len').textContent=d.smooth_length+' m';
+  document.getElementById('r-plan-ms').textContent=d.plan_ms;
+  const radiusFallback=d.robot_radius_fallback?' (已回退到安全距离)':'';
+  document.getElementById('r-plan-sub').textContent=`毫秒 / A* 半径 ${d.robot_radius.toFixed(2)} m${radiusFallback}`;
+  document.getElementById('r-smooth-ms').textContent=d.smooth_ms;
+  document.getElementById('r-cost').textContent=d.final_cost?.toFixed(2)||'—';
+  document.getElementById('r-cost-breakdown').textContent=formatCostBreakdown(d.cost_breakdown);
+  document.getElementById('r-min-clr').textContent=d.min_clearance?.toFixed(4)||'—';
+  const so=document.getElementById('r-smooth-ok');
+  so.textContent=d.success?'成功':'失败';
+  so.className=d.success?'badge ok':'badge fail';
+}
+
+async function runPlan(){
+  const sg=getStartGoal(),btn=document.getElementById('btn-plan');
+  btn.disabled=true; btn.textContent='⏳ 规划中...';
+  setStatus('规划中...','running');
+  try{
+    const r=await fetch('/api/plan',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({start:[sg.sx,sg.sy],goal:[sg.gx,sg.gy],...getParams()})});
+    const d=await r.json();
+    lastResult=d;
+    if(!d.found){
+      renderPlanFailure(d);
+      drawPlot(); return;
+    }
+    renderPlanSuccess(d);
+    drawPlot();
+  }catch(e){
+    setStatus('✗ 请求失败: '+e,'fail');
+  }finally{
+    btn.disabled=false;btn.textContent='▶ 开始规划';
+  }
+}
+
+function clearResult(){
+  lastResult=null;
+  setStatus('— 等待中');
+  document.getElementById('r-reason').style.display='none';
+  clearMetrics();
+  drawPlot();
+}
+
+function resetParams(){
+  const d={downsample:3,w_smooth:100,w_curvature:1000,w_reference:0,w_length:0.5,w_obstacle:1,
+    w_penetration:0,
+    safety_margin:1.0,robot_radius:0.5,min_turning_radius:0.5,max_iterations:200,max_time:2.0,resample_after_smooth:false,
+    target_spacing:0.3};
+  Object.entries(d).forEach(([k,v])=>{
+    const el=document.getElementById('p-'+k.replace(/_/g,'-'));
+    if(el)el.value=v;
+  });
+  // Defaults match the demo controls.
+  document.getElementById('p-robot-radius').value='0.5';
+
+  document.getElementById('p-resample').checked=false;
+  document.getElementById('p-resample-in').checked=true;
+  if(lastResult)runPlan();
+}
+
+// Show ESDF toggle → redraw
+document.getElementById('show-esdf').addEventListener('change',drawPlot);
+document.getElementById('show-grid').addEventListener('change',drawPlot);
+document.getElementById('show-robot').addEventListener('change',drawPlot);
+document.getElementById('show-safety').addEventListener('change',drawPlot);
+document.getElementById('esdf-scheme').addEventListener('change',drawPlot);
+
+// Auto-replan: debounce 600ms after changes. Goal edits force the first plan;
+// other edits only replan after a result already exists.
+let _autoTimer=null;
+function scheduleAutoReplan(force=false){
+  if(!force&&!lastResult)return;
+  clearTimeout(_autoTimer);
+  _autoTimer=setTimeout(()=>runPlan(),600);
+}
+// Bind to all parameter inputs (number fields + checkboxes)
+document.querySelectorAll(
+  '#p-downsample,#p-robot-radius,#p-w-smooth,#p-w-curvature,#p-w-reference,'+
+  '#p-w-length,#p-w-obstacle,#p-safe-distance,#p-min-turn,'+
+  '#p-max-iter,#p-max-time,#p-target-spacing,#p-resample,#p-resample-in'
+).forEach(el=>{
+  el.addEventListener('input',scheduleAutoReplan);
+  if(el.type==='checkbox') el.addEventListener('change',scheduleAutoReplan);
+});
+// Bind to start/goal inputs. Goal edits trigger planning even before a prior result.
+document.querySelectorAll('#start-x,#start-y,#goal-x,#goal-y')
+  .forEach(el=>el.addEventListener('input',()=>{drawPlot();scheduleAutoReplan(el.id.startsWith('goal-'));}));
+
+init();
+</script>
+</body>
+</html>

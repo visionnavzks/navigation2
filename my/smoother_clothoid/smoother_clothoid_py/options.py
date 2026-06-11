@@ -1,0 +1,53 @@
+"""Runtime configuration for the clothoid smoother."""
+
+from __future__ import annotations
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+@dataclass
+class SmootherParams:
+    model_weight_sqrt: float = 0.0
+    costmap_weight_sqrt: float = 0.0
+    cusp_costmap_weight_sqrt: float = 0.0
+    cusp_zone_length: float = 0.0
+    reference_path_weight_sqrt: float = 0.0
+    reference_point_max_deviation_m: float = 0.0
+    kinematic_curvature_weight_sqrt: float = 0.0
+    kinematic_curvature_rate_weight_sqrt: float = 0.0
+    kinematic_spacing_weight_sqrt: float = 1.0
+    kinematic_max_spacing: float = 0.0
+    path_length_weight_sqrt: float = 0.0
+    fix_weight: float = 100.0
+    max_curvature: float = 0.0
+    max_time: float = 10.0
+    use_exact_esdf: bool = True
+    obstacle_safe_distance: float = 0.5
+    cost_check_radius: float = 0.0
+    cost_check_points: list[float] = field(default_factory=list)
+    path_downsampling_factor: int = 1
+    path_upsampling_factor: int = 1
+    reversing_enabled: bool = True
+    goal_longitudinal_tolerance: float = 0.0
+    goal_lateral_tolerance: float = 0.0
+    goal_orientation_tolerance: float = 0.0
+    keep_goal_orientation: bool = True
+    keep_start_orientation: bool = True
+
+    def obstacle_terms_enabled(self) -> bool:
+        return max(self.costmap_weight_sqrt, self.cusp_costmap_weight_sqrt) > 1e-9
+
+
+class LinearSolver(Enum):
+    DenseQr = "DENSE_QR"
+    SparseNormalCholesky = "SPARSE_NORMAL_CHOLESKY"
+
+
+@dataclass
+class OptimizerParams:
+    debug: bool = False
+    linear_solver: LinearSolver = LinearSolver.SparseNormalCholesky
+    max_iterations: int = 50
+    parameter_tolerance: float = 1e-8
+    function_tolerance: float = 1e-6
+    gradient_tolerance: float = 1e-10
