@@ -241,7 +241,7 @@ def compute_path_cost_breakdown(xs, ys, pm, map_obj):
         target_dot = norm_v1 * norm_v2 * math.cos(max_theta)
         deficit = target_dot - dot
         if deficit > 0.0:
-            terms["curvature"] += 0.5 * pm.w_curvature * deficit * deficit
+            terms["curvature"] += 0.5 * pm.w_max_curvature * deficit * deficit
 
     terms["total"] = (
         terms["length"] + terms["smooth"] + terms["curvature"] +
@@ -275,7 +275,7 @@ def _make_smoother_params(body):
     pm = cs2d.SmootherParams()
     pm.max_iterations = int(body.get("max_iterations", 200))
     pm.w_smooth = float(body.get("w_smooth", 100))
-    pm.w_curvature = float(body.get("w_curvature", 1000))
+    pm.w_max_curvature = float(body.get("w_max_curvature", 1000))
     pm.min_turning_radius = float(body.get("min_turning_radius", 0.5))
     pm.w_reference = float(body.get("w_reference", 0))
     pm.w_length = float(body.get("w_length", 0.5))
@@ -371,17 +371,10 @@ def api_plan():
 
     pm = _make_smoother_params(body)
     robot_radius = pm.robot_radius
-    clear_radius = pm.safety_margin + pm.robot_radius
 
     t0 = time.perf_counter()
     astar_res = cs2d.astar_solve(esdf_map, sx, sy, gx, gy, robot_radius)
-    fallback_robot_radius = None
-    if not astar_res.success and robot_radius > clear_radius:
-        fallback_robot_radius = clear_radius
-        astar_res = cs2d.astar_solve(esdf_map, sx, sy, gx, gy, fallback_robot_radius)
     plan_ms = (time.perf_counter() - t0) * 1000
-    if fallback_robot_radius is not None and astar_res.success:
-        robot_radius = fallback_robot_radius
 
     if not astar_res.success:
         return jsonify(found=False, reason=f"无路径 (起点/终点不连通, A* 半径 {robot_radius:.2f}m)",
@@ -405,7 +398,7 @@ def api_plan():
         found=True, start_ok=True, goal_ok=True,
         plan_ms=round(plan_ms,1), smooth_ms=round(smooth_ms,1),
         robot_radius=robot_radius,
-        robot_radius_fallback=fallback_robot_radius is not None,
+        robot_radius_fallback=False,
         raw_x=[p[0] for p in raw], raw_y=[p[1] for p in raw],
         raw_points=len(raw), raw_length=round(_path_length(raw),2),
         ds_x=xs, ds_y=ys, ds_points=len(xs),

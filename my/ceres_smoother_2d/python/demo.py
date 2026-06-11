@@ -152,7 +152,7 @@ def main():
     params = cs2d.SmootherParams()
     params.max_iterations = 200
     params.w_smooth = 100.0
-    params.w_curvature = 50.0
+    params.w_max_curvature = 50.0
     params.min_turning_radius = 0.5
     params.w_reference = 10.0
     params.w_obstacle = 200.0

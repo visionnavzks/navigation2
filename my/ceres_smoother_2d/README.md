@@ -100,7 +100,7 @@ thirdparty/stb/
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `w_smooth` | 100.0 | Smoothness weight |
-| `w_curvature` | 50.0 | Curvature constraint weight |
+| `w_max_curvature` | 50.0 | Curvature constraint weight |
 | `w_reference` | 10.0 | Reference tracking weight |
 | `w_length` | 10.0 | Rubber-band inter-point distance weight |
 | `w_obstacle` | 200.0 | ESDF obstacle avoidance weight (hinge) |

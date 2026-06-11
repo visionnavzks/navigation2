@@ -136,8 +136,8 @@ details.category .field:last-child{margin-bottom:6px}
         <summary>✨ Ceres 平滑器</summary>
         <div class="field"><label>w_smooth · 平滑权重</label>
           <input id="p-w-smooth" type="number" step="10" min="0" value="100"></div>
-        <div class="field"><label>w_curvature · 曲率权重</label>
-          <input id="p-w-curvature" type="number" step="50" min="0" value="1000"></div>
+        <div class="field"><label>w_max_curvature · 最大曲率约束</label>
+          <input id="p-w-max-curvature" type="number" step="50" min="0" value="1000"></div>
         <div class="field"><label>w_reference · 参考路径权重</label>
           <input id="p-w-reference" type="number" step="1" min="0" value="0">
           <small>设为 0 表示只锁定起终点；大障碍权重时路径会明显偏离 A* 参考线</small></div>
@@ -146,7 +146,7 @@ details.category .field:last-child{margin-bottom:6px}
         <div class="field"><label>w_obstacle · 障碍物权重</label>
           <input id="p-w-obstacle" type="number" step="1" min="0" value="1"></div>
         <div class="field"><label>w_penetrate · 墙内惩罚权重</label>
-          <input id="p-w-penetration" type="number" step="10" min="0" value="0"></div>
+          <input id="p-w-penetration" type="number" step="10" min="0" value="1000"></div>
         <div class="field"><label>safety_margin · 安全裕度 (米)</label>
           <input id="p-safe-distance" type="number" step="0.05" min="0" value="1.0">
           <small>从车身边缘算起；实际阈值 = safety_margin + robot_radius</small></div>
@@ -609,7 +609,7 @@ function getStartGoal(){
 function getParams(){
   const params={downsample:+document.getElementById('p-downsample').value,
     w_smooth:+document.getElementById('p-w-smooth').value,
-    w_curvature:+document.getElementById('p-w-curvature').value,
+    w_max_curvature:+document.getElementById('p-w-max-curvature').value,
     w_reference:+document.getElementById('p-w-reference').value,
     w_length:+document.getElementById('p-w-length').value,
     w_obstacle:+document.getElementById('p-w-obstacle').value,
@@ -715,8 +715,8 @@ function clearResult(){
 }
 
 function resetParams(){
-  const d={downsample:3,w_smooth:100,w_curvature:1000,w_reference:0,w_length:0.5,w_obstacle:1,
-    w_penetration:0,
+  const d={downsample:3,w_smooth:100,w_max_curvature:1000,w_reference:0,w_length:0.5,w_obstacle:1,
+    w_penetration:1000,
     safety_margin:1.0,robot_radius:0.5,min_turning_radius:0.5,max_iterations:200,max_time:2.0,resample_after_smooth:false,
     target_spacing:0.3};
   Object.entries(d).forEach(([k,v])=>{

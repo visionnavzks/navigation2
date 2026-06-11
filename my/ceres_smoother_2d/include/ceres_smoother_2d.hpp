@@ -42,8 +42,8 @@ struct SmootherParams
   // Smoothness: penalizes second-order difference
   double w_smooth{10.0};
 
-  // Curvature: soft constraint on maximum curvature
-  double w_curvature{1000.0};
+  // Max-curvature: soft constraint on maximum curvature
+  double w_max_curvature{1000.0};
   double min_turning_radius{0.2};  // meters
 
   // Reference tracking: penalty for deviating from the A* reference path
@@ -421,7 +421,7 @@ public:
 
     const double sqrt_w_ref = std::sqrt(params_.w_reference);
     const double sqrt_w_smooth = std::sqrt(params_.w_smooth);
-    const double sqrt_w_curv = std::sqrt(params_.w_curvature);
+    const double sqrt_w_curv = std::sqrt(params_.w_max_curvature);
     const double sqrt_w_length = std::sqrt(params_.w_length);
     const double max_kappa = params_.maxCurvature();
 
@@ -501,7 +501,7 @@ public:
                 nullptr,
                 path_optim[i - 1].data(), path_optim[i].data(), path_optim[i + 1].data());
             }
-            if (params_.w_curvature > 0.0) {
+            if (params_.w_max_curvature > 0.0) {
               problem.AddResidualBlock(
                 new ceres::AutoDiffCostFunction<CurvatureCost, 1, 2, 2, 2>(
                   new CurvatureCost(sqrt_w_curv, max_kappa)),

@@ -279,7 +279,7 @@ static void test_smoother_params_defaults()
   EXPECT(p.w_obstacle > 0.0, "w_obstacle positive");
   EXPECT(p.w_reference >= 0.0, "w_reference non-negative");
   EXPECT(p.w_length >= 0.0, "w_length non-negative");
-  EXPECT(p.w_curvature > 0.0, "w_curvature positive");
+  EXPECT(p.w_max_curvature > 0.0, "w_max_curvature positive");
   EXPECT(p.safety_margin > 0.0, "safety_margin positive");
   EXPECT_NEAR(p.obstacleCostDistance(), p.safety_margin + p.robot_radius, 1e-9, "default obstacle cost distance");
   EXPECT(p.min_turning_radius > 0.0, "min_turning_radius positive");
@@ -302,7 +302,7 @@ static void test_smoother_params_custom()
   p.w_smooth = 1.0;
   p.w_obstacle = 2.0;
   p.w_reference = 3.0;
-  p.w_curvature = 4.0;
+  p.w_max_curvature = 4.0;
   p.min_turning_radius = 2.0;
   p.safety_margin = 0.25;
   EXPECT_NEAR(p.maxCurvature(), 0.5, 1e-9, "custom radius curvature");
@@ -515,7 +515,7 @@ static void test_smoother_straight_line_unchanged()
   p.max_iterations = 50;
   p.w_smooth = 1000.0;
   p.w_obstacle = 0.0;       // disable obstacle for this test
-  p.w_curvature = 0.0;
+  p.w_max_curvature = 0.0;
   p.resample_before_smooth = false;
   p.resample_after_smooth = false;
   PathSmoother2D smoother(p);
@@ -542,7 +542,7 @@ static void test_smoother_smoothing_reduces_oscillation()
   p.max_iterations = 100;
   p.w_smooth = 1000.0;
   p.w_obstacle = 0.0;
-  p.w_curvature = 0.0;
+  p.w_max_curvature = 0.0;
   p.w_reference = 1.0;
   PathSmoother2D smoother(p);
   std::vector<double> xs, ys;
@@ -721,7 +721,7 @@ static void test_smoother_penetration_penalizes_interior()
     p.w_smooth = 0.0;
     p.w_reference = 0.0;
     p.w_length = 0.0;
-    p.w_curvature = 0.0;
+    p.w_max_curvature = 0.0;
     p.w_obstacle = 50.0;
     p.w_penetration = w_pen;
     p.safety_margin = 0.3;

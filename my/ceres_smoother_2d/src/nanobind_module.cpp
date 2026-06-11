@@ -88,8 +88,8 @@ NB_MODULE(ceres_smoother_2d, m)
       "Enable Ceres verbose output.")
     .def_rw("w_smooth", &SmootherParams::w_smooth,
       "Smoothness weight (jerk penalty).")
-    .def_rw("w_curvature", &SmootherParams::w_curvature,
-      "Curvature constraint weight.")
+    .def_rw("w_max_curvature", &SmootherParams::w_max_curvature,
+      "Max-curvature constraint weight.")
     .def_rw("min_turning_radius", &SmootherParams::min_turning_radius,
       "Minimum turning radius in meters.")
     .def_rw("w_reference", &SmootherParams::w_reference,

@@ -344,7 +344,7 @@ class TestSmootherParams:
         assert p.w_obstacle > 0.0
         assert p.w_reference >= 0.0
         assert p.w_length >= 0.0
-        assert p.w_curvature > 0.0
+        assert p.w_max_curvature > 0.0
         assert p.safety_margin > 0.0
         assert p.min_turning_radius > 0.0
         assert p.target_spacing > 0.0
@@ -357,7 +357,7 @@ class TestSmootherParams:
         p.w_smooth = 1.0
         p.w_obstacle = 2.0
         p.w_reference = 3.0
-        p.w_curvature = 4.0
+        p.w_max_curvature = 4.0
         p.min_turning_radius = 0.5
         p.safety_margin = 0.25
         p.max_iterations = 50
@@ -368,7 +368,7 @@ class TestSmootherParams:
         assert p.w_smooth == pytest.approx(1.0)
         assert p.w_obstacle == pytest.approx(2.0)
         assert p.w_reference == pytest.approx(3.0)
-        assert p.w_curvature == pytest.approx(4.0)
+        assert p.w_max_curvature == pytest.approx(4.0)
         assert p.min_turning_radius == pytest.approx(0.5)
         assert p.safety_margin == pytest.approx(0.25)
         assert p.max_iterations == 50
@@ -423,7 +423,7 @@ class TestPathSmoother2D:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         # Disable resampling so output point count == input point count.
         params.resample_before_smooth = False
         params.resample_after_smooth = False
@@ -441,7 +441,7 @@ class TestPathSmoother2D:
         params = cs2d.SmootherParams()
         params.w_smooth = 5000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.1
         sm = cs2d.PathSmoother2D(params)
         N = 12
@@ -462,7 +462,7 @@ class TestPathSmoother2D:
         params = cs2d.SmootherParams()
         params.w_smooth = 0.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         params.safety_margin = 0.3
@@ -575,7 +575,7 @@ class TestRealMapSmoke:
         params = cs2d.SmootherParams()
         params.max_iterations = 50
         params.w_smooth = 100.0
-        params.w_curvature = 50.0
+        params.w_max_curvature = 50.0
         params.w_obstacle = 200.0
         params.safety_margin = 0.3
         # Disable resampling so the smoothed path has the same 5 points as input
@@ -692,7 +692,7 @@ class TestDefaultsResample:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         sm = cs2d.PathSmoother2D(params)
@@ -731,7 +731,7 @@ class TestElasticBandLengthCost:
         params.w_length = 1000.0
         params.w_smooth = 1.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         sm = cs2d.PathSmoother2D(params)
         # Very zigzaggy input (way longer than start→goal straight line).
@@ -756,7 +756,7 @@ class TestElasticBandLengthCost:
         params.w_smooth = 100.0
         params.w_length = 100.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         sm = cs2d.PathSmoother2D(params)
         # 200-point zig-zag line on y=5.
@@ -784,7 +784,7 @@ class TestElasticBandLengthCost:
         params.w_length = 100.0
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         sm = cs2d.PathSmoother2D(params)
         # Perfect straight line → output must stay on it.
@@ -830,7 +830,7 @@ class TestPenetrationCost:
             params.w_smooth = 0.0
             params.w_reference = 0.0
             params.w_length = 0.0
-            params.w_curvature = 0.0
+            params.w_max_curvature = 0.0
             params.w_obstacle = 50.0
             params.w_penetration = w_pen
             params.safety_margin = 0.3
@@ -872,7 +872,7 @@ class TestPenetrationCost:
         params.w_smooth = 10.0
         params.w_reference = 1.0
         params.w_length = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_obstacle = 50.0
         params.w_penetration = 5000.0
         params.safety_margin = 0.0   # disable soft hinge
@@ -909,7 +909,7 @@ class TestSmootherResampleAfterSmooth:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         # Explicit: both flags off (defaults are now both true).
@@ -930,7 +930,7 @@ class TestSmootherResampleAfterSmooth:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         params.target_spacing = 0.5
@@ -959,7 +959,7 @@ class TestSmootherResampleAfterSmooth:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         # Explicit: both flags off (defaults are now both true).
@@ -980,7 +980,7 @@ class TestSmootherResampleAfterSmooth:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         params.target_spacing = 0.5
@@ -1008,7 +1008,7 @@ class TestSmootherResampleAfterSmooth:
         params = cs2d.SmootherParams()
         params.w_smooth = 1000.0
         params.w_obstacle = 0.0
-        params.w_curvature = 0.0
+        params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
         params.target_spacing = 0.5
