@@ -748,8 +748,8 @@ function scheduleAutoReplan(force=false){
 }
 // Bind to all parameter inputs (number fields + checkboxes)
 document.querySelectorAll(
-  '#p-downsample,#p-robot-radius,#p-w-smooth,#p-w-curvature,#p-w-reference,'+
-  '#p-w-length,#p-w-obstacle,#p-safe-distance,#p-min-turn,'+
+  '#p-downsample,#p-robot-radius,#p-w-smooth,#p-w-max-curvature,#p-w-reference,'+
+  '#p-w-length,#p-w-obstacle,#p-w-penetration,#p-safe-distance,#p-min-turn,'+
   '#p-max-iter,#p-max-time,#p-target-spacing,#p-resample,#p-resample-in'
 ).forEach(el=>{
   el.addEventListener('input',scheduleAutoReplan);
