@@ -211,34 +211,35 @@ public:
 
     // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与期望间距。
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
-      auto * transition_cost = new kinematic_smoother_detail::TransitionCostFunctor(
-        processed.gears[index],
-        processed.is_cusp_segment[index],
-        model_weight,
-        curvature_weight,
-        curvature_rate_weight,
-        spacing_weight,
-        length_weight,
-        fix_weight,
-        processed.target_spacing);
       problem.AddResidualBlock(
-        transition_cost->AutoDiff(),
+        kinematic_smoother_detail::TransitionCostFunctor::Create(
+          processed.gears[index],
+          processed.is_cusp_segment[index],
+          model_weight,
+          curvature_weight,
+          curvature_rate_weight,
+          spacing_weight,
+          length_weight,
+          fix_weight,
+          processed.target_spacing),
         nullptr,
         stateData(variables, index),
         stateData(variables, index + 1));
     }
 
     // 起点边界残差：位置固定，朝向是否固定由 keep_start_orientation 控制。
-    auto * start_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
-      processed.reference_points.front(),
-      processed.start_theta,
-      params.keep_start_orientation,
-      0.0,
-      0.0,
-      0.0,
-      fix_weight,
-      false);
-    problem.AddResidualBlock(start_boundary_cost->AutoDiff(), nullptr, stateData(variables, 0));
+    problem.AddResidualBlock(
+      kinematic_smoother_detail::BoundaryCostFunctor::Create(
+        processed.reference_points.front(),
+        processed.start_theta,
+        params.keep_start_orientation,
+        0.0,
+        0.0,
+        0.0,
+        fix_weight,
+        false),
+      nullptr,
+      stateData(variables, 0));
 
     // 终点位置容差框所用的参考朝向：
     // keep_goal_orientation=true 时采用 end_theta，否则采用末段几何朝向。
@@ -248,26 +249,27 @@ public:
       params.keep_goal_orientation);
 
     // 终点边界残差：支持纵向/横向容差与可选朝向固定。
-    auto * goal_boundary_cost = new kinematic_smoother_detail::BoundaryCostFunctor(
-      processed.reference_points.back(),
-      goal_position_theta,
-      params.keep_goal_orientation,
-      params.goal_longitudinal_tolerance,
-      params.goal_lateral_tolerance,
-      params.goal_orientation_tolerance,
-      fix_weight,
-      true);
     problem.AddResidualBlock(
-      goal_boundary_cost->AutoDiff(),
+      kinematic_smoother_detail::BoundaryCostFunctor::Create(
+        processed.reference_points.back(),
+        goal_position_theta,
+        params.keep_goal_orientation,
+        params.goal_longitudinal_tolerance,
+        params.goal_lateral_tolerance,
+        params.goal_orientation_tolerance,
+        fix_weight,
+        true),
       nullptr,
       stateData(variables, processed.state_count - 1));
 
     // 参考路径吸附残差：仅在 reference_weight>0 时启用。
     if (reference_weight > 1e-9) {
       for (size_t index = 0; index < processed.state_count; ++index) {
-        auto * reference_cost = new kinematic_smoother_detail::ReferenceCostFunctor(
-          processed.reference_points[index], reference_weight);
-        problem.AddResidualBlock(reference_cost->AutoDiff(), nullptr, stateData(variables, index));
+        problem.AddResidualBlock(
+          kinematic_smoother_detail::ReferenceCostFunctor::Create(
+            processed.reference_points[index], reference_weight),
+          nullptr,
+          stateData(variables, index));
       }
     }
 
@@ -277,9 +279,11 @@ public:
         const bool is_cusp_pose =
           (index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index]) ||
           (index > 0 && processed.is_cusp_segment[index - 1]);
-        auto * obstacle_cost = new kinematic_smoother_detail::ObstacleCostFunctor(
-          is_cusp_pose, costmap, params, esdf_grid_, esdf_interpolator_);
-        problem.AddResidualBlock(obstacle_cost->AutoDiff(), nullptr, stateData(variables, index));
+        problem.AddResidualBlock(
+          kinematic_smoother_detail::ObstacleCostFunctor::Create(
+            is_cusp_pose, costmap, params, esdf_grid_, esdf_interpolator_),
+          nullptr,
+          stateData(variables, index));
       }
     }
   }
@@ -288,6 +292,7 @@ public:
     ceres::Problem & problem,
     double * variables,
     const std::vector<Eigen::Vector2d> & reference_points,
+    const std::vector<bool> & is_cusp_segment,
     size_t state_count,
     double max_curvature,
     double max_spacing,
@@ -310,7 +315,9 @@ public:
       }
       problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
       problem.SetParameterUpperBound(state, 3, clamped_max_curvature);
-      problem.SetParameterLowerBound(state, 4, 0.0);
+      const bool ds_is_used = index + 1 < state_count;
+      const bool is_cusp_ds = index < is_cusp_segment.size() && is_cusp_segment[index];
+      problem.SetParameterLowerBound(state, 4, ds_is_used && !is_cusp_ds ? 1e-6 : 0.0);
       if (max_spacing > 1e-9) {
         problem.SetParameterUpperBound(state, 4, max_spacing);
       }

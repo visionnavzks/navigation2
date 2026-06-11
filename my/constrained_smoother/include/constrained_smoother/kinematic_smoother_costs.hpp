@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -100,9 +101,28 @@ public:
    * @brief 创建用于 Ceres 自动微分的代价函数对象
    *        模板参数：7 个残差，两个参数块各 5 个分量（current 和 next）
    */
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    double gear,
+    bool is_cusp_segment,
+    double model_weight,
+    double curvature_weight,
+    double curvature_rate_weight,
+    double spacing_weight,
+    double length_weight,
+    double fix_weight,
+    double target_spacing)
   {
-    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(this);
+    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(
+      new TransitionCostFunctor(
+        gear,
+        is_cusp_segment,
+        model_weight,
+        curvature_weight,
+        curvature_rate_weight,
+        spacing_weight,
+        length_weight,
+        fix_weight,
+        target_spacing));
   }
 
   /**
@@ -150,9 +170,8 @@ public:
     // theta_pred = theta + direction * ds * (kappa + next_kappa) / 2
     const T theta_pred = theta + direction * ds * (kappa + next_kappa) * T(0.5);
 
-    // 中间朝向角，用于 Euler midpoint 位置预测
-    // theta_mid = theta + direction * ds * kappa / 2
-    const T theta_mid = theta + direction * ds * kappa * T(0.5);
+    // 中间朝向角，用于 Euler midpoint 位置预测；与梯形曲率积分保持一致。
+    const T theta_mid = (theta + theta_pred) * T(0.5);
 
     // 用中间朝向角预测下一点位置（Euler midpoint 近似）
     const T x_pred = x + direction * ds * cosValue(theta_mid);
@@ -289,9 +308,26 @@ public:
    * @brief 创建用于 Ceres 自动微分的代价函数对象
    *        模板参数：4 个残差，1 个参数块（5 个分量）
    */
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    const Eigen::Vector2d & reference_point,
+    double target_theta,
+    bool keep_orientation,
+    double longitudinal_tolerance,
+    double lateral_tolerance,
+    double orientation_tolerance,
+    double fix_weight,
+    bool constrain_stop)
   {
-    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(this);
+    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(
+      new BoundaryCostFunctor(
+        reference_point,
+        target_theta,
+        keep_orientation,
+        longitudinal_tolerance,
+        lateral_tolerance,
+        orientation_tolerance,
+        fix_weight,
+        constrain_stop));
   }
 
   /**
@@ -385,9 +421,12 @@ public:
    * @brief 创建用于 Ceres 自动微分的代价函数对象
    *        模板参数：2 个残差，1 个参数块（5 个分量）
    */
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    const Eigen::Vector2d & reference_point,
+    double reference_weight)
   {
-    return new ceres::AutoDiffCostFunction<ReferenceCostFunctor, 2, 5>(this);
+    return new ceres::AutoDiffCostFunction<ReferenceCostFunctor, 2, 5>(
+      new ReferenceCostFunctor(reference_point, reference_weight));
   }
 
   /**
@@ -418,10 +457,11 @@ private:
  * 该代价函数利用预先计算的欧几里得有符号距离场（ESDF）对路径点与障碍物的
  * 距离进行惩罚，确保平滑后的路径与障碍物保持安全距离。
  *
- * 距离惩罚模型（二次惩罚）：
- *   - 当到障碍物表面的距离 >= obstacle_safe_distance 时，惩罚为 0
- *   - 当距离 < obstacle_safe_distance 时，惩罚 = ((safe_dist - dist) / safe_dist)^2
- *   - 当路径点超出代价地图范围时，惩罚为最大值 1.0
+ * 距离惩罚模型：
+ *   - 当到障碍物表面的距离 >= obstacle_safe_distance 时，残差为 0
+ *   - 当距离 < obstacle_safe_distance 时，残差为一次 hinge；
+ *     Ceres 对 residual 平方后得到二次净空代价
+ *   - 当路径点超出代价地图范围时，返回常数边界残差
  *
  * 支持多检测点模式（cost_check_points）：
  *   可指定多个相对于路径点坐标系的检测点（如机器人轮廓上的多个点），
@@ -460,6 +500,9 @@ public:
     esdf_grid_(esdf_grid),
     esdf_interpolator_(esdf_interpolator)
   {
+    if (!cost_check_points_.empty() && cost_check_points_.size() % 3 != 0) {
+      throw std::invalid_argument("cost_check_points size must be a multiple of 3");
+    }
   }
 
   /**
@@ -475,11 +518,18 @@ public:
    * @brief 创建用于 Ceres 自动微分的动态代价函数对象
    *        残差数量在运行时由 numResiduals() 决定（动态残差）
    */
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    bool is_cusp_pose,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
+    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator)
   {
-    auto * cost_function = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(this);
+    auto * functor = new ObstacleCostFunctor(
+      is_cusp_pose, costmap, params, esdf_grid, esdf_interpolator);
+    auto * cost_function = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(functor);
     cost_function->AddParameterBlock(5);  // 状态向量维度为 5
-    cost_function->SetNumResiduals(numResiduals());
+    cost_function->SetNumResiduals(functor->numResiduals());
     return cost_function;
   }
 
@@ -527,13 +577,13 @@ private:
    * @brief 计算给定世界坐标点处的障碍物惩罚值
    *
    * 从 ESDF 插值器中查询该点到最近障碍物的距离，
-   * 并根据距离与安全距离的关系计算二次惩罚：
-   *   penalty = ((safe_dist - (esdf_dist - robot_radius)) / safe_dist)^2
-   *           当 esdf_dist - robot_radius < safe_dist 时生效，否则为 0
+   * 并根据距离与安全距离的关系计算一次 hinge residual：
+   *   residual = (safe_dist - (esdf_dist - robot_radius)) / safe_dist
+   *              当 esdf_dist - robot_radius < safe_dist 时生效，否则为 0
    *
    * @param world_x  世界坐标 x（米）
    * @param world_y  世界坐标 y（米）
-   * @return 障碍物惩罚值，范围 [0, 1]（超出地图时返回 1.0）
+   * @return 障碍物 residual；Ceres 会进一步平方形成二次代价
    */
   template<typename T>
   T obstaclePenalty(T world_x, T world_y) const
@@ -542,7 +592,7 @@ private:
     const T grid_x = (world_x - T(costmap_origin_.x())) / T(costmap_resolution_);
     const T grid_y = (world_y - T(costmap_origin_.y())) / T(costmap_resolution_);
 
-    // 若超出代价地图边界，返回最大惩罚 1.0（视为障碍）
+    // 若超出可插值边界，返回常数边界残差。
     if (grid_x < T(1.5) || grid_y < T(1.5) ||
       grid_x >= T(static_cast<double>(size_x_) - 1.5) || grid_y >= T(static_cast<double>(size_y_) - 1.5))
     {
@@ -562,10 +612,8 @@ private:
       return T(0.0);
     }
 
-    // 二次惩罚：越接近障碍物，惩罚越大（最大为 1.0）
-    const T normalized_gap =
-      (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
-    return normalized_gap * normalized_gap;
+    // 一次 hinge residual；Ceres 平方 residual 后得到二次净空代价。
+    return (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
   }
 
   // 以下两个辅助函数封装 std 数学函数，确保模板 T 可正确推导
@@ -592,7 +640,7 @@ private:
   double obstacle_weight_;           ///< 普通路径点的障碍物惩罚权重（平方根形式）
   double cusp_obstacle_weight_;      ///< 尖点处的障碍物惩罚权重（不小于普通权重）
   bool is_cusp_pose_;                ///< 该路径点是否为尖点
-  const std::vector<double> & cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
+  std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< 保持插值器底层网格存活
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器
 };

@@ -517,7 +517,8 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
       params.reference_path_weight_sqrt = 0.0;
       params.kinematic_curvature_weight_sqrt = 0.0;
       params.kinematic_curvature_rate_weight_sqrt = 0.0;
-      params.max_curvature = 1.0 / 0.4;
+      params.path_length_weight_sqrt = std::sqrt(5.0);
+      params.max_curvature = 10.0;
       params.max_time = 1.0;
       params.keep_start_orientation = false;
       params.keep_goal_orientation = false;
@@ -640,11 +641,11 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   }
 
   std::vector<Eigen::Vector3d> path = {
-    {1.0, 2.0, 1.0},
-    {1.5, 2.0, 1.0},
-    {2.0, 2.0, 1.0},
-    {2.5, 2.0, 1.0},
-    {3.0, 2.0, 1.0},
+    {1.0, 3.2, 1.0},
+    {1.5, 3.2, 1.0},
+    {2.0, 3.2, 1.0},
+    {2.5, 3.2, 1.0},
+    {3.0, 3.2, 1.0},
   };
 
   constrained_smoother::SmootherParams params;

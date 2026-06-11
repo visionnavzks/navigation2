@@ -103,6 +103,7 @@ public:
       problem,
       variables.data(),
       processed.reference_points,
+      processed.is_cusp_segment,
       processed.state_count,
       request.params.max_curvature,
       request.params.kinematic_max_spacing,
