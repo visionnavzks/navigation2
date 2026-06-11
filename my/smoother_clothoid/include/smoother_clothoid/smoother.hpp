@@ -58,7 +58,7 @@ public:
     ceres::Problem problem;
     builder.buildProblem(processed, request.costmap, request.params, variables, problem);
     ProblemBuilder::applyBounds(problem, variables.data(), processed.reference_points,
-      processed.state_count, request.params.max_curvature,
+      processed.is_cusp_segment, processed.state_count, request.params.max_curvature,
       request.params.kinematic_max_spacing, request.params.reference_point_max_deviation_m);
 
     result.optimized_knot_count = processed.state_count;

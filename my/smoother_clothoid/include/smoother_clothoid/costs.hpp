@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -32,9 +33,16 @@ public:
     length_weight_(length_weight), fix_weight_(fix_weight),
     target_spacing_(target_spacing) {}
 
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    double gear, bool is_cusp_segment,
+    double model_weight, double curvature_weight, double curvature_rate_weight,
+    double spacing_weight, double length_weight, double fix_weight,
+    double target_spacing)
   {
-    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(this);
+    return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(
+      new TransitionCostFunctor(
+        gear, is_cusp_segment, model_weight, curvature_weight, curvature_rate_weight,
+        spacing_weight, length_weight, fix_weight, target_spacing));
   }
 
   template<typename T>
@@ -57,7 +65,7 @@ public:
 
     const T direction = gear_ >= 0.0 ? T(1.0) : T(-1.0);
     const T theta_pred = theta + direction * ds * (kappa + next_kappa) * T(0.5);
-    const T theta_mid = theta + direction * ds * kappa * T(0.5);
+    const T theta_mid = (theta + theta_pred) * T(0.5);
     const T x_pred = x + direction * ds * cosValue(theta_mid);
     const T y_pred = y + direction * ds * sinValue(theta_mid);
     const T denom = ds > T(1e-3) ? sqrtValue(ds) : T(0.03);
@@ -96,9 +104,13 @@ public:
     orientation_tolerance_(std::max(ori_tol, 0.0)), fix_weight_(fix_weight),
     constrain_stop_(constrain_stop) {}
 
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    const Eigen::Vector2d & ref, double target_theta, bool keep_orientation,
+    double lon_tol, double lat_tol, double ori_tol, double fix_weight, bool constrain_stop)
   {
-    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(this);
+    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(
+      new BoundaryCostFunctor(
+        ref, target_theta, keep_orientation, lon_tol, lat_tol, ori_tol, fix_weight, constrain_stop));
   }
 
   template<typename T>
@@ -144,9 +156,10 @@ public:
   ReferenceCostFunctor(const Eigen::Vector2d & ref, double weight)
   : reference_point_(ref), reference_weight_(weight) {}
 
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(const Eigen::Vector2d & ref, double weight)
   {
-    return new ceres::AutoDiffCostFunction<ReferenceCostFunctor, 2, 5>(this);
+    return new ceres::AutoDiffCostFunction<ReferenceCostFunctor, 2, 5>(
+      new ReferenceCostFunctor(ref, weight));
   }
 
   template<typename T>
@@ -177,18 +190,27 @@ public:
     obstacle_weight_(std::max(params.costmap_weight_sqrt, 0.0)),
     cusp_obstacle_weight_(std::max(params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt)),
     is_cusp_pose_(is_cusp_pose), cost_check_points_(params.cost_check_points),
-    esdf_grid_(grid), esdf_interpolator_(interp) {}
+    esdf_grid_(grid), esdf_interpolator_(interp)
+  {
+    if (!cost_check_points_.empty() && cost_check_points_.size() % 3 != 0) {
+      throw std::invalid_argument("cost_check_points size must be a multiple of 3");
+    }
+  }
 
   int numResiduals() const
   {
     return cost_check_points_.empty() ? 1 : static_cast<int>(cost_check_points_.size() / 3);
   }
 
-  ceres::CostFunction * AutoDiff()
+  static ceres::CostFunction * Create(
+    bool is_cusp_pose, const Costmap2D * costmap, const SmootherParams & params,
+    const std::shared_ptr<ceres::Grid2D<double>> & grid,
+    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & interp)
   {
-    auto * cf = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(this);
+    auto * functor = new ObstacleCostFunctor(is_cusp_pose, costmap, params, grid, interp);
+    auto * cf = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(functor);
     cf->AddParameterBlock(5);
-    cf->SetNumResiduals(numResiduals());
+    cf->SetNumResiduals(functor->numResiduals());
     return cf;
   }
 
@@ -230,8 +252,7 @@ private:
     esdf_interpolator_->Evaluate(gy - T(0.5), gx - T(0.5), &distance);
     const T surface_distance = distance - T(cost_check_radius_);
     if (surface_distance >= T(obstacle_safe_distance_)) return T(0.0);
-    const T gap = (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
-    return gap * gap;
+    return (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
   }
 
   template<typename T> static T sinValue(T v) { using std::sin; return sin(v); }
@@ -242,7 +263,7 @@ private:
          obstacle_weight_, cusp_obstacle_weight_;
   unsigned int size_x_, size_y_;
   bool is_cusp_pose_;
-  const std::vector<double> & cost_check_points_;
+  std::vector<double> cost_check_points_;
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_;
 };

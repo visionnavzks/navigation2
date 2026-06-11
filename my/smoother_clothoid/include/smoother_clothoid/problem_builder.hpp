@@ -151,31 +151,37 @@ public:
     const bool has_obs = params.obstacleTermsEnabled();
 
     for (size_t i = 0; i + 1 < processed.state_count; ++i) {
-      auto * cost = new detail::TransitionCostFunctor(
-        processed.gears[i], processed.is_cusp_segment[i],
-        mw, cw, crw, sw, lw, fw, processed.target_spacing);
-      problem.AddResidualBlock(cost->AutoDiff(), nullptr,
+      problem.AddResidualBlock(
+        detail::TransitionCostFunctor::Create(
+          processed.gears[i], processed.is_cusp_segment[i],
+          mw, cw, crw, sw, lw, fw, processed.target_spacing),
+        nullptr,
         stateData(variables, i), stateData(variables, i + 1));
     }
 
-    auto * start_cost = new detail::BoundaryCostFunctor(
-      processed.reference_points.front(), processed.start_theta,
-      params.keep_start_orientation, 0.0, 0.0, 0.0, fw, false);
-    problem.AddResidualBlock(start_cost->AutoDiff(), nullptr, stateData(variables, 0));
+    problem.AddResidualBlock(
+      detail::BoundaryCostFunctor::Create(
+        processed.reference_points.front(), processed.start_theta,
+        params.keep_start_orientation, 0.0, 0.0, 0.0, fw, false),
+      nullptr,
+      stateData(variables, 0));
 
     const double goal_theta = goalPositionFrameHeading(
       processed.reference_points, processed.end_theta, params.keep_goal_orientation);
-    auto * goal_cost = new detail::BoundaryCostFunctor(
-      processed.reference_points.back(), goal_theta, params.keep_goal_orientation,
-      params.goal_longitudinal_tolerance, params.goal_lateral_tolerance,
-      params.goal_orientation_tolerance, fw, true);
-    problem.AddResidualBlock(goal_cost->AutoDiff(), nullptr,
+    problem.AddResidualBlock(
+      detail::BoundaryCostFunctor::Create(
+        processed.reference_points.back(), goal_theta, params.keep_goal_orientation,
+        params.goal_longitudinal_tolerance, params.goal_lateral_tolerance,
+        params.goal_orientation_tolerance, fw, true),
+      nullptr,
       stateData(variables, processed.state_count - 1));
 
     if (rw > 1e-9) {
       for (size_t i = 0; i < processed.state_count; ++i) {
-        auto * ref_cost = new detail::ReferenceCostFunctor(processed.reference_points[i], rw);
-        problem.AddResidualBlock(ref_cost->AutoDiff(), nullptr, stateData(variables, i));
+        problem.AddResidualBlock(
+          detail::ReferenceCostFunctor::Create(processed.reference_points[i], rw),
+          nullptr,
+          stateData(variables, i));
       }
     }
 
@@ -183,16 +189,20 @@ public:
       for (size_t i = 0; i < processed.state_count; ++i) {
         const bool is_cusp = (i < processed.is_cusp_segment.size() && processed.is_cusp_segment[i])
           || (i > 0 && processed.is_cusp_segment[i - 1]);
-        auto * obs_cost = new detail::ObstacleCostFunctor(
-          is_cusp, costmap, params, esdf_grid_, esdf_interpolator_);
-        problem.AddResidualBlock(obs_cost->AutoDiff(), nullptr, stateData(variables, i));
+        problem.AddResidualBlock(
+          detail::ObstacleCostFunctor::Create(
+            is_cusp, costmap, params, esdf_grid_, esdf_interpolator_),
+          nullptr,
+          stateData(variables, i));
       }
     }
   }
 
   static void applyBounds(
     ceres::Problem & problem, double * variables,
-    const std::vector<Eigen::Vector2d> & refs, size_t n,
+    const std::vector<Eigen::Vector2d> & refs,
+    const std::vector<bool> & is_cusp_segment,
+    size_t n,
     double max_curvature, double max_spacing, double max_deviation)
   {
     const double mc = std::max(max_curvature, 1e-6);
@@ -206,7 +216,9 @@ public:
       }
       problem.SetParameterLowerBound(s, 3, -mc);
       problem.SetParameterUpperBound(s, 3, mc);
-      problem.SetParameterLowerBound(s, 4, 0.0);
+      const bool ds_is_used = i + 1 < n;
+      const bool is_cusp_ds = i < is_cusp_segment.size() && is_cusp_segment[i];
+      problem.SetParameterLowerBound(s, 4, ds_is_used && !is_cusp_ds ? 1e-6 : 0.0);
       if (max_spacing > 1e-9) problem.SetParameterUpperBound(s, 4, max_spacing);
     }
   }
