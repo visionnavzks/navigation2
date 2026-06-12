@@ -134,14 +134,17 @@ struct SmoothnessCost
   double sqrt_w_;
 };
 
-// Curvature cost: denominator-free turning-angle constraint via dot-product
-// hinge loss.  Replaces Menger curvature (which has a·b·c denominator that
-// explodes near degenerate triangles).  No division → immune to NaN.
+// Curvature cost: turning-angle hinge loss.
+// Penalizes when the actual turning angle θ exceeds the allowed limit
+// κ_max · ds, where ds is the local average step size.
 //
-// Given segments v1=(p_curr-p_prev) and v2=(p_next-p_curr), we compute
-// the local step ds = ‖v1‖+‖v2‖)/2 and the maximum allowed turning angle
-// θ_max = κ_max · ds.  The hinge penalty fires when the dot product falls
-// below ‖v1‖·‖v2‖·cos(θ_max), i.e. the turn is too sharp.
+// Unlike the previous dot-product deficit formulation, this version
+// directly computes the angle via atan2, which is more intuitive:
+//   θ = atan2(|cross|, dot)
+//   violation = max(0, θ - κ_max · ds)
+//
+// Uses sqrt(cross² + eps) instead of abs(cross) to stay smooth at 0
+// for Ceres AutoDiff compatibility.
 struct CurvatureCost
 {
   CurvatureCost(double sqrt_w, double max_kappa)
@@ -150,21 +153,32 @@ struct CurvatureCost
   template<typename T>
   bool operator()(const T * p_prev, const T * p_curr, const T * p_next, T * r) const
   {
-    T v1[2] = {p_curr[0] - p_prev[0], p_curr[1] - p_prev[1]};
-    T v2[2] = {p_next[0] - p_curr[0], p_next[1] - p_curr[1]};
+    const T v1x = p_curr[0] - p_prev[0];
+    const T v1y = p_curr[1] - p_prev[1];
+    const T v2x = p_next[0] - p_curr[0];
+    const T v2y = p_next[1] - p_curr[1];
 
-    T dot = v1[0] * v2[0] + v1[1] * v2[1];
-    T eps(1e-12);
-    T norm_v1 = ceres::sqrt(v1[0] * v1[0] + v1[1] * v1[1] + eps);
-    T norm_v2 = ceres::sqrt(v2[0] * v2[0] + v2[1] * v2[1] + eps);
+    const T n1 = ceres::sqrt(v1x * v1x + v1y * v1y + T(1e-12));
+    const T n2 = ceres::sqrt(v2x * v2x + v2y * v2y + T(1e-12));
+    const T ds = T(0.5) * (n1 + n2);
 
-    T current_ds = T(0.5) * (norm_v1 + norm_v2);
-    // Clamp to π so cos() stays in [-1,1] even for unrealistically large κ·ds.
-    T max_theta = ceres::fmin(T(M_PI), T(max_kappa_) * current_ds);
-    T target_dot = norm_v1 * norm_v2 * ceres::cos(max_theta);
+    const T dot = v1x * v2x + v1y * v2y;
+    const T cross = v1x * v2y - v1y * v2x;
 
-    T deficit = target_dot - dot;
-    r[0] = deficit > T(0.0) ? sqrt_w_ * deficit : T(0.0);
+    // atan2(|cross|, dot) gives the unsigned turning angle in [0, π].
+    // sqrt(cross² + eps) instead of abs(cross) for smoothness at 0.
+    const T theta = ceres::atan2(ceres::sqrt(cross * cross + T(1e-12)), dot);
+    const T theta_limit = T(max_kappa_) * ds;
+    const T violation = theta - theta_limit;
+
+    // Gate on scalar part for the hinge (same pattern as ObstacleCostCeres).
+    double viol_scalar;
+    if constexpr (std::is_same<T, double>::value) {
+      viol_scalar = violation;
+    } else {
+      viol_scalar = violation.a;
+    }
+    r[0] = viol_scalar > 0.0 ? sqrt_w_ * violation : T(0.0);
     return true;
   }
 

@@ -147,23 +147,29 @@ T bilinearJet(T wx, T wy) const
 
 ### 4.2 CurvatureCost
 
-**目标**：约束局部转弯半径 ≥ `min_turning_radius`。
+**目标**：约束局部转弯半径 ≥ `min_turning_radius`（角度超限版本）。
 
 ```
 输入: p_prev, p_curr, p_next
 v1 = p_curr - p_prev
 v2 = p_next - p_curr
+n1 = ||v1|| + ε,  n2 = ||v2|| + ε    (ε=1e-12 防除零)
+ds = 0.5 * (n1 + n2)                  # 局部步长
 dot = v1 · v2
-norm_v1 = ||v1|| + ε,  norm_v2 = ||v2|| + ε    (ε=1e-12 防除零)
-ds = 0.5 * (norm_v1 + norm_v2)                   # 局部步长
-max_theta = min(π, κ_max * ds)                   # κ_max = 1/r_min
-target_dot = norm_v1 * norm_v2 * cos(max_theta)
+cross = v1 × v2
 
-deficit = target_dot - dot
-r[0] = deficit > 0 ? sqrt_w * deficit : 0
+θ = atan2(sqrt(cross² + ε), dot)      # 无符号转角 ∈ [0, π]
+θ_limit = κ_max * ds                  # κ_max = 1/r_min
+violation = θ - θ_limit
+
+r[0] = violation > 0 ? sqrt_w * violation : 0
 ```
 
-**关键设计**：无分母（denominator-free）。传统 Menger 曲率 $\frac{|v_1 \times v_2|}{\|v_1\| \cdot \|v_2\| \cdot \|v_1+v_2\|}$ 在近共线三角形处会爆炸（NaN）。本方案用点积 hinge loss 替代，完全避免除法。
+**关键设计**：
+- 用 `atan2(sqrt(cross² + ε), dot)` 直接算角度，比点积 deficit 版更直观
+- `sqrt(cross² + ε)` 替代 `abs(cross)`，避免 `abs()` 在 0 附近不可导
+- 无分母，对近共线三角形免疫（无 NaN/Inf 风险）
+- 对 Ceres Jet 友好，梯度平滑通过 `atan2` 和 `sqrt`
 
 ### 4.3 ReferenceCost
 

@@ -126,15 +126,19 @@ This produces a tridiagonal Hessian structure for efficient sparse solving. It d
 
 #### 2. Curvature ($J_{\text{curvature}}$)
 
-A **denominator-free hinge loss** on the local turning angle:
+A **turning-angle hinge loss** — penalizes when the actual angle exceeds the allowed limit:
 
 $$
-r_i = \sqrt{w_{\text{curv}}} \cdot \max\!\Big(0,\; \|v_1\| \cdot \|v_2\| \cos(\kappa_{\max} \cdot d_s) - v_1 \cdot v_2\Big)
+\theta = \text{atan2}\!\big(\sqrt{(v_1 \times v_2)^2 + \epsilon},\; v_1 \cdot v_2\big)
+$$
+
+$$
+r_i = \sqrt{w_{\text{curv}}} \cdot \max\!(0,\; \theta - \kappa_{\max} \cdot d_s)
 $$
 
 where $v_1 = p_i - p_{i-1}$, $v_2 = p_{i+1} - p_i$, $d_s = \frac{\|v_1\| + \|v_2\|}{2}$, and $\kappa_{\max} = \frac{1}{r_{\min}}$.
 
-Unlike the classical Menger curvature ($\frac{|v_1 \times v_2|}{\|v_1\| \cdot \|v_2\| \cdot \|v_1 + v_2\|}$), this formulation has **no denominator** — it is immune to NaN/Inf near degenerate (nearly-collinear) triangles.
+Uses $\sqrt{(\text{cross})^2 + \epsilon}$ instead of $|\text{cross}|$ for smoothness at 0 under Ceres AutoDiff. The unsigned turning angle $\theta \in [0, \pi]$ is directly compared against the geometric limit $\kappa_{\max} \cdot d_s$.
 
 #### 3. Reference ($J_{\text{reference}}$)
 
