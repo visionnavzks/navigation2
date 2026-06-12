@@ -70,7 +70,9 @@ public:
     data_storage_(other.data_storage_), data_(nullptr)
   {
     if (other.data_ != nullptr) {
-      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+      // Owning costmap: point at our own copy of the storage.
+      // Non-owning costmap (external buffer): keep sharing the external buffer.
+      data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
     }
   }
 
@@ -83,7 +85,10 @@ public:
       origin_x_ = other.origin_x_;
       origin_y_ = other.origin_y_;
       data_storage_ = other.data_storage_;
-      data_ = (other.data_ != nullptr && !data_storage_.empty()) ? data_storage_.data() : nullptr;
+      data_ = nullptr;
+      if (other.data_ != nullptr) {
+        data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
+      }
     }
     return *this;
   }
@@ -94,7 +99,9 @@ public:
     origin_x_(other.origin_x_), origin_y_(other.origin_y_),
     data_storage_(std::move(other.data_storage_))
   {
-    data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+    // Owning: vector move preserves the buffer address. Non-owning: take over
+    // the external pointer instead of dropping it.
+    data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
     other.size_x_ = 0;
     other.size_y_ = 0;
     other.data_ = nullptr;
@@ -109,7 +116,7 @@ public:
       origin_x_ = other.origin_x_;
       origin_y_ = other.origin_y_;
       data_storage_ = std::move(other.data_storage_);
-      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+      data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
       other.size_x_ = 0;
       other.size_y_ = 0;
       other.data_ = nullptr;
