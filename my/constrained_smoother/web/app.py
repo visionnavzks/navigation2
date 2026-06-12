@@ -22,6 +22,8 @@ from flask import Flask, request, jsonify, render_template, Response
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 _parent_dir = os.path.dirname(_this_dir)
 
+# Add web/ directory so sibling modules resolve when app is imported as web.app.
+sys.path.insert(0, _this_dir)
 # Add parent directory (constrained_smoother/) to path so py_constrained_smoother can be found
 sys.path.insert(0, _parent_dir)
 # Also check in build/ directory
