@@ -197,7 +197,9 @@ class KinematicSmootherProblemBuilder:
             theta[-1] = processed.end_theta
 
         # Target spacing
-        if spacing_count > 0:
+        if params.path_target_spacing > 1e-9:
+            processed.target_spacing = params.path_target_spacing
+        elif spacing_count > 0:
             processed.target_spacing = spacing_sum / spacing_count
         elif costmap is not None:
             processed.target_spacing = max(costmap.resolution, 1e-3)
@@ -240,11 +242,7 @@ class KinematicSmootherProblemBuilder:
         reference_weight = max(params.reference_path_weight_sqrt, 0.0)
         has_obstacle_cost = params.obstacle_terms_enabled()
 
-        # Pre-compute obstacle weights
         obstacle_weight = max(params.costmap_weight_sqrt, 0.0)
-        cusp_obstacle_weight = max(
-            params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt
-        )
 
         # Pre-compute goal heading
         goal_position_theta = goal_position_frame_heading(
@@ -274,7 +272,7 @@ class KinematicSmootherProblemBuilder:
                 )
                 residuals.extend(r)
 
-            # 2) Start boundary: 4 residuals
+            # 2) Start boundary: 3 residuals
             start_state = variables[0:5]
             start_ref = np.array(processed.reference_points[0])
             r_start = boundary_residuals(
@@ -283,11 +281,10 @@ class KinematicSmootherProblemBuilder:
                 params.keep_start_orientation,
                 0.0, 0.0, 0.0,
                 fix_weight,
-                False,
             )
             residuals.extend(r_start)
 
-            # 3) Goal boundary: 4 residuals
+            # 3) Goal boundary: 3 residuals
             goal_state = variables[5 * (n - 1): 5 * (n - 1) + 5]
             goal_ref = np.array(processed.reference_points[-1])
             r_goal = boundary_residuals(
@@ -298,7 +295,6 @@ class KinematicSmootherProblemBuilder:
                 params.goal_lateral_tolerance,
                 params.goal_orientation_tolerance,
                 fix_weight,
-                True,
             )
             residuals.extend(r_goal)
 
@@ -313,10 +309,6 @@ class KinematicSmootherProblemBuilder:
             # 5) Obstacle residuals: variable per state
             if has_obstacle_cost and costmap is not None:
                 for index in range(n):
-                    is_cusp_pose = (
-                        (index < len(processed.is_cusp_segment) and processed.is_cusp_segment[index]) or
-                        (index > 0 and processed.is_cusp_segment[index - 1])
-                    )
                     state = variables[5 * index: 5 * index + 5]
                     r_obs = obstacle_residuals(
                         state,
@@ -329,8 +321,6 @@ class KinematicSmootherProblemBuilder:
                         params.obstacle_safe_distance,
                         params.cost_check_radius,
                         obstacle_weight,
-                        cusp_obstacle_weight,
-                        is_cusp_pose,
                         params.cost_check_points if params.cost_check_points else None,
                     )
                     residuals.extend(r_obs)
@@ -344,6 +334,7 @@ class KinematicSmootherProblemBuilder:
         lower: np.ndarray,
         upper: np.ndarray,
         reference_points: list[tuple[float, float]],
+        is_cusp_segment: list[bool],
         state_count: int,
         max_curvature: float,
         max_spacing: float,
@@ -363,7 +354,9 @@ class KinematicSmootherProblemBuilder:
 
             lower[base + 3] = -clamped_max_curvature
             upper[base + 3] = clamped_max_curvature
-            lower[base + 4] = 0.0
+            ds_is_used = index + 1 < state_count
+            is_cusp_ds = index < len(is_cusp_segment) and is_cusp_segment[index]
+            lower[base + 4] = 1e-6 if ds_is_used and not is_cusp_ds else 0.0
             if max_spacing > 1e-9:
                 upper[base + 4] = max_spacing
 
@@ -472,6 +465,9 @@ def _downsample_input_path(
     params: SmootherParams,
 ) -> list[np.ndarray]:
     """Downsample the input path, preserving cusp points."""
+    if params.path_target_spacing > 1e-9:
+        return _resample_input_path_by_spacing(path, params)
+
     downsample_factor = max(params.path_downsampling_factor, 1)
     if downsample_factor <= 1 or len(path) <= 2:
         return list(path)
@@ -500,5 +496,66 @@ def _downsample_input_path(
 
     if len(sampled) < 2:
         sampled = [path[0], path[-1]]
+
+    return sampled
+
+
+def _resample_input_path_by_spacing(
+    path: list[np.ndarray],
+    params: SmootherParams,
+) -> list[np.ndarray]:
+    """Resample the input path to a metric target spacing, preserving cusp points."""
+    target_spacing = max(float(params.path_target_spacing), 0.0)
+    if target_spacing <= 1e-9 or len(path) <= 2:
+        return list(path)
+
+    sampled = [np.array(path[0], dtype=float)]
+
+    def direction_sign(index: int) -> float:
+        if not params.reversing_enabled:
+            return 1.0
+        return -1.0 if path[index][2] < 0.0 else 1.0
+
+    def append_or_update(point: np.ndarray) -> None:
+        point = np.array(point, dtype=float)
+        if sampled and np.linalg.norm(sampled[-1][:2] - point[:2]) <= 1e-9:
+            sampled[-1][2] = point[2]
+        else:
+            sampled.append(point)
+
+    distance_since_keep = 0.0
+    for index in range(len(path) - 1):
+        start = np.array(path[index], dtype=float)
+        end = np.array(path[index + 1], dtype=float)
+        start_sign = direction_sign(index)
+        end_sign = direction_sign(index + 1)
+        delta = end[:2] - start[:2]
+        segment_length = float(np.linalg.norm(delta))
+
+        if segment_length <= 1e-9:
+            if start_sign != end_sign:
+                append_or_update(end)
+                distance_since_keep = 0.0
+            continue
+
+        traversed = 0.0
+        while distance_since_keep + (segment_length - traversed) >= target_spacing:
+            step = target_spacing - distance_since_keep
+            traversed += step
+            ratio = min(1.0, max(0.0, traversed / segment_length))
+            sample = start + ratio * (end - start)
+            sample[2] = start[2]
+            append_or_update(sample)
+            distance_since_keep = 0.0
+
+        distance_since_keep += segment_length - traversed
+        if start_sign != end_sign:
+            append_or_update(end)
+            distance_since_keep = 0.0
+
+    append_or_update(np.array(path[-1], dtype=float))
+
+    if len(sampled) < 2:
+        sampled = [np.array(path[0], dtype=float), np.array(path[-1], dtype=float)]
 
     return sampled

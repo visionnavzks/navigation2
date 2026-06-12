@@ -174,9 +174,13 @@ public:
       theta.back() = processed.end_theta;
     }
 
-    processed.target_spacing = spacing_count > 0 ?
-      spacing_sum / static_cast<double>(spacing_count) :
-      (costmap != nullptr ? std::max(costmap->getResolution(), 1e-3) : processed.target_spacing);
+    if (params.path_target_spacing > 1e-9) {
+      processed.target_spacing = params.path_target_spacing;
+    } else {
+      processed.target_spacing = spacing_count > 0 ?
+        spacing_sum / static_cast<double>(spacing_count) :
+        (costmap != nullptr ? std::max(costmap->getResolution(), 1e-3) : processed.target_spacing);
+    }
 
     processed.initial_variables.reserve(processed.state_count * 5);
     for (size_t index = 0; index < processed.state_count; ++index) {
@@ -236,8 +240,7 @@ public:
         0.0,
         0.0,
         0.0,
-        fix_weight,
-        false),
+        fix_weight),
       nullptr,
       stateData(variables, 0));
 
@@ -257,8 +260,7 @@ public:
         params.goal_longitudinal_tolerance,
         params.goal_lateral_tolerance,
         params.goal_orientation_tolerance,
-        fix_weight,
-        true),
+        fix_weight),
       nullptr,
       stateData(variables, processed.state_count - 1));
 
@@ -273,15 +275,13 @@ public:
       }
     }
 
-    // 障碍物残差：普通点与 cusp 相邻点可使用不同安全策略。
+    // 障碍物残差：所有状态使用统一的 ESDF 障碍物权重。
     if (has_obstacle_cost) {
+      const double obstacle_weight = std::max(params.costmap_weight_sqrt, 0.0);
       for (size_t index = 0; index < processed.state_count; ++index) {
-        const bool is_cusp_pose =
-          (index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index]) ||
-          (index > 0 && processed.is_cusp_segment[index - 1]);
         problem.AddResidualBlock(
           kinematic_smoother_detail::ObstacleCostFunctor::Create(
-            is_cusp_pose, costmap, params, esdf_grid_, esdf_interpolator_),
+            obstacle_weight, costmap, params, esdf_grid_, esdf_interpolator_),
           nullptr,
           stateData(variables, index));
       }
@@ -430,6 +430,10 @@ private:
     const std::vector<Eigen::Vector3d> & path,
     const SmootherParams & params)
   {
+    if (params.path_target_spacing > 1e-9) {
+      return resampleInputPathBySpacing(path, params);
+    }
+
     const int downsample_factor = std::max(params.path_downsampling_factor, 1);
     if (downsample_factor <= 1 || path.size() <= 2) {
       return path;
@@ -462,6 +466,78 @@ private:
     if (!sampled.back().isApprox(path.back(), 1e-9)) {
       sampled.push_back(path.back());
     }
+
+    if (sampled.size() < 2) {
+      sampled = {path.front(), path.back()};
+    }
+
+    return sampled;
+  }
+
+  static std::vector<Eigen::Vector3d> resampleInputPathBySpacing(
+    const std::vector<Eigen::Vector3d> & path,
+    const SmootherParams & params)
+  {
+    const double target_spacing = std::max(params.path_target_spacing, 0.0);
+    if (target_spacing <= 1e-9 || path.size() <= 2) {
+      return path;
+    }
+
+    std::vector<Eigen::Vector3d> sampled;
+    sampled.reserve(path.size());
+    sampled.push_back(path.front());
+
+    auto direction_sign = [&](size_t index) {
+      if (!params.reversing_enabled) {
+        return 1.0;
+      }
+      return path[index].z() < 0.0 ? -1.0 : 1.0;
+    };
+
+    auto append_or_update = [&](const Eigen::Vector3d & point) {
+      if (!sampled.empty() && (sampled.back().head<2>() - point.head<2>()).norm() <= 1e-9) {
+        sampled.back().z() = point.z();
+      } else {
+        sampled.push_back(point);
+      }
+    };
+
+    double distance_since_keep = 0.0;
+    for (size_t index = 0; index + 1 < path.size(); ++index) {
+      const Eigen::Vector3d & start = path[index];
+      const Eigen::Vector3d & end = path[index + 1];
+      const double start_sign = direction_sign(index);
+      const double end_sign = direction_sign(index + 1);
+      const Eigen::Vector2d delta = end.head<2>() - start.head<2>();
+      const double segment_length = delta.norm();
+
+      if (segment_length <= 1e-9) {
+        if (start_sign != end_sign) {
+          append_or_update(end);
+          distance_since_keep = 0.0;
+        }
+        continue;
+      }
+
+      double traversed = 0.0;
+      while (distance_since_keep + (segment_length - traversed) >= target_spacing) {
+        const double step = target_spacing - distance_since_keep;
+        traversed += step;
+        const double ratio = std::min(1.0, std::max(0.0, traversed / segment_length));
+        Eigen::Vector3d sample = start + ratio * (end - start);
+        sample.z() = start.z();
+        append_or_update(sample);
+        distance_since_keep = 0.0;
+      }
+
+      distance_since_keep += segment_length - traversed;
+      if (start_sign != end_sign) {
+        append_or_update(end);
+        distance_since_keep = 0.0;
+      }
+    }
+
+    append_or_update(path.back());
 
     if (sampled.size() < 2) {
       sampled = {path.front(), path.back()};

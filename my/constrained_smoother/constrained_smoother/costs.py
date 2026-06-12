@@ -86,8 +86,8 @@ def transition_residuals(
 
     # Trapezoidal curvature integration for predicted heading
     theta_pred = theta + direction * ds * (kappa + next_kappa) * 0.5
-    # Euler midpoint for predicted position
-    theta_mid = theta + direction * ds * kappa * 0.5
+    # Euler midpoint for predicted position, matching the C++ functor.
+    theta_mid = (theta + theta_pred) * 0.5
     x_pred = x + direction * ds * math.cos(theta_mid)
     y_pred = y + direction * ds * math.sin(theta_mid)
 
@@ -108,7 +108,7 @@ def transition_residuals(
 
 
 # ---------------------------------------------------------------------------
-# Boundary cost: 4 residuals for a start or end state
+# Boundary cost: 3 residuals for a start or end state
 # ---------------------------------------------------------------------------
 
 def boundary_residuals(
@@ -120,9 +120,8 @@ def boundary_residuals(
     lateral_tolerance: float,
     orientation_tolerance: float,
     fix_weight: float,
-    constrain_stop: bool,
 ) -> np.ndarray:
-    """Compute 4 residuals for boundary (start/goal) constraints.
+    """Compute 3 residuals for boundary (start/goal) constraints.
 
     Parameters
     ----------
@@ -140,12 +139,9 @@ def boundary_residuals(
         Heading tolerance (radians).
     fix_weight : float
         Constraint weight.
-    constrain_stop : bool
-        Whether to constrain ds to zero.
-
     Returns
     -------
-    residuals : ndarray of shape (4,)
+    residuals : ndarray of shape (3,)
     """
     dx = state[0] - reference_point[0]
     dy = state[1] - reference_point[1]
@@ -157,7 +153,7 @@ def boundary_residuals(
     lon_violation = abs(lon_error) - max(longitudinal_tolerance, 0.0)
     lat_violation = abs(lat_error) - max(lateral_tolerance, 0.0)
 
-    residuals = np.zeros(4)
+    residuals = np.zeros(3)
     residuals[0] = fix_weight * lon_violation if lon_violation > 0.0 else 0.0
     residuals[1] = fix_weight * lat_violation if lat_violation > 0.0 else 0.0
 
@@ -168,7 +164,6 @@ def boundary_residuals(
     else:
         residuals[2] = 0.0
 
-    residuals[3] = fix_weight * state[4] if constrain_stop else 0.0
     return residuals
 
 
@@ -201,9 +196,7 @@ def obstacle_residuals(
     costmap_resolution: float,
     obstacle_safe_distance: float,
     cost_check_radius: float,
-    obstacle_weight: float,
-    cusp_obstacle_weight: float,
-    is_cusp_pose: bool,
+    pose_obstacle_weight: float,
     cost_check_points: Optional[list[float]] = None,
 ) -> np.ndarray:
     """Compute obstacle penalty residuals for a single state.
@@ -217,8 +210,8 @@ def obstacle_residuals(
     costmap_origin_x, costmap_origin_y, costmap_resolution : float
     obstacle_safe_distance : float
     cost_check_radius : float
-    obstacle_weight, cusp_obstacle_weight : float
-    is_cusp_pose : bool
+    pose_obstacle_weight : float
+        Obstacle residual weight already resolved for this state.
     cost_check_points : list[float] or None
         Local (x, y, weight) triples for multi-point footprint check.
 
@@ -228,7 +221,7 @@ def obstacle_residuals(
         N = len(cost_check_points)/3 if cost_check_points else 1.
     """
     x, y, theta = state[0], state[1], state[2]
-    pose_weight = cusp_obstacle_weight if is_cusp_pose else obstacle_weight
+    pose_weight = max(pose_obstacle_weight, 0.0)
 
     def _obstacle_penalty(wx: float, wy: float) -> float:
         grid_x = (wx - costmap_origin_x) / costmap_resolution
@@ -268,8 +261,7 @@ def obstacle_residuals(
         if surface_distance >= safe_dist:
             return 0.0
 
-        normalized_gap = (safe_dist - surface_distance) / safe_dist
-        return normalized_gap * normalized_gap
+        return (safe_dist - surface_distance) / safe_dist
 
     if not cost_check_points:
         return np.array([pose_weight * _obstacle_penalty(x, y)])

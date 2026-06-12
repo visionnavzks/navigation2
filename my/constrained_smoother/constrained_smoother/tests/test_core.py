@@ -149,6 +149,7 @@ def test_smoother_params_defaults():
     assert params.model_weight_sqrt == 0.0
     assert params.fix_weight == 100.0
     assert params.kinematic_spacing_weight_sqrt == 1.0
+    assert params.path_target_spacing == 0.0
     assert params.reversing_enabled is True
     assert params.keep_start_orientation is True
     assert params.keep_goal_orientation is True
@@ -161,11 +162,6 @@ def test_obstacle_terms_disabled_by_default():
 
 def test_obstacle_terms_enabled():
     params = SmootherParams(costmap_weight_sqrt=1.0)
-    assert params.obstacle_terms_enabled() is True
-
-
-def test_obstacle_terms_enabled_cusp():
-    params = SmootherParams(cusp_costmap_weight_sqrt=1.0)
     assert params.obstacle_terms_enabled() is True
 
 
@@ -233,6 +229,59 @@ def test_build_processed_path_disabled_reversing():
     assert processed.gears[1] == 1.0
     assert processed.is_cusp_segment[0] is False
     assert processed.is_cusp_segment[1] is False
+
+
+def test_build_processed_path_resamples_to_target_spacing():
+    path = [
+        np.array([0.0, 0.0, 1.0]),
+        np.array([1.0, 0.0, 1.0]),
+        np.array([2.0, 0.0, 1.0]),
+        np.array([3.0, 0.0, 1.0]),
+    ]
+
+    params = SmootherParams(path_target_spacing=0.5)
+
+    processed = KinematicSmootherProblemBuilder.build_processed_path(
+        path,
+        np.array([1.0, 0.0]),
+        np.array([1.0, 0.0]),
+        params,
+        None,
+    )
+
+    assert len(processed.reference_points) == 7
+    assert abs(processed.target_spacing - 0.5) < 1e-12
+    for index in range(len(processed.reference_points) - 1):
+        spacing = np.linalg.norm(
+            np.array(processed.reference_points[index + 1]) -
+            np.array(processed.reference_points[index])
+        )
+        assert abs(spacing - 0.5) < 1e-12
+
+
+def test_build_processed_path_target_spacing_preserves_cusp():
+    path = [
+        np.array([0.0, 0.0, 1.0]),
+        np.array([1.0, 0.0, 1.0]),
+        np.array([2.0, 0.0, -1.0]),
+        np.array([3.0, 0.0, -1.0]),
+    ]
+
+    params = SmootherParams(path_target_spacing=0.75)
+
+    processed = KinematicSmootherProblemBuilder.build_processed_path(
+        path,
+        np.array([1.0, 0.0]),
+        np.array([1.0, 0.0]),
+        params,
+        None,
+    )
+
+    cusp_index = processed.is_cusp_segment.index(True)
+    assert processed.gears[cusp_index] == 0.0
+    assert abs(processed.reference_points[cusp_index + 1][0] - 2.0) < 1e-12
+    assert abs(processed.reference_points[cusp_index + 1][1]) < 1e-12
+    assert abs(processed.target_spacing - 0.75) < 1e-12
 
 
 # ---- Solver tests ----

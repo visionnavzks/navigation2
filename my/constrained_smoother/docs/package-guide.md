@@ -88,15 +88,13 @@ smooth()
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `costmap_weight_sqrt` | `double` | `0.0` | 障碍物净空残差的基础平方根权重 |
-| `cusp_costmap_weight_sqrt` | `double` | `0.0` | cusp 邻域内使用的增强障碍物权重 |
-| `cusp_zone_length` | `double` | `0.0` | cusp 周围用于过渡障碍物权重的弧长范围（米） |
+| `costmap_weight_sqrt` | `double` | `0.0` | 障碍物净空残差的统一平方根权重 |
 | `use_exact_esdf` | `bool` | `true` | 为 `true` 时使用精确有符号距离场后端 |
 | `obstacle_safe_distance` | `double` | `0.5` | 对障碍物距离场期望满足的最小有符号净空（米） |
 | `cost_check_radius` | `double` | `0.0` | 当 `cost_check_points` 为空时使用的圆形足迹采样半径（米） |
 | `cost_check_points` | `vector<double>` | `{}` | 障碍物足迹检查的局部坐标三元组 `(x, y, weight)`；为空时退回单圆模型 |
 
-辅助方法 `obstacleTermsEnabled()` 返回当前是否真的启用了任何障碍物残差（`costmap_weight_sqrt` 或 `cusp_costmap_weight_sqrt` 大于阈值）。
+辅助方法 `obstacleTermsEnabled()` 返回当前是否真的启用了任何障碍物残差（`costmap_weight_sqrt` 大于阈值）。
 
 #### 路径重采样与方向语义
 

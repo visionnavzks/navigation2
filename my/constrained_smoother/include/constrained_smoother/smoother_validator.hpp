@@ -78,7 +78,16 @@ public:
 
   /// 运动学版 smoother 的总校验入口。
   ///
-  /// 它先检查状态向量形状和有限值，再检查边界、段一致性和障碍物净空。
+  /// 串行执行六道硬性检查，任一失败立刻返回 `false` 并把原因写入
+  /// `SmoothingFailureInfo`（若提供）：
+  ///   1. 形状 —— `variables.size()` 是否等于 `state_count * 5`。
+  ///   2. 有限值 —— 每个状态 (x, y, theta, kappa, ds) 是否都是有限数。
+  ///   3. 边界 —— 起终点位置/朝向是否落在调用方声明的容差内。
+  ///   4. 段一致性 —— 相邻状态间的位移、方向与 gear/cusp 语义是否自洽。
+  ///   5. 曲率 —— 显式 `kappa` 与相邻姿态推导出的几何曲率是否都
+  ///      不超过 `params.max_curvature`。
+  ///   6. 净空 —— 在启用障碍物项的前提下，每个状态的足迹采样点
+  ///      是否都满足 `costmap` 的最小 ESDF 净空。
   bool validateKinematicSolution(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
@@ -238,6 +247,15 @@ private:
 
   // ---- Kinematic smoother validation ----
 
+  /// 逐状态检查解向量中每个分量 (x, y, theta, kappa, ds) 是否都是有限数。
+  ///
+  /// 求解器在极端工况下（例如约束两两冲突、线搜索失败、回退步被截断）会
+  /// 把状态值写成 `NaN` 或 `Inf`，后续消费方（位姿插值、碰撞检查）一旦
+  /// 碰到这种值会直接连锁崩。所以这一关必须先于其它几何/物理检查执行：
+  /// 一旦数值本身不可信，再讨论它是否合法已经没有意义。
+  ///
+  /// 失败时上报 `NonFiniteState`，并把首个出问题的状态索引写进
+  /// `failure->failed_index`，便于调用层定位是哪个点把整个解拖垮的。
   bool validateFiniteStates(
     const std::vector<double> & variables,
     size_t state_count,
@@ -257,6 +275,30 @@ private:
     return true;
   }
 
+  /// 校验起终点是否与输入参考路径在调用方声明的容差内对齐。
+  ///
+  /// 这一关分四块，每块独立判断：
+  ///   * 起点位置：`|p_start - ref_front|` 不得超过 `position_tol`
+  ///     （= `max(0.5 * costmap_resolution, 1e-3)`），否则视为起点漂移。
+  ///   * 起点朝向：仅当 `params.keep_start_orientation = true` 时启用，
+  ///     把绝对差折到 `(-π, π]` 再与 `orientation_tol`（0.1 rad ≈ 5.7°）
+  ///     比较。
+  ///   * 终点位置：把 `p_goal - ref_back` 投影到「目标坐标系」(lon, lat)，
+  ///     并分别与 `goal_longitudinal_tolerance` / `goal_lateral_tolerance`
+  ///     比较。这样可以同时支持「严格固定」和「目标容差盒」两种使用
+  ///     模式：当两个容差都 ~0 时退化为点固定；否则允许在矩形盒内
+  ///     自由调整。此外再加 `5e-4` 的收敛余量，避免在容差边界附近
+  ///     反复抖动。目标坐标系的 x 轴是 `goal_position_theta`：
+  ///     当 `keep_goal_orientation` 为真时取 `end_theta`（终点姿态）；
+  ///     否则用参考路径最后一段的切向，让容差盒方向与参考方向一致。
+  ///   * 终点朝向：仅当 `params.keep_goal_orientation = true` 时启用，
+  ///     容差取 `max(goal_orientation_tolerance, orientation_tol)`，
+  ///     这样用户在配置里调小朝向容差时不会被默认 0.1 rad 反向放大。
+  ///
+  /// 起点失败报 `StartPositionConstraint` / `StartOrientationConstraint`；
+  /// 终点失败报 `GoalPositionConstraint` / `GoalOrientationConstraint`。
+  /// 终点位置这一支会额外把 lon/lat 误差和容差写进 `failure`，方便
+  /// 上游做日志/可视化。
   bool validateKinematicBoundaryStates(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
@@ -345,6 +387,26 @@ private:
     return true;
   }
 
+  /// 校验相邻状态之间的几何与运动学语义是否自洽。
+  ///
+  /// 遍历每一对相邻状态 (i, i+1)，按该段是否被标记为 cusp 分两种判据：
+  ///
+  ///   * **cusp 段**（`is_cusp_segment[i] = true`）：
+  ///     这一段是「原地换向」段，理论上位置和朝向都不应变化。
+  ///     因此要求 `|p_{i+1} - p_i|` 不超过 `position_tol`，且
+  ///     `|angle(θ_{i+1} - θ_i)|` 不超过 `orientation_tol`。
+  ///     越界时上报 `CuspHoldConstraint`。
+  ///
+  ///   * **非 cusp 段**：
+  ///     1) 位移下限：`||p_{i+1} - p_i||` 必须大于 `displacement_tol`
+  ///        （= `max(0.25 * costmap_resolution, 1e-4)`），否则视为该段
+  ///        被求解器压扁成同一点（`CollapsedSegment`）。
+  ///     2) 运动方向：用 `θ_i` 的单位向量与 `p_{i+1} - p_i` 做点积，
+  ///        得到「沿当前朝向的有符号投影」。当 `gears[i] >= 0`（前进）
+  ///        时投影必须 > 0；`gears[i] < 0`（倒车）时投影必须 < 0。
+  ///        这能拦下求解器在倒车段把车头调转方向这种
+  ///        「数值上能收敛、语义上不可用」的解
+  ///        （`MotionDirectionConstraint`）。
   bool validateKinematicSegmentConsistency(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
@@ -397,6 +459,26 @@ private:
     return true;
   }
 
+  /// 校验曲率上限 `params.max_curvature` 是否被违反。
+  ///
+  /// 仅看「显式 kappa」不够——求解器可能在权重配置偏小或残差互相
+  /// 拉扯时输出 kappa 合法但实际姿态轨迹弯曲过大的结果。所以这一关
+  /// 用两把尺子同时量：
+  ///
+  ///   1. **状态曲率**：对每个 `state`，取 `|state[3]|`（即 kappa）
+  ///      直接与 `max_curvature` 比较。`1e-4` 的容差用来吸收求解器
+  ///      末次迭代的舍入噪声，避免「刚刚越线」就被打回。
+  ///
+  ///   2. **几何曲率**：遍历每一对非 cusp 相邻状态，用
+  ///      `|normalize(θ_{i+1} - θ_i)| / ||p_{i+1} - p_i||` 估算离散
+  ///      曲率。这一项会捕获「kappa 看似合规，但相邻两点的连线
+  ///      拐弯过急」的情形（例如 kappa 在两状态间被人为拉平）。如果
+  ///      位移低于 `displacement_tol`（基本是同一点），几何曲率本身
+  ///      没有定义，直接跳过。
+  ///
+  /// 失败时上报 `CurvatureConstraint`，并把 `actual_curvature`、
+  /// `max_curvature` 与对应转弯半径写进 `failure`，便于排障时一眼
+  /// 看到偏差数量级。
   bool validateKinematicCurvatureConstraint(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
@@ -461,6 +543,34 @@ private:
     return true;
   }
 
+  /// 校验路径上每个状态的足迹采样点是否都满足最小 ESDF 净空。
+  ///
+  /// 这是一道「只在工程上需要时才执行」的检查：调用层通过
+  /// `params.obstacleTermsEnabled()`（`costmap_weight_sqrt > 1e-9`）
+  /// 显式声明要不要障碍物项；没声明就整段直接放行（返回 `true`），
+  /// 不会污染纯几何调参场景。
+  ///
+  /// 走到这里意味着既需要净空检查、也提供了 costmap。剩下的判据是
+  /// 「必须配置了至少一种足迹模型」：当 `cost_check_radius` 接近 0 且
+  /// `cost_check_points` 为空时，没有可检查的几何形状，同样直接放行，
+  /// 以兼容「我只想要运动学一致、不在乎车体是否撞墙」的退化用法。
+  ///
+  /// 否则对每个状态执行：
+  ///   * 单圆模型（`cost_check_points` 为空）：只检查 `state` 本身
+  ///     一点。
+  ///   * 多点模型（`cost_check_points` 非空）：按 `(x_local, y_local, w)`
+  ///     三元组遍历，把局部坐标用 `state.theta` 旋到世界坐标系后
+  ///     逐点采样 ESDF。`w` 在构造代价时参与权重，但后验阶段只判断
+  ///     点位置是否满足净空，不重复使用 `w`。
+  ///
+  /// 每个采样点用 `clearanceAtWorldPoint` 查 ESDF：
+  ///   * 查不到（地图外 / 索引越界）→ 返回 `-Inf`，本步判为越界
+  ///     失败（`PathOutOfBounds`），避免对「地图未覆盖区域」误判成
+  ///     「安全」。
+  ///   * `clearance < radius` → 命中障碍物（`FootprintCollision`）。
+  ///
+  /// 失败时 `failed_index` 写的是出问题的状态序号（不是采样点序号），
+  /// 上层要更细定位可以结合轨迹回放判断是哪一段。
   bool validateKinematicObstacleClearance(
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const

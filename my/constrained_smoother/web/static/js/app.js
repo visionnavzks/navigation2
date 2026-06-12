@@ -92,10 +92,6 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.fixWeightHint': '直接缩放 cusp 保持段和起终点锚定共用的强约束残差。这个值不会再做 sqrt 变换。',
     'weights.obstacleWeightLabel': '障碍权重: <span id="val_costmap_weight">1.000</span>',
     'weights.obstacleWeightHint': '缩放平滑器使用的基于 ESDF 的障碍惩罚。值越大，路径越会被推离障碍物。',
-    'weights.cuspObstacleWeightLabel': '尖点障碍权重: <span id="val_cusp_costmap_weight">3.000</span>',
-    'weights.cuspObstacleWeightHint': '在尖点邻域覆盖默认障碍权重，使方向切换区域能更强地远离障碍物。',
-    'weights.cuspZoneLengthLabel': '尖点区域长度 (m): <span id="val_cusp_zone_length">2.50</span>',
-    'weights.cuspZoneLengthHint': '设置方向切换前后尖点障碍权重渐变生效的完整弧长范围。',
     'weights.referencePathWeightLabel': '参考路径权重: <span id="val_reference_path_weight">0.0</span>',
     'weights.referencePathWeightHint': '当你不希望出现大绕路时，用它让优化结果更贴近 A* 参考路径。',
     'weights.enableReferencePointMaxDeviation': '启用参考点最大偏移约束',
@@ -164,10 +160,6 @@ document.addEventListener('DOMContentLoaded', () => {
     'solver.functionToleranceHint': '当目标函数改善小于该阈值时停止。',
     'solver.gradientToleranceLabel': '梯度容差: <span id="val_gradient_tol">1.0e-10</span>',
     'solver.gradientToleranceHint': '当梯度范数足够小、接近驻点时停止。',
-    'solver.downsamplingFactorLabel': '降采样因子: <span id="val_path_downsampling_factor">1</span>',
-    'solver.downsamplingFactorHint': '在优化前丢弃中间参考点，减少问题规模。',
-    'solver.upsamplingFactorLabel': '上采样因子: <span id="val_path_upsampling_factor">1</span>',
-    'solver.upsamplingFactorHint': '在优化后重新插入点，恢复用于检查的路径密度。',
     'layers.title': '图层',
     'layers.toggleVisibility': '切换显示',
     'layers.costmap': '代价地图',
@@ -179,13 +171,15 @@ document.addEventListener('DOMContentLoaded', () => {
     'layers.astarRawPath': 'A* 原始路径',
     'layers.astarRawPathHint': '稠密的栅格连通规划结果',
     'layers.referencePath': '参考路径',
-    'layers.referencePathHint': '降采样后的优化器输入',
+    'layers.referencePathHint': '按目标间距生成的显示预览；C++ 会从原始 A* 路径采样优化结点',
     'layers.smoothedPath': '平滑路径',
     'layers.smoothedPathHint': 'Ceres 输出，按前进 / 倒车方向着色',
     'layers.rejectedSmoothedPath': '失败的平滑路径',
     'layers.rejectedSmoothedPathHint': '被后验证拒绝的候选结果，使用警示虚线样式显示',
     'layers.robotProjection': '机器人投影',
     'layers.robotProjectionHint': '沿平滑路径扫过的检查圆与虚线矩形验证轮廓',
+    'layers.safeDistance': '安全距离',
+    'layers.safeDistanceHint': '每个扫掠检查圆外侧的无惩罚净空轮廓',
     'run.title': '运行统计',
     'run.optimizer': '优化器',
     'run.astarTime': 'A* 时间',
@@ -214,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.kinematicMaxTime': '最大求解时间',
     'run.kinematicMaxCurvature': '最大曲率',
     'run.kinematicCurvatureRateWeight': '曲率变化率权重',
-    'run.kinematicResampling': '重采样',
+    'run.kinematicTargetSpacing': '目标间距',
     'run.kinematicCeresTolerances': 'Ceres 容差',
     'toolbar.runPlanning': '执行规划',
     'toolbar.resetScene': '重置场景',
@@ -307,6 +301,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
       'weights.fixWeightLabel': 'Fix Weight: <span id="val_fix_weight">100</span>',
       'weights.fixWeightHint': 'Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.',
+      'weights.obstacleWeightLabel': 'Obstacle Weight: <span id="val_costmap_weight">1.000</span>',
+      'weights.obstacleWeightHint': 'Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.',
       'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">1.0</span>',
       'weights.kinematicSpacingWeightHint': 'Penalizes ds deviation from the target spacing so optimized knot spacing stays near-uniform and numerically stable.',
       'weights.pathLengthWeightLabel': 'Path Length Weight: <span id="val_path_length_weight">0.1</span>',
@@ -337,6 +333,11 @@ document.addEventListener('DOMContentLoaded', () => {
       'validation.path.smoothed_path': 'Returned smoothed path',
       'layers.rejectedSmoothedPath': 'Failed smoothed path',
       'layers.rejectedSmoothedPathHint': 'Rejected candidate, shown with a warning dashed style',
+      'layers.robotProjection': 'Robot Projection',
+      'layers.robotProjectionHint': 'checkpoint circles and dashed rectangle validation outline swept along the smoothed path',
+      'layers.safeDistance': 'Safe Distance',
+      'layers.safeDistanceHint': 'no-penalty clearance outlines around each swept checkpoint circle',
+      'layers.referencePathHint': 'target-spaced display preview; C++ samples optimizer knots from the raw A* path',
       'validation.reason.lethal_overlap': 'Lethal obstacle overlap',
       'validation.reason.out_of_bounds': 'Footprint leaves map bounds',
       'validation.reason.nonfinite_pose': 'Non-finite pose value',
@@ -380,7 +381,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.kinematicMaxTime': 'Max Solver Time',
       'run.kinematicMaxCurvature': 'Max Curvature',
       'run.kinematicCurvatureRateWeight': 'Curvature Rate Weight',
-      'run.kinematicResampling': 'Resampling',
+      'run.kinematicTargetSpacing': 'Target Spacing',
       'run.kinematicCeresTolerances': 'Ceres Tolerances',
       'run.pipeline.pending': 'Pipeline status will appear after each run.',
       'run.pipeline.summary': 'Pipeline: {summary}',
@@ -619,8 +620,6 @@ document.addEventListener('DOMContentLoaded', () => {
     model_weight: value => Math.round(value).toLocaleString(),
     fix_weight: value => String(Math.round(value)),
     costmap_weight: value => Number(value).toFixed(3),
-    cusp_costmap_weight: value => Number(value).toFixed(3),
-    cusp_zone_length: value => Number(value).toFixed(2),
     reference_path_weight: value => Number(value).toFixed(1),
     reference_point_max_deviation_m: value => Number(value).toFixed(2),
     kinematic_curvature_weight: value => Number(value).toFixed(1),
@@ -631,8 +630,6 @@ document.addEventListener('DOMContentLoaded', () => {
     reference_spacing_target_m: value => Number(value).toFixed(2),
     max_iterations: value => String(Math.round(value)),
     max_time: value => Number(value).toFixed(1),
-    path_downsampling_factor: value => String(Math.round(value)),
-    path_upsampling_factor: value => String(Math.round(value)),
   };
   const numericInputConfig = {
     param_tol: value => formatScientific(value),
@@ -640,11 +637,10 @@ document.addEventListener('DOMContentLoaded', () => {
     gradient_tol: value => formatScientific(value),
   };
   const optimizerScopedSliderIds = [
-    'model_weight', 'fix_weight', 'costmap_weight', 'cusp_costmap_weight', 'cusp_zone_length',
+    'model_weight', 'fix_weight', 'costmap_weight',
     'reference_path_weight', 'reference_point_max_deviation_m',
     'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'kinematic_spacing_weight', 'path_length_weight', 'max_curvature',
     'reference_spacing_target_m', 'max_iterations', 'max_time',
-    'path_downsampling_factor', 'path_upsampling_factor',
   ];
   const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
   const optimizerScopedSelectIds = [];
@@ -662,6 +658,7 @@ document.addEventListener('DOMContentLoaded', () => {
     layer_reference: 'reference',
     layer_smoothed: 'smoothed',
     layer_robot_projection: 'robotProjection',
+    layer_safe_distance: 'safeDistance',
   };
 
   const planInfoIds = [
@@ -677,6 +674,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const ROBOT_PROJECTION_FORWARD_FILL = 'rgba(191, 54, 87, 0.12)';
   const ROBOT_PROJECTION_REVERSE_STROKE = 'rgba(43, 113, 186, 0.74)';
   const ROBOT_PROJECTION_REVERSE_FILL = 'rgba(43, 113, 186, 0.12)';
+  const SAFE_DISTANCE_STROKE = 'rgba(18, 136, 120, 0.62)';
   const LOUPE_RADIUS_CELLS = 5;
   const LOUPE_CELL_SIZE = Math.floor(loupeCanvas.width / (LOUPE_RADIUS_CELLS * 2 + 1));
   const DEFAULT_ENDPOINTS = {
@@ -796,7 +794,8 @@ document.addEventListener('DOMContentLoaded', () => {
       astar: true,
       reference: true,
       smoothed: true,
-      robotProjection: false,
+      robotProjection: true,
+      safeDistance: true,
     },
   };
 
@@ -1412,15 +1411,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const targetSpacingText = formatMeters(optimizerConfig.target_spacing_m, 3);
     setText(
       'kinematic-param-resampling',
-      currentLanguage === 'zh'
-        ? `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'} · 目标间距 ${targetSpacingText}`
-        : `${optimizerConfig.path_downsampling_factor ?? '--'} / ${optimizerConfig.path_upsampling_factor ?? '--'} · target ${targetSpacingText}`
+      targetSpacingText
     );
     setText(
       'kinematic-spacing-target-hint',
       currentLanguage === 'zh'
-        ? `当前优化目标间距：${targetSpacingText}。该值由参与优化的状态链平均段长自动估计。`
-        : `Current optimizer target spacing: ${targetSpacingText}. This is estimated from the average segment length of the optimized knot chain.`
+        ? `当前优化目标间距：${targetSpacingText}。该值用于生成优化状态链，并约束每段 ds 接近该间距。`
+        : `Current optimizer target spacing: ${targetSpacingText}. This generates the optimized knot chain and constrains each ds near that spacing.`
     );
     setText(
       'kinematic-param-ceres-tolerances',
@@ -1513,6 +1510,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkRadiusM = Number.isFinite(pathData?.collision_check_radius_m)
       ? Math.max(0, Number(pathData.collision_check_radius_m))
       : (mode === 'point' ? pointRadiusM : Math.max(widthM * 0.5, resolution * 0.5));
+    const safeDistanceM = Number.isFinite(pathData?.effective_safe_distance_m)
+      ? Math.max(0, Number(pathData.effective_safe_distance_m))
+      : Math.max(0, readValue('surface_clearance_margin_m', readValue('hinge_loss_threshold_m', 0.5)));
 
     return {
       mode,
@@ -1520,6 +1520,7 @@ document.addEventListener('DOMContentLoaded', () => {
       capsuleSamplingToleranceM,
       pointRadiusM,
       checkRadiusM,
+      safeDistanceM,
       lengthM,
       widthM,
       localCheckPoints,
@@ -3471,7 +3472,16 @@ document.addEventListener('DOMContentLoaded', () => {
     return indices;
   }
 
-  function drawRobotProjectionAtPose(worldX, worldY, thetaRad, motionDirection, config, emphasize = false) {
+  function drawRobotProjectionAtPose(
+    worldX,
+    worldY,
+    thetaRad,
+    motionDirection,
+    config,
+    emphasize = false,
+    drawBodyProjection = true,
+    drawSafeDistance = false
+  ) {
     const pixel = worldToCanvas(worldX, worldY);
     const strokeColor = motionDirection === 'reverse'
       ? ROBOT_PROJECTION_REVERSE_STROKE
@@ -3488,21 +3498,37 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.strokeStyle = strokeColor;
     ctx.fillStyle = fillColor;
 
-    const halfLengthPx = metersToCanvas(config.lengthM) * 0.5;
-    const halfWidthPx = metersToCanvas(config.widthM) * 0.5;
-    if (halfLengthPx > 1 && halfWidthPx > 1) {
-      ctx.save();
-      ctx.setLineDash([5, 4]);
-      ctx.strokeStyle = 'rgba(20, 122, 106, 0.88)';
-      ctx.lineWidth = emphasize ? 1.5 : 1.1;
-      ctx.strokeRect(-halfLengthPx, -halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
-      ctx.restore();
+    if (drawBodyProjection) {
+      const halfLengthPx = metersToCanvas(config.lengthM) * 0.5;
+      const halfWidthPx = metersToCanvas(config.widthM) * 0.5;
+      if (halfLengthPx > 1 && halfWidthPx > 1) {
+        ctx.save();
+        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = 'rgba(20, 122, 106, 0.88)';
+        ctx.lineWidth = emphasize ? 1.5 : 1.1;
+        ctx.strokeRect(-halfLengthPx, -halfWidthPx, halfLengthPx * 2, halfWidthPx * 2);
+        ctx.restore();
+      }
     }
 
     const checkRadiusPx = metersToCanvas(config.checkRadiusM);
+    const safeRadiusPx = metersToCanvas(config.checkRadiusM + config.safeDistanceM);
     config.localCheckPoints.forEach(point => {
       const circleX = metersToCanvas(point.x);
       const circleY = -metersToCanvas(point.y);
+      if (drawSafeDistance && safeRadiusPx > Math.max(checkRadiusPx + 1.2, 2.4)) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.setLineDash([6, 4]);
+        ctx.lineWidth = emphasize ? 1.35 : 1.0;
+        ctx.strokeStyle = SAFE_DISTANCE_STROKE;
+        ctx.arc(circleX, circleY, safeRadiusPx, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+      if (!drawBodyProjection) {
+        return;
+      }
       if (checkRadiusPx > 1.2) {
         ctx.beginPath();
         ctx.arc(circleX, circleY, checkRadiusPx, 0, Math.PI * 2);
@@ -3515,6 +3541,11 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fill();
       }
     });
+
+    if (!drawBodyProjection) {
+      ctx.restore();
+      return;
+    }
 
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -3533,7 +3564,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function drawSmoothedRobotProjection(xs, ys, thetas) {
-    if (!state.layers.robotProjection || !xs || xs.length < 1) {
+    const drawBodyProjection = Boolean(state.layers.robotProjection);
+    const drawSafeDistance = Boolean(state.layers.safeDistance);
+    if ((!drawBodyProjection && !drawSafeDistance) || !xs || xs.length < 1) {
       return;
     }
 
@@ -3558,7 +3591,9 @@ document.addEventListener('DOMContentLoaded', () => {
         thetaRad,
         motionDirection,
         config,
-        sampleIndex === 0 || sampleIndex === sampleIndices.length - 1
+        sampleIndex === 0 || sampleIndex === sampleIndices.length - 1,
+        drawBodyProjection,
+        drawSafeDistance
       );
     });
   }
@@ -3666,7 +3701,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (state.layers.reference) {
         drawPath(state.paths.ref_x, state.paths.ref_y, 'rgba(217, 122, 43, 0.5)', 2.2, true);
       }
-      if (state.layers.robotProjection) {
+      if (state.layers.robotProjection || state.layers.safeDistance) {
         drawSmoothedRobotProjection(state.paths.opt_x, state.paths.opt_y, state.paths.opt_theta);
       }
       if (state.layers.smoothed) {

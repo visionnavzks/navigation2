@@ -265,12 +265,10 @@ private:
  * 对终点还可配置 lon / lat / theta 容差，从而表达“范围停”而不是绝对硬锚定。
  * 每个状态向量包含 5 个分量：[x, y, theta, kappa, ds]
  *
- * 输出 4 个残差：
+ * 输出 3 个残差：
  *   [0] 目标坐标系 lon 方向位置误差（超出容差才惩罚）
  *   [1] 目标坐标系 lat 方向位置误差（超出容差才惩罚）
  *   [2] 朝向角误差（仅在 keep_orientation=true 时生效，且超出容差才惩罚）
- *   [3] 步长约束（仅在 constrain_stop=true 时生效，强制端点 ds 为零；
- *       但因终点 ds 不被任何 TransitionCostFunctor 消费，该残差实际无效）
  */
 class BoundaryCostFunctor
 {
@@ -280,9 +278,6 @@ public:
    * @param target_theta      端点的参考朝向角（弧度）
    * @param keep_orientation  是否强制朝向角与参考一致
    * @param fix_weight        位置/朝向约束权重
-   * @param constrain_stop    是否强制端点处 ds 为零（设计意图为"车辆停止"，
-   *                          但实际无效：终点的 ds 不被任何 TransitionCostFunctor 引用，
-   *                          该约束对优化结果没有影响，属于冗余参数）
    */
   BoundaryCostFunctor(
     const Eigen::Vector2d & reference_point,
@@ -291,22 +286,20 @@ public:
     double longitudinal_tolerance,
     double lateral_tolerance,
     double orientation_tolerance,
-    double fix_weight,
-    bool constrain_stop)
+    double fix_weight)
   : reference_point_(reference_point),
     target_theta_(target_theta),
     keep_orientation_(keep_orientation),
     longitudinal_tolerance_(std::max(longitudinal_tolerance, 0.0)),
     lateral_tolerance_(std::max(lateral_tolerance, 0.0)),
     orientation_tolerance_(std::max(orientation_tolerance, 0.0)),
-    fix_weight_(fix_weight),
-    constrain_stop_(constrain_stop)
+    fix_weight_(fix_weight)
   {
   }
 
   /**
    * @brief 创建用于 Ceres 自动微分的代价函数对象
-   *        模板参数：4 个残差，1 个参数块（5 个分量）
+   *        模板参数：3 个残差，1 个参数块（5 个分量）
    */
   static ceres::CostFunction * Create(
     const Eigen::Vector2d & reference_point,
@@ -315,10 +308,9 @@ public:
     double longitudinal_tolerance,
     double lateral_tolerance,
     double orientation_tolerance,
-    double fix_weight,
-    bool constrain_stop)
+    double fix_weight)
   {
-    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 4, 5>(
+    return new ceres::AutoDiffCostFunction<BoundaryCostFunctor, 3, 5>(
       new BoundaryCostFunctor(
         reference_point,
         target_theta,
@@ -326,14 +318,13 @@ public:
         longitudinal_tolerance,
         lateral_tolerance,
         orientation_tolerance,
-        fix_weight,
-        constrain_stop));
+        fix_weight));
   }
 
   /**
    * @brief 计算端点约束残差
    * @param state     端点状态 [x, y, theta, kappa, ds]
-   * @param residuals 输出残差数组，长度为 4
+   * @param residuals 输出残差数组，长度为 3
    */
   template<typename T>
   bool operator()(const T * const state, T * residuals) const
@@ -360,10 +351,6 @@ public:
     } else {
       residuals[2] = T(0.0);
     }
-
-    // 残差[3]：若启用停止约束，约束端点 ds（state[4]）为零；否则残差为零
-    // 注意：对终点而言，ds 从未被 TransitionCostFunctor 使用，此约束实际上无效（冗余）
-    residuals[3] = constrain_stop_ ? T(fix_weight_) * state[4] : T(0.0);
     return true;
   }
 
@@ -392,7 +379,6 @@ private:
   double lateral_tolerance_;        ///< lat 方向允许容差（米）
   double orientation_tolerance_;    ///< 朝向允许容差（弧度）
   double fix_weight_;               ///< 约束权重
-  bool constrain_stop_;             ///< 是否约束 ds 为零（冗余：终点 ds 不参与任何过渡代价计算）
 };
 
 /**
@@ -468,21 +454,20 @@ private:
  *   每个检测点独立计算障碍物惩罚，输出为多个残差。
  *   若 cost_check_points 为空，则仅对路径点本身计算一个残差。
  *
- * 尖点处使用更大的障碍物权重（cusp_obstacle_weight），
- * 因为尖点处车辆速度为零，对障碍物更为敏感。
+ * 调用方传入统一的障碍物权重；该 functor 只负责按权重计算残差。
  */
 class ObstacleCostFunctor
 {
 public:
   /**
-   * @param is_cusp_pose    该路径点是否为尖点（前进/倒退切换处）
+   * @param obstacle_weight 该路径点解析后的障碍物残差权重
    * @param costmap         代价地图指针，提供地图元数据（原点、分辨率、尺寸）
    * @param params          平滑器参数（障碍物权重、安全距离、检测点等）
    * @param esdf_grid       共享的 ESDF Grid2D 存储，保证插值器引用的底层网格生命周期
-    * @param esdf_interpolator 共享的 ESDF 双三次插值器
+   * @param esdf_interpolator 共享的 ESDF 双三次插值器
    */
   ObstacleCostFunctor(
-    bool is_cusp_pose,
+    double obstacle_weight,
     const Costmap2D * costmap,
     const SmootherParams & params,
     const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
@@ -493,9 +478,7 @@ public:
     size_y_(costmap->getSizeInCellsY()),
     obstacle_safe_distance_(std::max(params.obstacle_safe_distance, 1e-6)),
     cost_check_radius_(std::max(params.cost_check_radius, 0.0)),
-    obstacle_weight_(std::max(params.costmap_weight_sqrt, 0.0)),
-    cusp_obstacle_weight_(std::max(params.cusp_costmap_weight_sqrt, params.costmap_weight_sqrt)),
-    is_cusp_pose_(is_cusp_pose),
+    obstacle_weight_(std::max(obstacle_weight, 0.0)),
     cost_check_points_(params.cost_check_points),
     esdf_grid_(esdf_grid),
     esdf_interpolator_(esdf_interpolator)
@@ -519,14 +502,14 @@ public:
    *        残差数量在运行时由 numResiduals() 决定（动态残差）
    */
   static ceres::CostFunction * Create(
-    bool is_cusp_pose,
+    double obstacle_weight,
     const Costmap2D * costmap,
     const SmootherParams & params,
     const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
     const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator)
   {
     auto * functor = new ObstacleCostFunctor(
-      is_cusp_pose, costmap, params, esdf_grid, esdf_interpolator);
+      obstacle_weight, costmap, params, esdf_grid, esdf_interpolator);
     auto * cost_function = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(functor);
     cost_function->AddParameterBlock(5);  // 状态向量维度为 5
     cost_function->SetNumResiduals(functor->numResiduals());
@@ -546,8 +529,7 @@ public:
     const T y = state[1];      // 路径点 y 坐标
     const T theta = state[2];  // 路径点朝向角
 
-    // 尖点处使用更大的障碍物权重（车辆静止，对障碍物更敏感）
-    const T pose_weight = T(is_cusp_pose_ ? cusp_obstacle_weight_ : obstacle_weight_);
+    const T pose_weight = T(obstacle_weight_);
 
     // 若无多点检测，直接对路径点坐标计算单个障碍物残差
     if (cost_check_points_.empty()) {
@@ -637,9 +619,7 @@ private:
   unsigned int size_y_;              ///< 代价地图 y 方向格数
   double obstacle_safe_distance_;    ///< 障碍物安全距离阈值（米），低于此值时施加惩罚
   double cost_check_radius_;         ///< 机器人检测半径（米），从 ESDF 距离中减去
-  double obstacle_weight_;           ///< 普通路径点的障碍物惩罚权重（平方根形式）
-  double cusp_obstacle_weight_;      ///< 尖点处的障碍物惩罚权重（不小于普通权重）
-  bool is_cusp_pose_;                ///< 该路径点是否为尖点
+  double obstacle_weight_;           ///< 当前路径点解析后的障碍物惩罚权重（平方根形式）
   std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
   std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< 保持插值器底层网格存活
   std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器

@@ -161,14 +161,13 @@
 | 步长 [5] | `kinematic_spacing_weight_sqrt` |
 | 长度 [6] | `path_length_weight_sqrt` |
 
-### 2. 边界残差（BoundaryCostFunctor，4 个残差）
+### 2. 边界残差（BoundaryCostFunctor，3 个残差）
 
-边界残差负责锚定起点和终点，输出 4 个残差：
+边界残差负责锚定起点和终点，输出 3 个残差：
 
 - `[0]` 目标坐标系 lon 方向位置误差（超出 `goal_longitudinal_tolerance` 才惩罚）
 - `[1]` 目标坐标系 lat 方向位置误差（超出 `goal_lateral_tolerance` 才惩罚）
 - `[2]` 朝向误差（仅在 `keep_start_orientation` / `keep_goal_orientation` 为 true 且超出 `goal_orientation_tolerance` 时惩罚）
-- `[3]` 步长约束（强制端点 `ds` 为零；对终点实际无效，因为终点 `ds` 不被任何过渡残差消费）
 
 起点和终点都使用同一个 functor 实例化，参数不同。
 
@@ -191,7 +190,7 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 
 - 如果没有提供足迹采样点，就以状态中心为检查点，输出 1 个残差。
 - 如果提供了 `cost_check_points`，就把局部采样点旋转到世界坐标后逐点检查，每个三元组 `(x_local, y_local, weight)` 输出 1 个残差。
-- cusp 前后会自动使用更高的障碍物权重（`cusp_costmap_weight_sqrt`）。
+- 所有状态使用统一的 `costmap_weight_sqrt` 障碍物权重。
 
 惩罚模型为二次惩罚：当到障碍物表面的距离低于 `obstacle_safe_distance` 时才生效，越近惩罚越大。
 

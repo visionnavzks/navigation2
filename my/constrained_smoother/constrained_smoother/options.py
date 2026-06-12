@@ -37,8 +37,6 @@ class SmootherParams:
 
     model_weight_sqrt: float = 0.0
     costmap_weight_sqrt: float = 0.0
-    cusp_costmap_weight_sqrt: float = 0.0
-    cusp_zone_length: float = 0.0
     reference_path_weight_sqrt: float = 0.0
     reference_point_max_deviation_m: float = 0.0
     kinematic_curvature_weight_sqrt: float = 0.0
@@ -59,6 +57,7 @@ class SmootherParams:
 
     # --- Path resampling and direction semantics ---
 
+    path_target_spacing: float = 0.0
     path_downsampling_factor: int = 1
     path_upsampling_factor: int = 1
     reversing_enabled: bool = True
@@ -73,7 +72,7 @@ class SmootherParams:
 
     def obstacle_terms_enabled(self) -> bool:
         """Return whether any obstacle residual is actually enabled."""
-        return max(self.costmap_weight_sqrt, self.cusp_costmap_weight_sqrt) > 1e-9
+        return self.costmap_weight_sqrt > 1e-9
 
 
 class LinearSolver(Enum):

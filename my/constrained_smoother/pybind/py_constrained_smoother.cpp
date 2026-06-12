@@ -568,10 +568,6 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "costmap_weight_sqrt",
     &constrained_smoother::SmootherParams::costmap_weight_sqrt)
     .def_readwrite(
-    "cusp_costmap_weight_sqrt",
-    &constrained_smoother::SmootherParams::cusp_costmap_weight_sqrt)
-    .def_readwrite("cusp_zone_length", &constrained_smoother::SmootherParams::cusp_zone_length)
-    .def_readwrite(
     "reference_path_weight_sqrt",
     &constrained_smoother::SmootherParams::reference_path_weight_sqrt)
     .def_readwrite(
@@ -602,6 +598,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readwrite(
     "cost_check_radius",
     &constrained_smoother::SmootherParams::cost_check_radius)
+    .def_readwrite(
+    "path_target_spacing",
+    &constrained_smoother::SmootherParams::path_target_spacing)
     .def_readwrite(
     "path_downsampling_factor",
     &constrained_smoother::SmootherParams::path_downsampling_factor)

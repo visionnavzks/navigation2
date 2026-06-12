@@ -335,7 +335,6 @@ $$
 - 目标朝向 $\theta_{\text{ref}}$
 - 纵向容差 $t_{\text{lon}}$、横向容差 $t_{\text{lat}}$、朝向容差 $t_{\theta}$
 - `keep_orientation` 布尔值
-- `constrain_stop` 布尔值
 
 **坐标变换**：将位置误差投影到目标坐标系：
 
@@ -355,7 +354,6 @@ $$
 | [0] | $w_f \cdot \max(0,\ |e_{\text{lon}}| - t_{\text{lon}})$ | 始终 |
 | [1] | $w_f \cdot \max(0,\ |e_{\text{lat}}| - t_{\text{lat}})$ | 始终 |
 | [2] | $w_f \cdot \max(0,\ |\text{angle\_diff}(\theta, \theta_{\text{ref}})| - t_{\theta})$ | 仅当 `keep_orientation=true` |
-| [3] | $w_f \cdot ds$ | 仅当 `constrain_stop=true`（强制停止） |
 
 **起点 vs 终点的参数差异**：
 
@@ -365,7 +363,6 @@ $$
 | `t_lat` | 0 | `goal_lateral_tolerance` |
 | `t_theta` | 0 | `goal_orientation_tolerance` |
 | `keep_orientation` | `keep_start_orientation` | `keep_goal_orientation` |
-| `constrain_stop` | false | true |
 
 容差为 0 时退化为绝对硬锚定。
 
@@ -435,7 +432,7 @@ for each (local_x, local_y, point_weight) in cost_check_points:
     residual = pose_weight * point_weight * obstacle_penalty(world_x, world_y)
 ```
 
-**Cusp 处权重增强**：cusp 相邻的状态使用 `cusp_costmap_weight_sqrt` 替代 `costmap_weight_sqrt`。
+**障碍权重**：所有状态使用统一的 `costmap_weight_sqrt`，不为 cusp 单独配置障碍权重。
 
 ---
 
@@ -597,8 +594,7 @@ for each segment (i, i+1):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `costmap_weight_sqrt` | double | 0.0 | 普通路径点障碍物权重 |
-| `cusp_costmap_weight_sqrt` | double | 0.0 | Cusp 处障碍物权重（≥ `costmap_weight_sqrt`） |
+| `costmap_weight_sqrt` | double | 0.0 | 统一障碍物权重 |
 | `obstacle_safe_distance` | double | 0.5 | 最小安全净空（m） |
 | `cost_check_radius` | double | 0.0 | 机器人圆形足迹半径（m） |
 | `cost_check_points` | vector\<double\> | [] | 局部检测点 $[x, y, w, \ldots]$ |

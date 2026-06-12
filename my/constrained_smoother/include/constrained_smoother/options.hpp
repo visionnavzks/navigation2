@@ -46,7 +46,7 @@ struct SmootherParams
   /// “必须提供地图才能继续”的两种情况。
   bool obstacleTermsEnabled() const
   {
-    return std::max(costmap_weight_sqrt, cusp_costmap_weight_sqrt) > 1e-9;
+    return costmap_weight_sqrt > 1e-9;
   }
 
   // --- Kinematic and reference-path weights ---
@@ -55,10 +55,6 @@ struct SmootherParams
   double model_weight_sqrt{0.0};
   /// 障碍物净空残差的基础平方根权重。
   double costmap_weight_sqrt{0.0};
-  /// cusp 邻域内使用的增强障碍物权重。
-  double cusp_costmap_weight_sqrt{0.0};
-  /// cusp 周围用于过渡障碍物权重的弧长范围。
-  double cusp_zone_length{0.0};
   /// 约束优化后控制点贴近参考路径的平方根权重。
   /// 设为 0 时，路径只受运动学与障碍物项驱动。
   double reference_path_weight_sqrt{0.0};
@@ -100,8 +96,11 @@ struct SmootherParams
 
   // --- Path resampling and direction semantics ---
 
+  /// 在连接残差块之前按目标间距重采样路径，单位米；<= 0 时使用旧的倍率下采样。
+  /// 该值同时作为运动学 spacing residual 的目标步长。
+  double path_target_spacing{0.0};
   /// 在连接残差块之前应用的路径下采样步长。
-  /// 值越大，参与求解的状态数越少。
+  /// 值越大，参与求解的状态数越少；仅在 path_target_spacing <= 0 时生效。
   int path_downsampling_factor{1};
   /// 重建最终路径时使用的插值倍数。
   /// 值越大，输出路径越密。

@@ -179,16 +179,6 @@
                 <p class="param-hint" data-i18n="weights.obstacleWeightHint">Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.</p>
               </div>
               <div class="param-group">
-                <label data-i18n-html="weights.cuspObstacleWeightLabel">Cusp Obstacle Weight: <span id="val_cusp_costmap_weight">3.000</span></label>
-                <input type="range" id="cusp_costmap_weight" min="0" max="10.0" step="0.05" value="3.0">
-                <p class="param-hint" data-i18n="weights.cuspObstacleWeightHint">Overrides the nominal obstacle weight around cusp neighborhoods so direction-switch regions can be pushed harder away from obstacles.</p>
-              </div>
-              <div class="param-group">
-                <label data-i18n-html="weights.cuspZoneLengthLabel">Cusp Zone Length (m): <span id="val_cusp_zone_length">2.50</span></label>
-                <input type="range" id="cusp_zone_length" min="0.0" max="10.0" step="0.1" value="2.5">
-                <p class="param-hint" data-i18n="weights.cuspZoneLengthHint">Sets the full arc-length span over which cusp obstacle weighting ramps up before and after a direction switch.</p>
-              </div>
-              <div class="param-group">
                 <label data-i18n-html="weights.referencePathWeightLabel">Reference Path Weight: <span id="val_reference_path_weight">0.0</span></label>
                 <input type="range" id="reference_path_weight" min="0" max="100.0" step="1.0" value="0.0">
                 <p class="param-hint" data-i18n="weights.referencePathWeightHint">Keeps the optimized solution closer to the A* reference when you do not want large detours.</p>
@@ -339,16 +329,6 @@
                 <input type="number" id="gradient_tol" min="0" max="0.01" step="any" value="1e-10">
                 <p class="param-hint" data-i18n="solver.gradientToleranceHint">Stops when the gradient norm becomes sufficiently small near a stationary point.</p>
               </div>
-              <div class="param-group">
-                <label data-i18n-html="solver.downsamplingFactorLabel">Downsampling Factor: <span id="val_path_downsampling_factor">1</span></label>
-                <input type="range" id="path_downsampling_factor" min="1" max="10" step="1" value="1">
-                <p class="param-hint" data-i18n="solver.downsamplingFactorHint">Drops intermediate reference points before optimization to reduce problem size.</p>
-              </div>
-              <div class="param-group">
-                <label data-i18n-html="solver.upsamplingFactorLabel">Upsampling Factor: <span id="val_path_upsampling_factor">1</span></label>
-                <input type="range" id="path_upsampling_factor" min="1" max="10" step="1" value="1">
-                <p class="param-hint" data-i18n="solver.upsamplingFactorHint">Reinserts points after optimization to recover path density for inspection.</p>
-              </div>
             </section>
 
             <section id="panel-layers" class="control-panel rail-switcher__panel stack-section control-table" data-panel-id="panel-layers" hidden>
@@ -394,7 +374,7 @@
                   <span class="swatch swatch-reference"></span>
                   <span class="layer-copy-wrap">
                     <span class="layer-name" data-i18n="layers.referencePath">Reference Path</span>
-                    <span class="layer-copy" data-i18n="layers.referencePathHint">downsampled optimizer input</span>
+                    <span class="layer-copy" data-i18n="layers.referencePathHint">target-spaced display preview</span>
                   </span>
                 </label>
                 <label class="layer-toggle">
@@ -406,11 +386,19 @@
                   </span>
                 </label>
                 <label class="layer-toggle">
-                  <input type="checkbox" id="layer_robot_projection">
+                  <input type="checkbox" id="layer_robot_projection" checked>
                   <span class="swatch swatch-robot-projection"></span>
                   <span class="layer-copy-wrap">
                     <span class="layer-name" data-i18n="layers.robotProjection">Robot Projection</span>
-                    <span class="layer-copy" data-i18n="layers.robotProjectionHint">checkpoint circles with the dashed rectangle validation outline swept along the smoothed path</span>
+                    <span class="layer-copy" data-i18n="layers.robotProjectionHint">checkpoint circles and dashed rectangle validation outline swept along the smoothed path</span>
+                  </span>
+                </label>
+                <label class="layer-toggle">
+                  <input type="checkbox" id="layer_safe_distance" checked>
+                  <span class="swatch swatch-safe-distance"></span>
+                  <span class="layer-copy-wrap">
+                    <span class="layer-name" data-i18n="layers.safeDistance">Safe Distance</span>
+                    <span class="layer-copy" data-i18n="layers.safeDistanceHint">no-penalty clearance outlines around each swept checkpoint circle</span>
                   </span>
                 </label>
               </div>
@@ -793,56 +781,58 @@
                   <span data-i18n="run.kinematicDetails">Kinematic Details</span>
                   <strong id="kinematic-detail-mode">--</strong>
                 </div>
-                <div class="validation-details-grid">
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalSegmentError">Goal Segment Error</span>
-                    <strong id="kinematic-goal-segment-error">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalTolerance">Goal Tolerance</span>
-                    <strong id="kinematic-goal-tolerance">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalExpected">Expected Goal Heading</span>
-                    <strong id="kinematic-goal-expected">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalActualSegment">Actual Terminal Segment</span>
-                    <strong id="kinematic-goal-actual-segment">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalPoseHeading">Terminal Pose Heading</span>
-                    <strong id="kinematic-goal-pose-heading">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.goalPoseError">Terminal Pose Error</span>
-                    <strong id="kinematic-goal-pose-error">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.kinematicMaxIterations">Max Iterations</span>
-                    <strong id="kinematic-param-max-iterations">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.kinematicMaxTime">Max Solver Time</span>
-                    <strong id="kinematic-param-max-time">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.kinematicMaxCurvature">Max Curvature</span>
-                    <strong id="kinematic-param-max-curvature">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.kinematicCurvatureRateWeight">Curvature Rate Weight</span>
-                    <strong id="kinematic-param-curvature-rate-weight">--</strong>
-                  </div>
-                  <div class="validation-details-item">
-                    <span class="metric-label" data-i18n="run.kinematicResampling">Resampling</span>
-                    <strong id="kinematic-param-resampling">--</strong>
-                  </div>
-                  <div class="validation-details-item validation-details-item--wide">
-                    <span class="metric-label" data-i18n="run.kinematicCeresTolerances">Ceres Tolerances</span>
-                    <strong id="kinematic-param-ceres-tolerances">--</strong>
-                  </div>
-                </div>
+                <table class="kinematic-diagnostics-table">
+                  <tbody>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalSegmentError">Goal Segment Error</th>
+                      <td><strong id="kinematic-goal-segment-error">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalTolerance">Goal Tolerance</th>
+                      <td><strong id="kinematic-goal-tolerance">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalExpected">Expected Goal Heading</th>
+                      <td><strong id="kinematic-goal-expected">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalActualSegment">Actual Terminal Segment</th>
+                      <td><strong id="kinematic-goal-actual-segment">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalPoseHeading">Terminal Pose Heading</th>
+                      <td><strong id="kinematic-goal-pose-heading">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.goalPoseError">Terminal Pose Error</th>
+                      <td><strong id="kinematic-goal-pose-error">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicMaxIterations">Max Iterations</th>
+                      <td><strong id="kinematic-param-max-iterations">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicMaxTime">Max Solver Time</th>
+                      <td><strong id="kinematic-param-max-time">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicMaxCurvature">Max Curvature</th>
+                      <td><strong id="kinematic-param-max-curvature">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicCurvatureRateWeight">Curvature Rate Weight</th>
+                      <td><strong id="kinematic-param-curvature-rate-weight">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicTargetSpacing">Target Spacing</th>
+                      <td><strong id="kinematic-param-resampling">--</strong></td>
+                    </tr>
+                    <tr>
+                      <th scope="row" data-i18n="run.kinematicCeresTolerances">Ceres Tolerances</th>
+                      <td><strong id="kinematic-param-ceres-tolerances">--</strong></td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
               </section>
             </div>

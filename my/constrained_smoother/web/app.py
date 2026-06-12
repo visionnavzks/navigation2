@@ -306,8 +306,8 @@ def _run_astar_stage(
     Return contract:
         planner: Planner instance whose ESDF may be reused by the smoother stage.
         raw_path: Raw A* path as world-coordinate tuples.
-        sparse_path: Downsampled reference path used as the smoother input chain.
-        eigen_path: Reference path encoded as `[x, y, direction_sign]` triples.
+        sparse_path: Target-spaced reference preview used for frontend display and fallback.
+        eigen_path: Raw planner path encoded as `[x, y, direction_sign]` triples.
         reference_with_yaw: Display-ready reference path with reconstructed yaw.
         astar_time_ms: Planner runtime in milliseconds.
         stage: Pipeline-stage payload for frontend status rendering.
@@ -354,9 +354,9 @@ def _run_astar_stage(
 
     raw_path = [(float(point[0]), float(point[1])) for point in raw_path]
     sparse_path = downsample_path(raw_path, reference_spacing_target_m)
-    eigen_path = [[point[0], point[1], 1.0] for point in sparse_path]
+    eigen_path = [[point[0], point[1], 1.0] for point in raw_path]
     reference_with_yaw = _reconstruct_path_with_yaw(
-        eigen_path,
+        [[point[0], point[1], 1.0] for point in sparse_path],
         start_yaw=start_yaw_rad,
         goal_yaw=goal_yaw_rad,
         keep_start_orientation=keep_start_orientation,
@@ -367,7 +367,7 @@ def _run_astar_stage(
         "planner",
         "A*",
         "ok",
-        f"A* produced {len(raw_path)} raw pose(s) and {len(sparse_path)} reference pose(s).",
+        f"A* produced {len(raw_path)} raw pose(s); C++ target spacing will generate optimizer knots.",
         elapsed_ms=astar_time_ms,
         path_key="reference_path",
     )
@@ -978,8 +978,6 @@ class PlanRequestConfig:
     robot_width_m: float
     model_weight: float
     costmap_weight: float
-    cusp_costmap_weight: float
-    cusp_zone_length: float
     reference_path_weight: float
     enable_reference_point_max_deviation: bool
     reference_point_deviation_limit_m: float
@@ -992,8 +990,6 @@ class PlanRequestConfig:
     max_curvature: float
     max_time: float
     reference_spacing_target_m: float
-    path_downsample: int
-    path_upsample: int
     max_iterations: int
     optimizer_type: str
     linear_solver_type: str
@@ -1014,8 +1010,6 @@ class PlanRequestConfig:
         linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
         if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
             linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
-
-        costmap_weight = float(req.get("costmap_weight", 1.0))
 
         return cls(
             manual_reference_path=_parse_manual_reference_path(req.get("manual_reference_path")),
@@ -1044,9 +1038,7 @@ class PlanRequestConfig:
             robot_length_m=max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8))),
             robot_width_m=max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5))),
             model_weight=float(req.get("model_weight", 20.0)),
-            costmap_weight=costmap_weight,
-            cusp_costmap_weight=max(0.0, float(req.get("cusp_costmap_weight", costmap_weight * 3.0))),
-            cusp_zone_length=max(0.0, float(req.get("cusp_zone_length", 2.5))),
+            costmap_weight=float(req.get("costmap_weight", 1.0)),
             reference_path_weight=float(req.get("reference_path_weight", 0.0)),
             enable_reference_point_max_deviation=_coerce_bool(
                 req.get("enable_reference_point_max_deviation"),
@@ -1071,8 +1063,6 @@ class PlanRequestConfig:
                     float(req.get("reference_spacing_target_m", DEFAULT_REFERENCE_SPACING_TARGET_M)),
                 ),
             ),
-            path_downsample=max(1, int(req.get("path_downsampling_factor", 1))),
-            path_upsample=max(1, int(req.get("path_upsampling_factor", 1))),
             max_iterations=max(1, int(req.get("max_iterations", 50))),
             optimizer_type="kinematic_smoother",
             linear_solver_type=linear_solver_type,
@@ -1120,8 +1110,6 @@ class PlanRequestConfig:
         smoother_params = pcs.SmootherParams()
         smoother_params.model_weight_sqrt = math.sqrt(self.model_weight)
         smoother_params.costmap_weight_sqrt = math.sqrt(self.costmap_weight)
-        smoother_params.cusp_costmap_weight_sqrt = math.sqrt(self.cusp_costmap_weight)
-        smoother_params.cusp_zone_length = self.cusp_zone_length
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
         smoother_params.cost_check_radius = footprint_model["check_radius"]
         smoother_params.reference_path_weight_sqrt = math.sqrt(self.reference_path_weight)
@@ -1142,8 +1130,9 @@ class PlanRequestConfig:
         smoother_params.goal_lateral_tolerance = self.goal_lateral_tolerance_m
         smoother_params.goal_orientation_tolerance = math.radians(self.goal_orientation_tolerance_deg)
         smoother_params.cost_check_points = footprint_model["smoother_points"]
-        smoother_params.path_downsampling_factor = self.path_downsample
-        smoother_params.path_upsampling_factor = self.path_upsample
+        smoother_params.path_target_spacing = self.reference_spacing_target_m
+        smoother_params.path_downsampling_factor = 1
+        smoother_params.path_upsampling_factor = 1
         return smoother_params
 
     def build_optimizer_params(self):
@@ -1649,8 +1638,6 @@ def _build_plan_response_payload(
         "optimizer_type": config.optimizer_type,
         "model_weight": round(config.model_weight, 3),
         "costmap_weight": round(config.costmap_weight, 3),
-        "cusp_costmap_weight": round(config.cusp_costmap_weight, 3),
-        "cusp_zone_length_m": round(config.cusp_zone_length, 3),
         "reference_path_weight": round(config.reference_path_weight, 3),
         "reference_point_max_deviation_m": round(config.reference_point_max_deviation_m, 3),
         "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
@@ -1666,8 +1653,6 @@ def _build_plan_response_payload(
         "parameter_tolerance": config.parameter_tolerance,
         "function_tolerance": config.function_tolerance,
         "gradient_tolerance": config.gradient_tolerance,
-        "path_downsampling_factor": int(config.path_downsample),
-        "path_upsampling_factor": int(config.path_upsample),
         "keep_start_orientation": bool(config.keep_start_orientation),
         "keep_goal_orientation": bool(config.keep_goal_orientation),
     }

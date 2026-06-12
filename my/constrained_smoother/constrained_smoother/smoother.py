@@ -112,6 +112,7 @@ class KinematicSmoother:
         KinematicSmootherProblemBuilder.apply_bounds(
             lower, upper,
             processed.reference_points,
+            processed.is_cusp_segment,
             n,
             request.params.max_curvature,
             request.params.kinematic_max_spacing,
