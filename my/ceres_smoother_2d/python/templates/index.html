@@ -258,6 +258,11 @@ details.category .field:last-child{margin-bottom:6px}
       <div class="sub">米</div>
     </div>
     <div class="result-block">
+      <div class="label">最大曲率 (max κ)</div>
+      <div class="value" id="r-max-kappa">—</div>
+      <div class="sub" id="r-max-kappa-sub"></div>
+    </div>
+    <div class="result-block">
       <div class="label">平滑状态</div>
       <div class="value"><span class="badge" id="r-smooth-ok">—</span></div>
     </div>
@@ -627,7 +632,7 @@ function getParams(){
 }
 
 const resultMetricIds=[
-  'r-raw-pts','r-ds-pts','r-sm-pts','r-plan-ms','r-smooth-ms','r-cost','r-min-clr','r-smooth-ok'
+  'r-raw-pts','r-ds-pts','r-sm-pts','r-plan-ms','r-smooth-ms','r-cost','r-min-clr','r-max-kappa','r-smooth-ok'
 ];
 
 function setStatus(text,cls=''){
@@ -679,6 +684,11 @@ function renderPlanSuccess(d){
   document.getElementById('r-cost').textContent=d.final_cost?.toFixed(2)||'—';
   document.getElementById('r-cost-breakdown').textContent=formatCostBreakdown(d.cost_breakdown);
   document.getElementById('r-min-clr').textContent=d.min_clearance?.toFixed(4)||'—';
+  document.getElementById('r-max-kappa').textContent=d.max_curvature?.toFixed(4)||'—';
+  const limitKappa=1/(getParams().min_turning_radius||0.5);
+  const overLimit=d.max_curvature>limitKappa;
+  document.getElementById('r-max-kappa-sub').textContent=overLimit?`超过限制 (${limitKappa.toFixed(2)} 1/m)`:`限制 ${limitKappa.toFixed(2)} 1/m`;
+  document.getElementById('r-max-kappa').style.color=overLimit?'#ef4444':'';
   const so=document.getElementById('r-smooth-ok');
   so.textContent=d.success?'成功':'失败';
   so.className=d.success?'badge ok':'badge fail';

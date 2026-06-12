@@ -312,6 +312,38 @@ def _path_length(points):
         for i in range(1, len(points)))
 
 
+def _compute_curvature_profile(xs, ys):
+    """Compute discrete curvature at each interior point.
+
+    Uses the Menger curvature formula: kappa = 2*sin(theta) / ds,
+    where theta is the turning angle between consecutive segments
+    and ds is the average step size.
+    Returns (max_kappa, curvatures_list).
+    """
+    n = len(xs)
+    if n < 3:
+        return 0.0, [0.0] * n
+    curvatures = [0.0]
+    max_k = 0.0
+    for i in range(1, n - 1):
+        v1x = xs[i] - xs[i - 1]
+        v1y = ys[i] - ys[i - 1]
+        v2x = xs[i + 1] - xs[i]
+        v2y = ys[i + 1] - ys[i]
+        cross = v1x * v2y - v1y * v2x
+        dot = v1x * v2x + v1y * v2y
+        theta = abs(math.atan2(cross, dot))
+        n1 = math.hypot(v1x, v1y)
+        n2 = math.hypot(v2x, v2y)
+        ds = 0.5 * (n1 + n2)
+        kappa = 2.0 * math.sin(theta) / ds if ds > 1e-12 else 0.0
+        curvatures.append(kappa)
+        if kappa > max_k:
+            max_k = kappa
+    curvatures.append(0.0)
+    return max_k, curvatures
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -393,6 +425,7 @@ def api_plan():
     cost_breakdown = compute_path_cost_breakdown(res.x, res.y, pm, esdf_map)
 
     smoothed_points = list(zip(res.x, res.y))
+    max_kappa, kappa_profile = _compute_curvature_profile(res.x, res.y)
 
     return jsonify(
         found=True, start_ok=True, goal_ok=True,
@@ -412,6 +445,8 @@ def api_plan():
         iterations=res.iterations, solve_time_ms=res.solve_time_ms,
         min_clearance=round(min(cls),4) if cls else 0,
         clearances=cls,
+        max_curvature=round(max_kappa,6),
+        curvature_profile=[round(k,6) for k in kappa_profile],
     )
 
 

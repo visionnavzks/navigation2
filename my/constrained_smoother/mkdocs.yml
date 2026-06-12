@@ -47,5 +47,6 @@ nav:
   - 包使用指南: package-guide.md
   - 设计:
       - 运动学平滑器: KINEMATIC_SMOOTHER_DESIGN.md
+      - 可复现设计文档: REPRODUCIBLE_DESIGN.md
   - 参考:
       - 错误码: error-codes.md
