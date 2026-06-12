@@ -46,14 +46,19 @@ struct SmootherParams
   double w_max_curvature{1000.0};
   double min_turning_radius{0.2};  // meters
 
-  // Reference tracking: penalty for deviating from the A* reference path
-  double w_reference{0.0};
+  // Reference tracking: penalty for deviating from the A* reference path.
+  // Prevents the optimizer from pulling the path too far from the original
+  // route when obstacle/length weights are strong. A nonzero default keeps
+  // the path anchored near the planner's intent.
+  double w_reference{5.0};
 
   // Elastic-band length: weight on minimizing Σ‖p_next - p_curr‖² (sum of
   // squared inter-point distances). Combined with smoothness + obstacle +
   // reference, this acts as a uniform-spacing force without the nonlinearity
   // or rest-length conflicts of a target_spacing spring.
-  double w_length{10.0};
+  // Lowered from 10.0 to avoid over-shrinking the path and overpowering
+  // obstacle avoidance — reference + smoothness now carry the shape.
+  double w_length{2.0};
   // Desired inter-point spacing in meters — used ONLY by the resample
   // stages (resample_before_smooth / resample_after_smooth), not by the
   // optimization loop. Default 0.3 m gives ~34 points on a 10 m path.
@@ -67,11 +72,15 @@ struct SmootherParams
   // optimizer ends up at any point with dist < 0, the gradient magnitude
   // is constant and the smoother may stall in a wall. w_penetration fixes
   // that by adding a quadratic in -dist that grows the deeper you go.
-  double w_obstacle{50.0};
-  double w_penetration{0.0};       // weight on the inside-obstacle penalty
-                                   // (0 = disabled, default keeps old behavior)
+  double w_obstacle{10.0};
+  // Weight on the inside-obstacle penalty. The hinge term alone (w_obstacle)
+  // has a flat plateau inside the obstacle where the gradient is constant but
+  // small; a point stuck deep inside may never escape. The penetration term
+  // adds a cost that grows with depth (-dist), pulling the optimizer out.
+  // Nonzero by default so this defense is always active.
+  double w_penetration{1000.0};
   double safety_margin{1.0};       // meters, desired minimum clearance (from robot edge)
-  double robot_radius{0.0};        // meters, robot inscribed radius; effective clearance
+  double robot_radius{0.5};        // meters, robot inscribed radius; effective clearance
                                   // threshold = safety_margin + robot_radius
 
   // Post-processing: resample the smoothed path along its arc length so
@@ -387,6 +396,11 @@ public:
     SmootherResult result;
 
     const int N_in = static_cast<int>(x_in.size());
+    if (x_in.size() != y_in.size()) {
+      result.success = false;
+      result.report = "x_in and y_in size mismatch";
+      return result;
+    }
     if (N_in < 3) {
       result.x = x_in;
       result.y = y_in;
