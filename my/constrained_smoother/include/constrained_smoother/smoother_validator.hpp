@@ -30,6 +30,7 @@
 #include "constrained_smoother/costmap2d.hpp"
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/options.hpp"
+#include "constrained_smoother/state_layout.hpp"
 #include "constrained_smoother/utils.hpp"
 
 namespace constrained_smoother
@@ -92,7 +93,7 @@ public:
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
   {
-    if (request.variables.size() != request.state_count * 5) {
+    if (request.variables.size() != request.state_count * KinematicStateLayout::Size) {
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::InvalidStateVector,
@@ -237,7 +238,7 @@ private:
 
   static bool isFiniteState(const double * state)
   {
-    for (size_t index = 0; index < 5; ++index) {
+    for (size_t index = 0; index < KinematicStateLayout::Size; ++index) {
       if (!std::isfinite(state[index])) {
         return false;
       }
@@ -262,7 +263,7 @@ private:
     SmoothingFailureInfo * failure) const
   {
     for (size_t index = 0; index < state_count; ++index) {
-      const double * state = variables.data() + 5 * index;
+      const double * state = KinematicStateLayout::data(variables, index);
       if (!isFiniteState(state)) {
         return throwOrStoreSmoothingFailure(
           failure,
@@ -306,9 +307,11 @@ private:
     const double position_tol = positionTolerance(request.costmap);
     const double angle_tol = orientationTolerance();
 
-    const double * start_state = request.variables.data();
-    const double start_dx = start_state[0] - request.reference_points.front().x();
-    const double start_dy = start_state[1] - request.reference_points.front().y();
+    const double * start_state = KinematicStateLayout::data(request.variables, 0);
+    const double start_dx =
+      start_state[KinematicStateLayout::X] - request.reference_points.front().x();
+    const double start_dy =
+      start_state[KinematicStateLayout::Y] - request.reference_points.front().y();
     if (std::hypot(start_dx, start_dy) > position_tol) {
       return throwOrStoreSmoothingFailure(
         failure,
@@ -317,7 +320,8 @@ private:
         0);
     }
     if (request.params.keep_start_orientation &&
-      std::abs(angleDifference(start_state[2], request.start_theta)) > angle_tol)
+      std::abs(angleDifference(start_state[KinematicStateLayout::Theta], request.start_theta)) >
+      angle_tol)
     {
       return throwOrStoreSmoothingFailure(
         failure,
@@ -326,9 +330,12 @@ private:
         0);
     }
 
-    const double * goal_state = request.variables.data() + 5 * (request.state_count - 1);
-    const double goal_dx = goal_state[0] - request.reference_points.back().x();
-    const double goal_dy = goal_state[1] - request.reference_points.back().y();
+    const double * goal_state =
+      KinematicStateLayout::data(request.variables, request.state_count - 1);
+    const double goal_dx =
+      goal_state[KinematicStateLayout::X] - request.reference_points.back().x();
+    const double goal_dy =
+      goal_state[KinematicStateLayout::Y] - request.reference_points.back().y();
     const double goal_position_theta = goalPositionFrameHeading(
       request.reference_points,
       request.end_theta,
@@ -343,8 +350,8 @@ private:
     if (std::abs(goal_lon) > goal_lon_tol + convergence_epsilon ||
         std::abs(goal_lat) > goal_lat_tol + convergence_epsilon) {
       const bool uses_goal_box =
-        request.params.goal_longitudinal_tolerance > 1e-9 ||
-        request.params.goal_lateral_tolerance > 1e-9;
+        request.params.goal_longitudinal_tolerance > KinematicStateLayout::EnabledEpsilon ||
+        request.params.goal_lateral_tolerance > KinematicStateLayout::EnabledEpsilon;
       const std::string message = describeGoalPositionViolation(
         uses_goal_box ?
         "Kinematic smoother violated the goal position tolerance box" :
@@ -370,7 +377,7 @@ private:
         static_cast<int>(request.state_count - 1));
     }
     if (request.params.keep_goal_orientation &&
-      std::abs(angleDifference(goal_state[2], request.end_theta)) >
+      std::abs(angleDifference(goal_state[KinematicStateLayout::Theta], request.end_theta)) >
       std::max(request.params.goal_orientation_tolerance, angle_tol))
     {
       return throwOrStoreSmoothingFailure(
@@ -378,7 +385,7 @@ private:
         SmoothingFailureReason::GoalOrientationConstraint,
         describeOrientationViolation(
           "Kinematic smoother violated the fixed goal orientation constraint",
-          goal_state[2],
+          goal_state[KinematicStateLayout::Theta],
           request.end_theta,
           angle_tol),
         static_cast<int>(request.state_count - 1));
@@ -416,16 +423,18 @@ private:
     const double angle_tol = orientationTolerance();
 
     for (size_t index = 0; index + 1 < request.state_count; ++index) {
-      const double * current = request.variables.data() + 5 * index;
-      const double * next = request.variables.data() + 5 * (index + 1);
-      const double dx = next[0] - current[0];
-      const double dy = next[1] - current[1];
+      const double * current = KinematicStateLayout::data(request.variables, index);
+      const double * next = KinematicStateLayout::data(request.variables, index + 1);
+      const double dx = next[KinematicStateLayout::X] - current[KinematicStateLayout::X];
+      const double dy = next[KinematicStateLayout::Y] - current[KinematicStateLayout::Y];
       const double displacement = std::hypot(dx, dy);
 
       if (request.is_cusp_segment[index]) {
         if (
           displacement > position_tol ||
-          std::abs(angleDifference(next[2], current[2])) > angle_tol)
+          std::abs(angleDifference(
+            next[KinematicStateLayout::Theta],
+            current[KinematicStateLayout::Theta])) > angle_tol)
         {
           return throwOrStoreSmoothingFailure(
             failure,
@@ -444,7 +453,9 @@ private:
           static_cast<int>(index));
       }
 
-      const Eigen::Vector2d heading(std::cos(current[2]), std::sin(current[2]));
+      const Eigen::Vector2d heading(
+        std::cos(current[KinematicStateLayout::Theta]),
+        std::sin(current[KinematicStateLayout::Theta]));
       const double signed_projection = dx * heading.x() + dy * heading.y();
       const double gear = request.gears[index];
       if ((gear >= 0.0 && signed_projection <= 0.0) || (gear < 0.0 && signed_projection >= 0.0)) {
@@ -465,7 +476,7 @@ private:
   /// 拉扯时输出 kappa 合法但实际姿态轨迹弯曲过大的结果。所以这一关
   /// 用两把尺子同时量：
   ///
-  ///   1. **状态曲率**：对每个 `state`，取 `|state[3]|`（即 kappa）
+  ///   1. **状态曲率**：对每个 `state`，取 `|state[KinematicStateLayout::Kappa]|`（即 kappa）
   ///      直接与 `max_curvature` 比较。`1e-4` 的容差用来吸收求解器
   ///      末次迭代的舍入噪声，避免「刚刚越线」就被打回。
   ///
@@ -483,13 +494,16 @@ private:
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
   {
-    const double max_curvature = std::max(request.params.max_curvature, 1e-6);
+    const double max_curvature =
+      std::max(request.params.max_curvature, KinematicStateLayout::GeometryEpsilon);
     constexpr double curvature_tolerance = 1e-4;
 
     auto report_curvature_violation =
       [&](size_t index, double actual_curvature) {
         const double turning_radius =
-          actual_curvature > 1e-9 ? 1.0 / actual_curvature : std::numeric_limits<double>::infinity();
+          actual_curvature > KinematicStateLayout::EnabledEpsilon ?
+          1.0 / actual_curvature :
+          std::numeric_limits<double>::infinity();
         const std::string message = describeCurvatureViolation(
           actual_curvature,
           max_curvature,
@@ -512,8 +526,8 @@ private:
 
     // 1) 检查显式状态曲率 kappa 是否越界。
     for (size_t index = 0; index < request.state_count; ++index) {
-      const double * state = request.variables.data() + 5 * index;
-      const double abs_kappa = std::abs(state[3]);
+      const double * state = KinematicStateLayout::data(request.variables, index);
+      const double abs_kappa = std::abs(state[KinematicStateLayout::Kappa]);
       if (abs_kappa > max_curvature + curvature_tolerance) {
         return report_curvature_violation(index, abs_kappa);
       }
@@ -525,15 +539,17 @@ private:
       if (request.is_cusp_segment[index]) {
         continue;
       }
-      const double * current = request.variables.data() + 5 * index;
-      const double * next = request.variables.data() + 5 * (index + 1);
-      const double dx = next[0] - current[0];
-      const double dy = next[1] - current[1];
+      const double * current = KinematicStateLayout::data(request.variables, index);
+      const double * next = KinematicStateLayout::data(request.variables, index + 1);
+      const double dx = next[KinematicStateLayout::X] - current[KinematicStateLayout::X];
+      const double dy = next[KinematicStateLayout::Y] - current[KinematicStateLayout::Y];
       const double displacement = std::hypot(dx, dy);
       if (displacement <= displacement_tol) {
         continue;
       }
-      const double delta_theta = angleDifference(next[2], current[2]);
+      const double delta_theta = angleDifference(
+        next[KinematicStateLayout::Theta],
+        current[KinematicStateLayout::Theta]);
       const double geometric_curvature = std::abs(delta_theta) / displacement;
       if (geometric_curvature > max_curvature + curvature_tolerance) {
         return report_curvature_violation(index, geometric_curvature);
@@ -546,7 +562,7 @@ private:
   /// 校验路径上每个状态的足迹采样点是否都满足最小 ESDF 净空。
   ///
   /// 这是一道「只在工程上需要时才执行」的检查：调用层通过
-  /// `params.obstacleTermsEnabled()`（`costmap_weight_sqrt > 1e-9`）
+  /// `params.obstacleTermsEnabled()`（`costmap_weight_sqrt > KinematicStateLayout::EnabledEpsilon`）
   /// 显式声明要不要障碍物项；没声明就整段直接放行（返回 `true`），
   /// 不会污染纯几何调参场景。
   ///
@@ -580,15 +596,18 @@ private:
     }
 
     const double radius = std::max(request.params.cost_check_radius, 0.0);
-    if (radius <= 1e-9 && request.params.cost_check_points.empty()) {
+    if (
+      radius <= KinematicStateLayout::EnabledEpsilon &&
+      request.params.cost_check_points.empty())
+    {
       return true;
     }
 
     for (size_t state_index = 0; state_index < request.state_count; ++state_index) {
-      const double * state = request.variables.data() + 5 * state_index;
-      const double x = state[0];
-      const double y = state[1];
-      const double theta = state[2];
+      const double * state = KinematicStateLayout::data(request.variables, state_index);
+      const double x = state[KinematicStateLayout::X];
+      const double y = state[KinematicStateLayout::Y];
+      const double theta = state[KinematicStateLayout::Theta];
       const double cos_theta = std::cos(theta);
       const double sin_theta = std::sin(theta);
 

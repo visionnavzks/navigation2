@@ -28,6 +28,7 @@
 #include "constrained_smoother/exceptions.hpp"
 #include "constrained_smoother/kinematic_smoother_costs.hpp"
 #include "constrained_smoother/options.hpp"
+#include "constrained_smoother/state_layout.hpp"
 #include "constrained_smoother/utils.hpp"
 
 namespace constrained_smoother
@@ -149,7 +150,7 @@ public:
         continue;
       }
 
-      if (segment_norm > kGeometryEpsilon) {
+      if (segment_norm > KinematicStateLayout::GeometryEpsilon) {
         double heading = std::atan2(delta.y(), delta.x());
         if (processed.gears[index] < 0.0) {
           heading += constrained_smoother::PI;
@@ -171,7 +172,7 @@ public:
       theta.back() = processed.end_theta;
     }
 
-    if (params.path_target_spacing > kEnabledEpsilon) {
+    if (params.path_target_spacing > KinematicStateLayout::EnabledEpsilon) {
       processed.target_spacing = params.path_target_spacing;
     } else {
       processed.target_spacing = spacing_count > 0 ?
@@ -179,7 +180,7 @@ public:
         (costmap != nullptr ? std::max(costmap->getResolution(), 1e-3) : processed.target_spacing);
     }
 
-    processed.initial_variables.reserve(processed.state_count * kStateSize);
+    processed.initial_variables.reserve(processed.state_count * KinematicStateLayout::Size);
     for (size_t index = 0; index < processed.state_count; ++index) {
       processed.initial_variables.push_back(processed.reference_points[index].x());
       processed.initial_variables.push_back(processed.reference_points[index].y());
@@ -262,7 +263,7 @@ public:
       stateData(variables, processed.state_count - 1));
 
     // 参考路径吸附残差：仅在 reference_weight>0 时启用。
-    if (reference_weight > kEnabledEpsilon) {
+    if (reference_weight > KinematicStateLayout::EnabledEpsilon) {
       for (size_t index = 0; index < processed.state_count; ++index) {
         problem.AddResidualBlock(
           kinematic_smoother_detail::ReferenceCostFunctor::Create(
@@ -297,27 +298,38 @@ public:
   {
     // 显式参数边界：
     // x/y 可选地限制在参考点邻域；kappa 与 ds 始终受物理边界约束。
-    const double clamped_max_curvature = std::max(max_curvature, kGeometryEpsilon);
+    const double clamped_max_curvature =
+      std::max(max_curvature, KinematicStateLayout::GeometryEpsilon);
     for (size_t index = 0; index < state_count; ++index) {
-      double * state = variables + stateOffset(index);
-      if (reference_point_max_deviation_m > kEnabledEpsilon) {
+      double * state = KinematicStateLayout::data(variables, index);
+      if (reference_point_max_deviation_m > KinematicStateLayout::EnabledEpsilon) {
         problem.SetParameterLowerBound(
-          state, kXIndex, reference_points[index].x() - reference_point_max_deviation_m);
+          state,
+          KinematicStateLayout::X,
+          reference_points[index].x() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, kXIndex, reference_points[index].x() + reference_point_max_deviation_m);
+          state,
+          KinematicStateLayout::X,
+          reference_points[index].x() + reference_point_max_deviation_m);
         problem.SetParameterLowerBound(
-          state, kYIndex, reference_points[index].y() - reference_point_max_deviation_m);
+          state,
+          KinematicStateLayout::Y,
+          reference_points[index].y() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, kYIndex, reference_points[index].y() + reference_point_max_deviation_m);
+          state,
+          KinematicStateLayout::Y,
+          reference_points[index].y() + reference_point_max_deviation_m);
       }
-      problem.SetParameterLowerBound(state, kKappaIndex, -clamped_max_curvature);
-      problem.SetParameterUpperBound(state, kKappaIndex, clamped_max_curvature);
+      problem.SetParameterLowerBound(state, KinematicStateLayout::Kappa, -clamped_max_curvature);
+      problem.SetParameterUpperBound(state, KinematicStateLayout::Kappa, clamped_max_curvature);
       const bool ds_is_used = index + 1 < state_count;
       const bool is_cusp_ds = index < is_cusp_segment.size() && is_cusp_segment[index];
       problem.SetParameterLowerBound(
-        state, kDsIndex, ds_is_used && !is_cusp_ds ? kGeometryEpsilon : 0.0);
-      if (max_spacing > kEnabledEpsilon) {
-        problem.SetParameterUpperBound(state, kDsIndex, max_spacing);
+        state,
+        KinematicStateLayout::Ds,
+        ds_is_used && !is_cusp_ds ? KinematicStateLayout::GeometryEpsilon : 0.0);
+      if (max_spacing > KinematicStateLayout::EnabledEpsilon) {
+        problem.SetParameterUpperBound(state, KinematicStateLayout::Ds, max_spacing);
       }
     }
   }
@@ -332,9 +344,9 @@ public:
     for (size_t index = 0; index < state_count; ++index) {
       const size_t offset = stateOffset(index);
       path.emplace_back(
-        variables[offset + kXIndex],
-        variables[offset + kYIndex],
-        normalizeAngle(variables[offset + kThetaIndex]));
+        variables[offset + KinematicStateLayout::X],
+        variables[offset + KinematicStateLayout::Y],
+        normalizeAngle(variables[offset + KinematicStateLayout::Theta]));
     }
     return path;
   }
@@ -345,7 +357,8 @@ public:
     const SmootherParams & params)
   {
     std::vector<Eigen::Vector3d> path = unpackPath(variables, processed.state_count);
-    const bool use_output_spacing = params.path_output_spacing > kEnabledEpsilon;
+    const bool use_output_spacing =
+      params.path_output_spacing > KinematicStateLayout::EnabledEpsilon;
     const int fallback_upsample_factor = std::max(params.path_upsampling_factor, 1);
     if ((!use_output_spacing && fallback_upsample_factor <= 1) || processed.state_count < 2) {
       return path;
@@ -361,18 +374,22 @@ public:
         index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index];
       const double gear = index < processed.gears.size() ? processed.gears[index] : 1.0;
 
-      const double * state = variables.data() + stateOffset(index);
-      const double * next_state = variables.data() + stateOffset(index + 1);
-      const double x = state[kXIndex];
-      const double y = state[kYIndex];
-      const double theta = normalizeAngle(state[kThetaIndex]);
-      const double kappa = state[kKappaIndex];
-      const double ds = std::max(state[kDsIndex], 0.0);
-      const double next_kappa = next_state[kKappaIndex];
+      const double * state = KinematicStateLayout::data(variables, index);
+      const double * next_state = KinematicStateLayout::data(variables, index + 1);
+      const double x = state[KinematicStateLayout::X];
+      const double y = state[KinematicStateLayout::Y];
+      const double theta = normalizeAngle(state[KinematicStateLayout::Theta]);
+      const double kappa = state[KinematicStateLayout::Kappa];
+      const double ds = std::max(state[KinematicStateLayout::Ds], 0.0);
+      const double next_kappa = next_state[KinematicStateLayout::Kappa];
 
       const Eigen::Vector3d & next_pose = path[index + 1];
 
-      if (is_cusp_segment || std::abs(gear) < kEnabledEpsilon || ds <= kGeometryEpsilon) {
+      if (
+        is_cusp_segment ||
+        std::abs(gear) < KinematicStateLayout::EnabledEpsilon ||
+        ds <= KinematicStateLayout::GeometryEpsilon)
+      {
         upsampled.push_back(next_pose);
         continue;
       }
@@ -439,22 +456,11 @@ public:
   }
 
 private:
-  static constexpr size_t kStateSize{5};
-  static constexpr size_t kXIndex{0};
-  static constexpr size_t kYIndex{1};
-  static constexpr size_t kThetaIndex{2};
-  static constexpr size_t kKappaIndex{3};
-  static constexpr size_t kDsIndex{4};
-
-  static constexpr double kEnabledEpsilon{1e-9};
-  static constexpr double kGeometryEpsilon{1e-6};
-  static constexpr double kPointEpsilon{1e-9};
-
   static std::vector<Eigen::Vector3d> downsampleInputPath(
     const std::vector<Eigen::Vector3d> & path,
     const SmootherParams & params)
   {
-    if (params.path_target_spacing > kEnabledEpsilon) {
+    if (params.path_target_spacing > KinematicStateLayout::EnabledEpsilon) {
       return resampleInputPathBySpacing(path, params);
     }
 
@@ -480,7 +486,7 @@ private:
       }
     }
 
-    if (!sampled.back().isApprox(path.back(), kPointEpsilon)) {
+    if (!sampled.back().isApprox(path.back(), KinematicStateLayout::PointEpsilon)) {
       sampled.push_back(path.back());
     }
 
@@ -496,7 +502,7 @@ private:
     const SmootherParams & params)
   {
     const double target_spacing = std::max(params.path_target_spacing, 0.0);
-    if (target_spacing <= kEnabledEpsilon || path.size() <= 2) {
+    if (target_spacing <= KinematicStateLayout::EnabledEpsilon || path.size() <= 2) {
       return path;
     }
 
@@ -507,7 +513,7 @@ private:
     auto append_or_update = [&](const Eigen::Vector3d & point) {
       if (
         !sampled.empty() &&
-        (sampled.back().head<2>() - point.head<2>()).norm() <= kPointEpsilon)
+        (sampled.back().head<2>() - point.head<2>()).norm() <= KinematicStateLayout::PointEpsilon)
       {
         sampled.back().z() = point.z();
       } else {
@@ -524,7 +530,7 @@ private:
       const Eigen::Vector2d delta = end.head<2>() - start.head<2>();
       const double segment_length = delta.norm();
 
-      if (segment_length <= kPointEpsilon) {
+      if (segment_length <= KinematicStateLayout::PointEpsilon) {
         if (start_sign != end_sign) {
           append_or_update(end);
           distance_since_keep = 0.0;
@@ -566,12 +572,12 @@ private:
 
   static double * stateData(std::vector<double> & variables, size_t index)
   {
-    return variables.data() + stateOffset(index);
+    return KinematicStateLayout::data(variables, index);
   }
 
   static size_t stateOffset(size_t index)
   {
-    return kStateSize * index;
+    return KinematicStateLayout::offset(index);
   }
 
   static double directionSign(const Eigen::Vector3d & point, bool reversing_enabled)

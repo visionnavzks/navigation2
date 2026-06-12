@@ -34,13 +34,21 @@ from constrained_smoother.exceptions import (
     throw_or_store_smoothing_failure,
 )
 from constrained_smoother.problem_builder import KinematicProcessedPath
+from constrained_smoother.state_layout import (
+    STATE_SIZE,
+    X_INDEX,
+    Y_INDEX,
+    THETA_INDEX,
+    KAPPA_INDEX,
+    ENABLED_EPS,
+    GEOMETRY_EPS,
+    state_view,
+)
 from constrained_smoother.utils import (
-    normalize_angle,
     angle_diff,
     world_to_grid,
     in_bounds,
     EPSILON,
-    PI,
 )
 
 
@@ -73,7 +81,7 @@ class SmootherValidator:
         n = processed.state_count
 
         # 1) State vector shape check
-        if len(variables) != n * 5:
+        if len(variables) != n * STATE_SIZE:
             return throw_or_store_smoothing_failure(
                 failure,
                 SmoothingFailureReason.InvalidStateVector,
@@ -119,7 +127,7 @@ class SmootherValidator:
         failure: Optional[SmoothingFailureInfo],
     ) -> bool:
         for index in range(state_count):
-            state = variables[5 * index: 5 * index + 5]
+            state = state_view(variables, index)
             if not all(math.isfinite(v) for v in state):
                 return throw_or_store_smoothing_failure(
                     failure,
@@ -158,9 +166,9 @@ class SmootherValidator:
         angle_tol = self._orientation_tolerance()
 
         # Start position check
-        start_state = variables[0:5]
-        start_dx = start_state[0] - processed.reference_points[0][0]
-        start_dy = start_state[1] - processed.reference_points[0][1]
+        start_state = state_view(variables, 0)
+        start_dx = start_state[X_INDEX] - processed.reference_points[0][0]
+        start_dy = start_state[Y_INDEX] - processed.reference_points[0][1]
         if math.hypot(start_dx, start_dy) > position_tol:
             return throw_or_store_smoothing_failure(
                 failure,
@@ -171,7 +179,7 @@ class SmootherValidator:
 
         # Start orientation check
         if params.keep_start_orientation:
-            if abs(angle_diff(start_state[2], processed.start_theta)) > angle_tol:
+            if abs(angle_diff(start_state[THETA_INDEX], processed.start_theta)) > angle_tol:
                 return throw_or_store_smoothing_failure(
                     failure,
                     SmoothingFailureReason.StartOrientationConstraint,
@@ -180,9 +188,9 @@ class SmootherValidator:
                 )
 
         # Goal position check
-        goal_state = variables[5 * (n - 1): 5 * (n - 1) + 5]
-        goal_dx = goal_state[0] - processed.reference_points[-1][0]
-        goal_dy = goal_state[1] - processed.reference_points[-1][1]
+        goal_state = state_view(variables, n - 1)
+        goal_dx = goal_state[X_INDEX] - processed.reference_points[-1][0]
+        goal_dy = goal_state[Y_INDEX] - processed.reference_points[-1][1]
 
         from constrained_smoother.utils import goal_position_frame_heading
         goal_position_theta = goal_position_frame_heading(
@@ -202,8 +210,8 @@ class SmootherValidator:
         if (abs(goal_lon) > goal_lon_tol + convergence_epsilon or
                 abs(goal_lat) > goal_lat_tol + convergence_epsilon):
             uses_goal_box = (
-                params.goal_longitudinal_tolerance > 1e-9 or
-                params.goal_lateral_tolerance > 1e-9
+                params.goal_longitudinal_tolerance > ENABLED_EPS or
+                params.goal_lateral_tolerance > ENABLED_EPS
             )
             prefix = (
                 "Kinematic smoother violated the goal position tolerance box"
@@ -234,7 +242,7 @@ class SmootherValidator:
 
         # Goal orientation check
         if params.keep_goal_orientation:
-            goal_heading_error = abs(angle_diff(goal_state[2], processed.end_theta))
+            goal_heading_error = abs(angle_diff(goal_state[THETA_INDEX], processed.end_theta))
             goal_heading_tol = max(params.goal_orientation_tolerance, angle_tol)
             if goal_heading_error > goal_heading_tol:
                 return throw_or_store_smoothing_failure(
@@ -259,15 +267,15 @@ class SmootherValidator:
         angle_tol = self._orientation_tolerance()
 
         for index in range(n - 1):
-            current = variables[5 * index: 5 * index + 5]
-            next_state = variables[5 * (index + 1): 5 * (index + 1) + 5]
-            dx = next_state[0] - current[0]
-            dy = next_state[1] - current[1]
+            current = state_view(variables, index)
+            next_state = state_view(variables, index + 1)
+            dx = next_state[X_INDEX] - current[X_INDEX]
+            dy = next_state[Y_INDEX] - current[Y_INDEX]
             displacement = math.hypot(dx, dy)
 
             if processed.is_cusp_segment[index]:
                 if (displacement > position_tol or
-                        abs(angle_diff(next_state[2], current[2])) > angle_tol):
+                        abs(angle_diff(next_state[THETA_INDEX], current[THETA_INDEX])) > angle_tol):
                     return throw_or_store_smoothing_failure(
                         failure,
                         SmoothingFailureReason.CuspHoldConstraint,
@@ -285,8 +293,8 @@ class SmootherValidator:
                 )
 
             # Motion direction check
-            heading_x = math.cos(current[2])
-            heading_y = math.sin(current[2])
+            heading_x = math.cos(current[THETA_INDEX])
+            heading_y = math.sin(current[THETA_INDEX])
             signed_projection = dx * heading_x + dy * heading_y
             gear = processed.gears[index]
             if ((gear >= 0.0 and signed_projection <= 0.0) or
@@ -309,14 +317,14 @@ class SmootherValidator:
         failure: Optional[SmoothingFailureInfo],
     ) -> bool:
         n = processed.state_count
-        max_curvature = max(params.max_curvature, 1e-6)
+        max_curvature = max(params.max_curvature, GEOMETRY_EPS)
         curvature_tolerance = 1e-4
         displacement_tol = self._displacement_tolerance(costmap)
 
         def _report(index: int, actual_curvature: float) -> bool:
             turning_radius = (
                 1.0 / actual_curvature
-                if actual_curvature > 1e-9
+                if actual_curvature > ENABLED_EPS
                 else float("inf")
             )
             message = (
@@ -344,8 +352,8 @@ class SmootherValidator:
 
         # 1) Check explicit kappa
         for index in range(n):
-            state = variables[5 * index: 5 * index + 5]
-            abs_kappa = abs(state[3])
+            state = state_view(variables, index)
+            abs_kappa = abs(state[KAPPA_INDEX])
             if abs_kappa > max_curvature + curvature_tolerance:
                 if not _report(index, abs_kappa):
                     return False
@@ -354,14 +362,14 @@ class SmootherValidator:
         for index in range(n - 1):
             if processed.is_cusp_segment[index]:
                 continue
-            current = variables[5 * index: 5 * index + 5]
-            next_state = variables[5 * (index + 1): 5 * (index + 1) + 5]
-            dx = next_state[0] - current[0]
-            dy = next_state[1] - current[1]
+            current = state_view(variables, index)
+            next_state = state_view(variables, index + 1)
+            dx = next_state[X_INDEX] - current[X_INDEX]
+            dy = next_state[Y_INDEX] - current[Y_INDEX]
             displacement = math.hypot(dx, dy)
             if displacement <= displacement_tol:
                 continue
-            delta_theta = angle_diff(next_state[2], current[2])
+            delta_theta = angle_diff(next_state[THETA_INDEX], current[THETA_INDEX])
             geometric_curvature = abs(delta_theta) / displacement
             if geometric_curvature > max_curvature + curvature_tolerance:
                 if not _report(index, geometric_curvature):
@@ -382,12 +390,14 @@ class SmootherValidator:
             return True
 
         radius = max(params.cost_check_radius, 0.0)
-        if radius <= 1e-9 and not params.cost_check_points:
+        if radius <= ENABLED_EPS and not params.cost_check_points:
             return True
 
         for state_index in range(processed.state_count):
-            state = variables[5 * state_index: 5 * state_index + 5]
-            x, y, theta = state[0], state[1], state[2]
+            state = state_view(variables, state_index)
+            x = state[X_INDEX]
+            y = state[Y_INDEX]
+            theta = state[THETA_INDEX]
             cos_theta = math.cos(theta)
             sin_theta = math.sin(theta)
 

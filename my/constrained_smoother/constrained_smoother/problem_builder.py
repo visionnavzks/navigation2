@@ -39,22 +39,24 @@ from constrained_smoother.costs import (
     reference_residuals,
     obstacle_residuals,
 )
+from constrained_smoother.state_layout import (
+    STATE_SIZE,
+    X_INDEX,
+    Y_INDEX,
+    THETA_INDEX,
+    KAPPA_INDEX,
+    DS_INDEX,
+    ENABLED_EPS,
+    GEOMETRY_EPS,
+    POINT_EPS,
+    state_offset,
+    state_view,
+)
 from constrained_smoother.utils import (
     normalize_angle,
     goal_position_frame_heading,
     PI,
 )
-
-STATE_SIZE = 5
-X_INDEX = 0
-Y_INDEX = 1
-THETA_INDEX = 2
-KAPPA_INDEX = 3
-DS_INDEX = 4
-
-ENABLED_EPS = 1e-9
-GEOMETRY_EPS = 1e-6
-POINT_EPS = 1e-9
 
 
 @dataclass
@@ -263,8 +265,8 @@ class KinematicSmootherProblemBuilder:
 
             # 1) Transition residuals: 7 per consecutive pair
             for index in range(n - 1):
-                current = _state_view(variables, index)
-                next_state = _state_view(variables, index + 1)
+                current = state_view(variables, index)
+                next_state = state_view(variables, index + 1)
                 r = transition_residuals(
                     current, next_state,
                     processed.gears[index],
@@ -280,7 +282,7 @@ class KinematicSmootherProblemBuilder:
                 residuals.extend(r)
 
             # 2) Start boundary: 3 residuals
-            start_state = _state_view(variables, 0)
+            start_state = state_view(variables, 0)
             start_ref = np.array(processed.reference_points[0])
             r_start = boundary_residuals(
                 start_state, start_ref,
@@ -292,7 +294,7 @@ class KinematicSmootherProblemBuilder:
             residuals.extend(r_start)
 
             # 3) Goal boundary: 3 residuals
-            goal_state = _state_view(variables, n - 1)
+            goal_state = state_view(variables, n - 1)
             goal_ref = np.array(processed.reference_points[-1])
             r_goal = boundary_residuals(
                 goal_state, goal_ref,
@@ -308,7 +310,7 @@ class KinematicSmootherProblemBuilder:
             # 4) Reference path residuals: 2 per state
             if reference_weight > ENABLED_EPS:
                 for index in range(n):
-                    state = _state_view(variables, index)
+                    state = state_view(variables, index)
                     ref_pt = np.array(processed.reference_points[index])
                     r_ref = reference_residuals(state, ref_pt, reference_weight)
                     residuals.extend(r_ref)
@@ -316,7 +318,7 @@ class KinematicSmootherProblemBuilder:
             # 5) Obstacle residuals: variable per state
             if has_obstacle_cost and costmap is not None:
                 for index in range(n):
-                    state = _state_view(variables, index)
+                    state = state_view(variables, index)
                     r_obs = obstacle_residuals(
                         state,
                         self._esdf_values,
@@ -351,7 +353,7 @@ class KinematicSmootherProblemBuilder:
         clamped_max_curvature = max(max_curvature, 1e-6)
 
         for index in range(state_count):
-            base = _state_offset(index)
+            base = state_offset(index)
 
             if reference_point_max_deviation_m > ENABLED_EPS:
                 ref_x, ref_y = reference_points[index]
@@ -375,7 +377,7 @@ class KinematicSmootherProblemBuilder:
         """Convert flat variables back to (x, y, yaw) path."""
         path = []
         for index in range(state_count):
-            base = _state_offset(index)
+            base = state_offset(index)
             path.append(np.array([
                 variables[base + X_INDEX],
                 variables[base + Y_INDEX],
@@ -409,8 +411,8 @@ class KinematicSmootherProblemBuilder:
             )
             gear = processed.gears[index] if index < len(processed.gears) else 1.0
 
-            state = _state_view(variables, index)
-            next_state = _state_view(variables, index + 1)
+            state = state_view(variables, index)
+            next_state = state_view(variables, index + 1)
             x = state[X_INDEX]
             y = state[Y_INDEX]
             theta = normalize_angle(state[THETA_INDEX])
@@ -574,16 +576,6 @@ def _resample_input_path_by_spacing(
         sampled = [np.array(path[0], dtype=float), np.array(path[-1], dtype=float)]
 
     return sampled
-
-
-def _state_offset(index: int) -> int:
-    return STATE_SIZE * index
-
-
-def _state_view(variables: np.ndarray, index: int) -> np.ndarray:
-    base = _state_offset(index)
-    return variables[base: base + STATE_SIZE]
-
 
 def _direction_sign(point: np.ndarray, reversing_enabled: bool) -> float:
     if not reversing_enabled:
