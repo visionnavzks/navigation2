@@ -41,13 +41,20 @@ from constrained_smoother.costs import (
 )
 from constrained_smoother.utils import (
     normalize_angle,
-    angle_diff,
-    world_to_grid,
-    in_bounds,
     goal_position_frame_heading,
-    EPSILON,
     PI,
 )
+
+STATE_SIZE = 5
+X_INDEX = 0
+Y_INDEX = 1
+THETA_INDEX = 2
+KAPPA_INDEX = 3
+DS_INDEX = 4
+
+ENABLED_EPS = 1e-9
+GEOMETRY_EPS = 1e-6
+POINT_EPS = 1e-9
 
 
 @dataclass
@@ -126,12 +133,10 @@ class KinematicSmootherProblemBuilder:
         sampled_path = _downsample_input_path(path, params)
 
         # Compute gear directions
-        gear_directions: list[float] = []
-        for index in range(len(sampled_path) - 1):
-            if params.reversing_enabled:
-                gear_directions.append(-1.0 if sampled_path[index][2] < 0.0 else 1.0)
-            else:
-                gear_directions.append(1.0)
+        gear_directions = [
+            _direction_sign(sampled_path[index], params.reversing_enabled)
+            for index in range(len(sampled_path) - 1)
+        ]
 
         # Expand states with cusp insertion
         processed.reference_points.append(
@@ -169,8 +174,10 @@ class KinematicSmootherProblemBuilder:
         spacing_sum = 0.0
         spacing_count = 0
         for index in range(processed.state_count - 1):
-            rx = processed.reference_points[index + 1][0] - processed.reference_points[index][0]
-            ry = processed.reference_points[index + 1][1] - processed.reference_points[index][1]
+            current_ref = processed.reference_points[index]
+            next_ref = processed.reference_points[index + 1]
+            rx = next_ref[0] - current_ref[0]
+            ry = next_ref[1] - current_ref[1]
             segment_norm = math.hypot(rx, ry)
 
             if processed.is_cusp_segment[index]:
@@ -178,7 +185,7 @@ class KinematicSmootherProblemBuilder:
                 ds[index] = 0.0
                 continue
 
-            if segment_norm > 1e-6:
+            if segment_norm > GEOMETRY_EPS:
                 heading = math.atan2(ry, rx)
                 if processed.gears[index] < 0.0:
                     heading += PI
@@ -197,7 +204,7 @@ class KinematicSmootherProblemBuilder:
             theta[-1] = processed.end_theta
 
         # Target spacing
-        if params.path_target_spacing > 1e-9:
+        if params.path_target_spacing > ENABLED_EPS:
             processed.target_spacing = params.path_target_spacing
         elif spacing_count > 0:
             processed.target_spacing = spacing_sum / spacing_count
@@ -230,7 +237,7 @@ class KinematicSmootherProblemBuilder:
         Returns (residual_fn, num_parameters).
         """
         n = processed.state_count
-        num_params = n * 5
+        num_params = n * STATE_SIZE
 
         # Pre-compute weights
         model_weight = max(params.model_weight_sqrt, 0.0)
@@ -256,8 +263,8 @@ class KinematicSmootherProblemBuilder:
 
             # 1) Transition residuals: 7 per consecutive pair
             for index in range(n - 1):
-                current = variables[5 * index: 5 * index + 5]
-                next_state = variables[5 * (index + 1): 5 * (index + 1) + 5]
+                current = _state_view(variables, index)
+                next_state = _state_view(variables, index + 1)
                 r = transition_residuals(
                     current, next_state,
                     processed.gears[index],
@@ -273,7 +280,7 @@ class KinematicSmootherProblemBuilder:
                 residuals.extend(r)
 
             # 2) Start boundary: 3 residuals
-            start_state = variables[0:5]
+            start_state = _state_view(variables, 0)
             start_ref = np.array(processed.reference_points[0])
             r_start = boundary_residuals(
                 start_state, start_ref,
@@ -285,7 +292,7 @@ class KinematicSmootherProblemBuilder:
             residuals.extend(r_start)
 
             # 3) Goal boundary: 3 residuals
-            goal_state = variables[5 * (n - 1): 5 * (n - 1) + 5]
+            goal_state = _state_view(variables, n - 1)
             goal_ref = np.array(processed.reference_points[-1])
             r_goal = boundary_residuals(
                 goal_state, goal_ref,
@@ -299,9 +306,9 @@ class KinematicSmootherProblemBuilder:
             residuals.extend(r_goal)
 
             # 4) Reference path residuals: 2 per state
-            if reference_weight > 1e-9:
+            if reference_weight > ENABLED_EPS:
                 for index in range(n):
-                    state = variables[5 * index: 5 * index + 5]
+                    state = _state_view(variables, index)
                     ref_pt = np.array(processed.reference_points[index])
                     r_ref = reference_residuals(state, ref_pt, reference_weight)
                     residuals.extend(r_ref)
@@ -309,7 +316,7 @@ class KinematicSmootherProblemBuilder:
             # 5) Obstacle residuals: variable per state
             if has_obstacle_cost and costmap is not None:
                 for index in range(n):
-                    state = variables[5 * index: 5 * index + 5]
+                    state = _state_view(variables, index)
                     r_obs = obstacle_residuals(
                         state,
                         self._esdf_values,
@@ -344,32 +351,35 @@ class KinematicSmootherProblemBuilder:
         clamped_max_curvature = max(max_curvature, 1e-6)
 
         for index in range(state_count):
-            base = 5 * index
+            base = _state_offset(index)
 
-            if reference_point_max_deviation_m > 1e-9:
-                lower[base + 0] = reference_points[index][0] - reference_point_max_deviation_m
-                upper[base + 0] = reference_points[index][0] + reference_point_max_deviation_m
-                lower[base + 1] = reference_points[index][1] - reference_point_max_deviation_m
-                upper[base + 1] = reference_points[index][1] + reference_point_max_deviation_m
+            if reference_point_max_deviation_m > ENABLED_EPS:
+                ref_x, ref_y = reference_points[index]
+                lower[base + X_INDEX] = ref_x - reference_point_max_deviation_m
+                upper[base + X_INDEX] = ref_x + reference_point_max_deviation_m
+                lower[base + Y_INDEX] = ref_y - reference_point_max_deviation_m
+                upper[base + Y_INDEX] = ref_y + reference_point_max_deviation_m
 
-            lower[base + 3] = -clamped_max_curvature
-            upper[base + 3] = clamped_max_curvature
+            lower[base + KAPPA_INDEX] = -clamped_max_curvature
+            upper[base + KAPPA_INDEX] = clamped_max_curvature
             ds_is_used = index + 1 < state_count
             is_cusp_ds = index < len(is_cusp_segment) and is_cusp_segment[index]
-            lower[base + 4] = 1e-6 if ds_is_used and not is_cusp_ds else 0.0
-            if max_spacing > 1e-9:
-                upper[base + 4] = max_spacing
+            lower[base + DS_INDEX] = (
+                GEOMETRY_EPS if ds_is_used and not is_cusp_ds else 0.0
+            )
+            if max_spacing > ENABLED_EPS:
+                upper[base + DS_INDEX] = max_spacing
 
     @staticmethod
     def unpack_path(variables: np.ndarray, state_count: int) -> list[np.ndarray]:
         """Convert flat variables back to (x, y, yaw) path."""
         path = []
         for index in range(state_count):
-            base = 5 * index
+            base = _state_offset(index)
             path.append(np.array([
-                variables[base + 0],
-                variables[base + 1],
-                normalize_angle(variables[base + 2]),
+                variables[base + X_INDEX],
+                variables[base + Y_INDEX],
+                normalize_angle(variables[base + THETA_INDEX]),
             ]))
         return path
 
@@ -380,10 +390,14 @@ class KinematicSmootherProblemBuilder:
         params: SmootherParams,
     ) -> list[np.ndarray]:
         """Upsample the path using kinematic interpolation."""
-        upsample_factor = max(params.path_upsampling_factor, 1)
         path = KinematicSmootherProblemBuilder.unpack_path(variables, processed.state_count)
+        use_output_spacing = params.path_output_spacing > ENABLED_EPS
+        fallback_upsample_factor = max(params.path_upsampling_factor, 1)
 
-        if upsample_factor <= 1 or processed.state_count < 2:
+        if (
+            (not use_output_spacing and fallback_upsample_factor <= 1) or
+            processed.state_count < 2
+        ):
             return path
 
         upsampled = [path[0]]
@@ -395,31 +409,42 @@ class KinematicSmootherProblemBuilder:
             )
             gear = processed.gears[index] if index < len(processed.gears) else 1.0
 
-            base = 5 * index
-            x = variables[base + 0]
-            y = variables[base + 1]
-            theta = normalize_angle(variables[base + 2])
-            kappa = variables[base + 3]
-            ds = max(variables[base + 4], 0.0)
-            next_kappa = variables[5 * (index + 1) + 3]
+            state = _state_view(variables, index)
+            next_state = _state_view(variables, index + 1)
+            x = state[X_INDEX]
+            y = state[Y_INDEX]
+            theta = normalize_angle(state[THETA_INDEX])
+            kappa = state[KAPPA_INDEX]
+            ds = max(state[DS_INDEX], 0.0)
+            next_kappa = next_state[KAPPA_INDEX]
 
             next_pose = path[index + 1]
 
-            if is_cusp_seg or abs(gear) < 1e-9 or ds <= 1e-6:
+            if is_cusp_seg or abs(gear) < ENABLED_EPS or ds <= GEOMETRY_EPS:
+                upsampled.append(next_pose)
+                continue
+
+            segment_step_count = _segment_step_count(
+                ds,
+                params.path_output_spacing,
+                fallback_upsample_factor,
+                use_output_spacing,
+            )
+            if segment_step_count <= 1:
                 upsampled.append(next_pose)
                 continue
 
             direction = 1.0 if gear >= 0.0 else -1.0
-            step = ds / upsample_factor
+            step = ds / segment_step_count
 
             interp_x = x
             interp_y = y
             interp_theta = theta
             segment_samples = []
 
-            for step_index in range(1, upsample_factor):
-                t0 = (step_index - 1) / upsample_factor
-                t1 = step_index / upsample_factor
+            for step_index in range(1, segment_step_count):
+                t0 = (step_index - 1) / segment_step_count
+                t1 = step_index / segment_step_count
                 kappa0 = kappa + (next_kappa - kappa) * t0
                 kappa1 = kappa + (next_kappa - kappa) * t1
 
@@ -432,7 +457,7 @@ class KinematicSmootherProblemBuilder:
                 segment_samples.append(np.array([interp_x, interp_y, interp_theta]))
 
             # Predict end position
-            final_t0 = (upsample_factor - 1) / upsample_factor
+            final_t0 = (segment_step_count - 1) / segment_step_count
             final_kappa0 = kappa + (next_kappa - kappa) * final_t0
             final_theta_mid = interp_theta + direction * step * 0.5 * final_kappa0
             predicted_end_x = interp_x + direction * step * math.cos(final_theta_mid)
@@ -446,8 +471,8 @@ class KinematicSmootherProblemBuilder:
             closure_theta = normalize_angle(next_pose[2] - predicted_end_theta)
 
             # Distribute closure error uniformly
-            for step_index in range(1, upsample_factor):
-                t = step_index / upsample_factor
+            for step_index in range(1, segment_step_count):
+                t = step_index / segment_step_count
                 sample = segment_samples[step_index - 1]
                 upsampled.append(np.array([
                     sample[0] + t * closure_x,
@@ -465,7 +490,7 @@ def _downsample_input_path(
     params: SmootherParams,
 ) -> list[np.ndarray]:
     """Downsample the input path, preserving cusp points."""
-    if params.path_target_spacing > 1e-9:
+    if params.path_target_spacing > ENABLED_EPS:
         return _resample_input_path_by_spacing(path, params)
 
     downsample_factor = max(params.path_downsampling_factor, 1)
@@ -475,15 +500,10 @@ def _downsample_input_path(
     sampled = [path[0]]
     last_kept_index = 0
 
-    def direction_sign(index: int) -> float:
-        if not params.reversing_enabled:
-            return 1.0
-        return -1.0 if path[index][2] < 0.0 else 1.0
-
     for index in range(1, len(path) - 1):
-        prev_sign = direction_sign(index - 1)
-        current_sign = direction_sign(index)
-        next_sign = direction_sign(index + 1)
+        prev_sign = _direction_sign(path[index - 1], params.reversing_enabled)
+        current_sign = _direction_sign(path[index], params.reversing_enabled)
+        next_sign = _direction_sign(path[index + 1], params.reversing_enabled)
         around_cusp = current_sign != prev_sign or current_sign != next_sign
 
         if around_cusp or (index - last_kept_index) >= downsample_factor:
@@ -491,7 +511,7 @@ def _downsample_input_path(
             last_kept_index = index
 
     # Ensure last point is included
-    if len(sampled) < 2 or not np.allclose(sampled[-1], path[-1], atol=1e-9):
+    if len(sampled) < 2 or not np.allclose(sampled[-1], path[-1], atol=POINT_EPS):
         sampled.append(path[-1])
 
     if len(sampled) < 2:
@@ -506,19 +526,14 @@ def _resample_input_path_by_spacing(
 ) -> list[np.ndarray]:
     """Resample the input path to a metric target spacing, preserving cusp points."""
     target_spacing = max(float(params.path_target_spacing), 0.0)
-    if target_spacing <= 1e-9 or len(path) <= 2:
+    if target_spacing <= ENABLED_EPS or len(path) <= 2:
         return list(path)
 
     sampled = [np.array(path[0], dtype=float)]
 
-    def direction_sign(index: int) -> float:
-        if not params.reversing_enabled:
-            return 1.0
-        return -1.0 if path[index][2] < 0.0 else 1.0
-
     def append_or_update(point: np.ndarray) -> None:
         point = np.array(point, dtype=float)
-        if sampled and np.linalg.norm(sampled[-1][:2] - point[:2]) <= 1e-9:
+        if sampled and np.linalg.norm(sampled[-1][:2] - point[:2]) <= POINT_EPS:
             sampled[-1][2] = point[2]
         else:
             sampled.append(point)
@@ -527,12 +542,12 @@ def _resample_input_path_by_spacing(
     for index in range(len(path) - 1):
         start = np.array(path[index], dtype=float)
         end = np.array(path[index + 1], dtype=float)
-        start_sign = direction_sign(index)
-        end_sign = direction_sign(index + 1)
+        start_sign = _direction_sign(start, params.reversing_enabled)
+        end_sign = _direction_sign(end, params.reversing_enabled)
         delta = end[:2] - start[:2]
         segment_length = float(np.linalg.norm(delta))
 
-        if segment_length <= 1e-9:
+        if segment_length <= POINT_EPS:
             if start_sign != end_sign:
                 append_or_update(end)
                 distance_since_keep = 0.0
@@ -559,3 +574,29 @@ def _resample_input_path_by_spacing(
         sampled = [np.array(path[0], dtype=float), np.array(path[-1], dtype=float)]
 
     return sampled
+
+
+def _state_offset(index: int) -> int:
+    return STATE_SIZE * index
+
+
+def _state_view(variables: np.ndarray, index: int) -> np.ndarray:
+    base = _state_offset(index)
+    return variables[base: base + STATE_SIZE]
+
+
+def _direction_sign(point: np.ndarray, reversing_enabled: bool) -> float:
+    if not reversing_enabled:
+        return 1.0
+    return -1.0 if point[2] < 0.0 else 1.0
+
+
+def _segment_step_count(
+    ds: float,
+    output_spacing: float,
+    fallback_upsample_factor: int,
+    use_output_spacing: bool,
+) -> int:
+    if not use_output_spacing:
+        return fallback_upsample_factor
+    return max(1, int(math.ceil(ds / output_spacing)))

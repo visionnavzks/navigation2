@@ -149,7 +149,9 @@ document.addEventListener('DOMContentLoaded', () => {
     'solver.linearSolver': '线性求解器',
     'solver.debugLogging': '在 Flask 服务端启用逐迭代求解日志',
     'solver.referenceSpacingLabel': '参考路径目标间距 (m): <span id="val_reference_spacing_target_m">0.30</span>',
-    'solver.referenceSpacingHint': '控制在成为参考路径 / 优化器输入前，对稠密 A* 路径做多强的降采样。间距越大，参考点通常越少。',
+    'solver.referenceSpacingHint': '控制 C++ 平滑器从原始参考路径生成优化结点的目标间距。间距越大，优化问题通常越小。',
+    'solver.outputSpacingLabel': '输出路径目标间距 (m): <span id="val_output_spacing_target_m">0.10</span>',
+    'solver.outputSpacingHint': '控制优化后返回路径的采样密度。更小的间距会生成更密的后验校验和显示采样，但不会增加优化结点数。',
     'solver.maxIterationsLabel': '最大迭代次数: <span id="val_max_iterations">50</span>',
     'solver.maxIterationsHint': '优化器停止前允许的迭代上限。',
     'solver.maxSolverTimeLabel': '最大求解时间 (s): <span id="val_max_time">10.0</span>',
@@ -301,6 +303,9 @@ document.addEventListener('DOMContentLoaded', () => {
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
       'weights.fixWeightLabel': 'Fix Weight: <span id="val_fix_weight">100</span>',
       'weights.fixWeightHint': 'Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.',
+      'solver.referenceSpacingHint': 'Controls the C++ smoother target spacing for optimizer knots sampled from the raw reference path. Larger spacing usually means a smaller optimization problem.',
+      'solver.outputSpacingLabel': 'Output Spacing Target (m): <span id="val_output_spacing_target_m">0.10</span>',
+      'solver.outputSpacingHint': 'Controls the final returned path density after optimization. Smaller spacing gives denser validation and display samples without increasing optimizer knot count.',
       'weights.obstacleWeightLabel': 'Obstacle Weight: <span id="val_costmap_weight">1.000</span>',
       'weights.obstacleWeightHint': 'Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.',
       'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">1.0</span>',
@@ -628,6 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
     path_length_weight: value => Number(value).toFixed(2),
     max_curvature: value => Number(value).toFixed(1),
     reference_spacing_target_m: value => Number(value).toFixed(2),
+    output_spacing_target_m: value => Number(value).toFixed(3),
     max_iterations: value => String(Math.round(value)),
     max_time: value => Number(value).toFixed(1),
   };
@@ -640,7 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'model_weight', 'fix_weight', 'costmap_weight',
     'reference_path_weight', 'reference_point_max_deviation_m',
     'kinematic_curvature_weight', 'kinematic_curvature_rate_weight', 'kinematic_spacing_weight', 'path_length_weight', 'max_curvature',
-    'reference_spacing_target_m', 'max_iterations', 'max_time',
+    'reference_spacing_target_m', 'output_spacing_target_m', 'max_iterations', 'max_time',
   ];
   const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
   const optimizerScopedSelectIds = [];
@@ -1409,15 +1415,18 @@ document.addEventListener('DOMContentLoaded', () => {
       optimizerConfig.kinematic_curvature_rate_weight ?? '--'
     );
     const targetSpacingText = formatMeters(optimizerConfig.target_spacing_m, 3);
+    const outputSpacingText = formatMeters(optimizerConfig.output_spacing_target_m, 3);
     setText(
       'kinematic-param-resampling',
-      targetSpacingText
+      currentLanguage === 'zh'
+        ? `优化 ${targetSpacingText} · 输出 ${outputSpacingText}`
+        : `knots ${targetSpacingText} · output ${outputSpacingText}`
     );
     setText(
       'kinematic-spacing-target-hint',
       currentLanguage === 'zh'
-        ? `当前优化目标间距：${targetSpacingText}。该值用于生成优化状态链，并约束每段 ds 接近该间距。`
-        : `Current optimizer target spacing: ${targetSpacingText}. This generates the optimized knot chain and constrains each ds near that spacing.`
+        ? `当前优化目标间距：${targetSpacingText}；输出目标间距：${outputSpacingText}。输出采样不会增加优化结点数。`
+        : `Current optimizer target spacing: ${targetSpacingText}; output target spacing: ${outputSpacingText}. Output sampling does not increase optimizer knot count.`
     );
     setText(
       'kinematic-param-ceres-tolerances',

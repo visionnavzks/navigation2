@@ -150,6 +150,7 @@ def test_smoother_params_defaults():
     assert params.fix_weight == 100.0
     assert params.kinematic_spacing_weight_sqrt == 1.0
     assert params.path_target_spacing == 0.0
+    assert params.path_output_spacing == 0.0
     assert params.reversing_enabled is True
     assert params.keep_start_orientation is True
     assert params.keep_goal_orientation is True
@@ -282,6 +283,29 @@ def test_build_processed_path_target_spacing_preserves_cusp():
     assert abs(processed.reference_points[cusp_index + 1][0] - 2.0) < 1e-12
     assert abs(processed.reference_points[cusp_index + 1][1]) < 1e-12
     assert abs(processed.target_spacing - 0.75) < 1e-12
+
+
+def test_upsample_path_uses_output_spacing():
+    processed = KinematicProcessedPath()
+    processed.state_count = 2
+    processed.gears = [1.0]
+    processed.is_cusp_segment = [False]
+    variables = np.array([
+        0.0, 0.0, 0.0, 0.0, 1.0,
+        1.0, 0.0, 0.0, 0.0, 0.0,
+    ])
+    params = SmootherParams(path_output_spacing=0.25)
+
+    upsampled = KinematicSmootherProblemBuilder.upsample_path_kinematic(
+        variables,
+        processed,
+        params,
+    )
+
+    assert len(upsampled) == 5
+    for index in range(len(upsampled) - 1):
+        spacing = np.linalg.norm(upsampled[index + 1][:2] - upsampled[index][:2])
+        assert abs(spacing - 0.25) < 1e-12
 
 
 # ---- Solver tests ----

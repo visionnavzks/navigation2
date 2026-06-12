@@ -103,8 +103,10 @@ struct SmootherParams
   /// 值越大，参与求解的状态数越少；仅在 path_target_spacing <= 0 时生效。
   int path_downsampling_factor{1};
   /// 重建最终路径时使用的插值倍数。
-  /// 值越大，输出路径越密。
+  /// 值越大，输出路径越密；仅在 path_output_spacing <= 0 时生效。
   int path_upsampling_factor{1};
+  /// 重建最终路径时使用的目标间距，单位米；<= 0 时使用旧的插值倍数。
+  double path_output_spacing{0.0};
   /// 为 false 时忽略输入路径第三分量的倒车语义，整条路径按前进段处理。
   /// 这只影响 gear 推断，不会改写调用方传入的原始路径符号。
   bool reversing_enabled{true};

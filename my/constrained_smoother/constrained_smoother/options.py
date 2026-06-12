@@ -60,6 +60,7 @@ class SmootherParams:
     path_target_spacing: float = 0.0
     path_downsampling_factor: int = 1
     path_upsampling_factor: int = 1
+    path_output_spacing: float = 0.0
     reversing_enabled: bool = True
 
     # --- Goal and boundary handling ---

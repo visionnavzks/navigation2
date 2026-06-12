@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -113,11 +114,7 @@ public:
     std::vector<double> gear_directions;
     gear_directions.reserve(sampled_path.size() - 1);
     for (size_t index = 0; index + 1 < sampled_path.size(); ++index) {
-      if (params.reversing_enabled) {
-        gear_directions.push_back(sampled_path[index].z() < 0.0 ? -1.0 : 1.0);
-      } else {
-        gear_directions.push_back(1.0);
-      }
+      gear_directions.push_back(directionSign(sampled_path[index], params.reversing_enabled));
     }
 
     processed.reference_points.emplace_back(sampled_path.front().x(), sampled_path.front().y());
@@ -152,7 +149,7 @@ public:
         continue;
       }
 
-      if (segment_norm > 1e-6) {
+      if (segment_norm > kGeometryEpsilon) {
         double heading = std::atan2(delta.y(), delta.x());
         if (processed.gears[index] < 0.0) {
           heading += constrained_smoother::PI;
@@ -174,7 +171,7 @@ public:
       theta.back() = processed.end_theta;
     }
 
-    if (params.path_target_spacing > 1e-9) {
+    if (params.path_target_spacing > kEnabledEpsilon) {
       processed.target_spacing = params.path_target_spacing;
     } else {
       processed.target_spacing = spacing_count > 0 ?
@@ -182,7 +179,7 @@ public:
         (costmap != nullptr ? std::max(costmap->getResolution(), 1e-3) : processed.target_spacing);
     }
 
-    processed.initial_variables.reserve(processed.state_count * 5);
+    processed.initial_variables.reserve(processed.state_count * kStateSize);
     for (size_t index = 0; index < processed.state_count; ++index) {
       processed.initial_variables.push_back(processed.reference_points[index].x());
       processed.initial_variables.push_back(processed.reference_points[index].y());
@@ -265,7 +262,7 @@ public:
       stateData(variables, processed.state_count - 1));
 
     // 参考路径吸附残差：仅在 reference_weight>0 时启用。
-    if (reference_weight > 1e-9) {
+    if (reference_weight > kEnabledEpsilon) {
       for (size_t index = 0; index < processed.state_count; ++index) {
         problem.AddResidualBlock(
           kinematic_smoother_detail::ReferenceCostFunctor::Create(
@@ -300,40 +297,44 @@ public:
   {
     // 显式参数边界：
     // x/y 可选地限制在参考点邻域；kappa 与 ds 始终受物理边界约束。
-    const double clamped_max_curvature = std::max(max_curvature, 1e-6);
+    const double clamped_max_curvature = std::max(max_curvature, kGeometryEpsilon);
     for (size_t index = 0; index < state_count; ++index) {
-      double * state = variables + 5 * index;
-      if (reference_point_max_deviation_m > 1e-9) {
+      double * state = variables + stateOffset(index);
+      if (reference_point_max_deviation_m > kEnabledEpsilon) {
         problem.SetParameterLowerBound(
-          state, 0, reference_points[index].x() - reference_point_max_deviation_m);
+          state, kXIndex, reference_points[index].x() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, 0, reference_points[index].x() + reference_point_max_deviation_m);
+          state, kXIndex, reference_points[index].x() + reference_point_max_deviation_m);
         problem.SetParameterLowerBound(
-          state, 1, reference_points[index].y() - reference_point_max_deviation_m);
+          state, kYIndex, reference_points[index].y() - reference_point_max_deviation_m);
         problem.SetParameterUpperBound(
-          state, 1, reference_points[index].y() + reference_point_max_deviation_m);
+          state, kYIndex, reference_points[index].y() + reference_point_max_deviation_m);
       }
-      problem.SetParameterLowerBound(state, 3, -clamped_max_curvature);
-      problem.SetParameterUpperBound(state, 3, clamped_max_curvature);
+      problem.SetParameterLowerBound(state, kKappaIndex, -clamped_max_curvature);
+      problem.SetParameterUpperBound(state, kKappaIndex, clamped_max_curvature);
       const bool ds_is_used = index + 1 < state_count;
       const bool is_cusp_ds = index < is_cusp_segment.size() && is_cusp_segment[index];
-      problem.SetParameterLowerBound(state, 4, ds_is_used && !is_cusp_ds ? 1e-6 : 0.0);
-      if (max_spacing > 1e-9) {
-        problem.SetParameterUpperBound(state, 4, max_spacing);
+      problem.SetParameterLowerBound(
+        state, kDsIndex, ds_is_used && !is_cusp_ds ? kGeometryEpsilon : 0.0);
+      if (max_spacing > kEnabledEpsilon) {
+        problem.SetParameterUpperBound(state, kDsIndex, max_spacing);
       }
     }
   }
 
-  static std::vector<Eigen::Vector3d> unpackPath(const std::vector<double> & variables, size_t state_count)
+  static std::vector<Eigen::Vector3d> unpackPath(
+    const std::vector<double> & variables,
+    size_t state_count)
   {
     // 将求解变量回写为公共路径格式：(x, y, yaw)。
     std::vector<Eigen::Vector3d> path;
     path.reserve(state_count);
     for (size_t index = 0; index < state_count; ++index) {
+      const size_t offset = stateOffset(index);
       path.emplace_back(
-        variables[5 * index + 0],
-        variables[5 * index + 1],
-        normalizeAngle(variables[5 * index + 2]));
+        variables[offset + kXIndex],
+        variables[offset + kYIndex],
+        normalizeAngle(variables[offset + kThetaIndex]));
     }
     return path;
   }
@@ -343,15 +344,16 @@ public:
     const KinematicProcessedPath & processed,
     const SmootherParams & params)
   {
-    const int upsample_factor = std::max(params.path_upsampling_factor, 1);
     std::vector<Eigen::Vector3d> path = unpackPath(variables, processed.state_count);
-    if (upsample_factor <= 1 || processed.state_count < 2) {
+    const bool use_output_spacing = params.path_output_spacing > kEnabledEpsilon;
+    const int fallback_upsample_factor = std::max(params.path_upsampling_factor, 1);
+    if ((!use_output_spacing && fallback_upsample_factor <= 1) || processed.state_count < 2) {
       return path;
     }
 
     std::vector<Eigen::Vector3d> upsampled;
     upsampled.reserve(
-      static_cast<size_t>(upsample_factor) * (processed.state_count - 1) + 1);
+      static_cast<size_t>(fallback_upsample_factor) * (processed.state_count - 1) + 1);
     upsampled.push_back(path.front());
 
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
@@ -359,32 +361,43 @@ public:
         index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index];
       const double gear = index < processed.gears.size() ? processed.gears[index] : 1.0;
 
-      const double x = variables[5 * index + 0];
-      const double y = variables[5 * index + 1];
-      const double theta = normalizeAngle(variables[5 * index + 2]);
-      const double kappa = variables[5 * index + 3];
-      const double ds = std::max(variables[5 * index + 4], 0.0);
-      const double next_kappa = variables[5 * (index + 1) + 3];
+      const double * state = variables.data() + stateOffset(index);
+      const double * next_state = variables.data() + stateOffset(index + 1);
+      const double x = state[kXIndex];
+      const double y = state[kYIndex];
+      const double theta = normalizeAngle(state[kThetaIndex]);
+      const double kappa = state[kKappaIndex];
+      const double ds = std::max(state[kDsIndex], 0.0);
+      const double next_kappa = next_state[kKappaIndex];
 
       const Eigen::Vector3d & next_pose = path[index + 1];
 
-      if (is_cusp_segment || std::abs(gear) < 1e-9 || ds <= 1e-6) {
+      if (is_cusp_segment || std::abs(gear) < kEnabledEpsilon || ds <= kGeometryEpsilon) {
+        upsampled.push_back(next_pose);
+        continue;
+      }
+
+      const int segment_step_count = segmentStepCount(
+        ds, params.path_output_spacing, fallback_upsample_factor, use_output_spacing);
+      if (segment_step_count <= 1) {
         upsampled.push_back(next_pose);
         continue;
       }
 
       const double direction = gear >= 0.0 ? 1.0 : -1.0;
-      const double step = ds / static_cast<double>(upsample_factor);
+      const double step = ds / static_cast<double>(segment_step_count);
 
       double interp_x = x;
       double interp_y = y;
       double interp_theta = theta;
       std::vector<Eigen::Vector3d> segment_samples;
-      segment_samples.reserve(static_cast<size_t>(upsample_factor - 1));
+      segment_samples.reserve(static_cast<size_t>(segment_step_count - 1));
 
-      for (int step_index = 1; step_index < upsample_factor; ++step_index) {
-        const double t0 = static_cast<double>(step_index - 1) / static_cast<double>(upsample_factor);
-        const double t1 = static_cast<double>(step_index) / static_cast<double>(upsample_factor);
+      for (int step_index = 1; step_index < segment_step_count; ++step_index) {
+        const double t0 = static_cast<double>(step_index - 1) /
+          static_cast<double>(segment_step_count);
+        const double t1 = static_cast<double>(step_index) /
+          static_cast<double>(segment_step_count);
         const double kappa0 = kappa + (next_kappa - kappa) * t0;
         const double kappa1 = kappa + (next_kappa - kappa) * t1;
 
@@ -395,8 +408,8 @@ public:
         segment_samples.emplace_back(interp_x, interp_y, interp_theta);
       }
 
-      const double final_t0 = static_cast<double>(upsample_factor - 1) /
-        static_cast<double>(upsample_factor);
+      const double final_t0 = static_cast<double>(segment_step_count - 1) /
+        static_cast<double>(segment_step_count);
       const double final_kappa0 = kappa + (next_kappa - kappa) * final_t0;
       const double final_theta_mid = interp_theta + direction * step * 0.5 * final_kappa0;
       const double predicted_end_x = interp_x + direction * step * std::cos(final_theta_mid);
@@ -410,8 +423,8 @@ public:
 
       // 优化后的相邻状态只在有限权重下逼近运动学一致性；
       // 将端点闭合误差沿整段均匀摊开，避免最后一个插值点硬跳到 next_pose。
-      for (int step_index = 1; step_index < upsample_factor; ++step_index) {
-        const double t = static_cast<double>(step_index) / static_cast<double>(upsample_factor);
+      for (int step_index = 1; step_index < segment_step_count; ++step_index) {
+        const double t = static_cast<double>(step_index) / static_cast<double>(segment_step_count);
         const Eigen::Vector3d & sample = segment_samples[static_cast<size_t>(step_index - 1)];
         upsampled.emplace_back(
           sample.x() + t * closure_x,
@@ -426,11 +439,22 @@ public:
   }
 
 private:
+  static constexpr size_t kStateSize{5};
+  static constexpr size_t kXIndex{0};
+  static constexpr size_t kYIndex{1};
+  static constexpr size_t kThetaIndex{2};
+  static constexpr size_t kKappaIndex{3};
+  static constexpr size_t kDsIndex{4};
+
+  static constexpr double kEnabledEpsilon{1e-9};
+  static constexpr double kGeometryEpsilon{1e-6};
+  static constexpr double kPointEpsilon{1e-9};
+
   static std::vector<Eigen::Vector3d> downsampleInputPath(
     const std::vector<Eigen::Vector3d> & path,
     const SmootherParams & params)
   {
-    if (params.path_target_spacing > 1e-9) {
+    if (params.path_target_spacing > kEnabledEpsilon) {
       return resampleInputPathBySpacing(path, params);
     }
 
@@ -444,17 +468,10 @@ private:
     sampled.push_back(path.front());
 
     size_t last_kept_index = 0;
-    auto direction_sign = [&](size_t index) {
-      if (!params.reversing_enabled) {
-        return 1.0;
-      }
-      return path[index].z() < 0.0 ? -1.0 : 1.0;
-    };
-
     for (size_t index = 1; index + 1 < path.size(); ++index) {
-      const double prev_sign = direction_sign(index - 1);
-      const double current_sign = direction_sign(index);
-      const double next_sign = direction_sign(index + 1);
+      const double prev_sign = directionSign(path[index - 1], params.reversing_enabled);
+      const double current_sign = directionSign(path[index], params.reversing_enabled);
+      const double next_sign = directionSign(path[index + 1], params.reversing_enabled);
       const bool around_cusp = (current_sign != prev_sign) || (current_sign != next_sign);
 
       if (around_cusp || static_cast<int>(index - last_kept_index) >= downsample_factor) {
@@ -463,7 +480,7 @@ private:
       }
     }
 
-    if (!sampled.back().isApprox(path.back(), 1e-9)) {
+    if (!sampled.back().isApprox(path.back(), kPointEpsilon)) {
       sampled.push_back(path.back());
     }
 
@@ -479,7 +496,7 @@ private:
     const SmootherParams & params)
   {
     const double target_spacing = std::max(params.path_target_spacing, 0.0);
-    if (target_spacing <= 1e-9 || path.size() <= 2) {
+    if (target_spacing <= kEnabledEpsilon || path.size() <= 2) {
       return path;
     }
 
@@ -487,15 +504,11 @@ private:
     sampled.reserve(path.size());
     sampled.push_back(path.front());
 
-    auto direction_sign = [&](size_t index) {
-      if (!params.reversing_enabled) {
-        return 1.0;
-      }
-      return path[index].z() < 0.0 ? -1.0 : 1.0;
-    };
-
     auto append_or_update = [&](const Eigen::Vector3d & point) {
-      if (!sampled.empty() && (sampled.back().head<2>() - point.head<2>()).norm() <= 1e-9) {
+      if (
+        !sampled.empty() &&
+        (sampled.back().head<2>() - point.head<2>()).norm() <= kPointEpsilon)
+      {
         sampled.back().z() = point.z();
       } else {
         sampled.push_back(point);
@@ -506,12 +519,12 @@ private:
     for (size_t index = 0; index + 1 < path.size(); ++index) {
       const Eigen::Vector3d & start = path[index];
       const Eigen::Vector3d & end = path[index + 1];
-      const double start_sign = direction_sign(index);
-      const double end_sign = direction_sign(index + 1);
+      const double start_sign = directionSign(start, params.reversing_enabled);
+      const double end_sign = directionSign(end, params.reversing_enabled);
       const Eigen::Vector2d delta = end.head<2>() - start.head<2>();
       const double segment_length = delta.norm();
 
-      if (segment_length <= 1e-9) {
+      if (segment_length <= kPointEpsilon) {
         if (start_sign != end_sign) {
           append_or_update(end);
           distance_since_keep = 0.0;
@@ -553,7 +566,32 @@ private:
 
   static double * stateData(std::vector<double> & variables, size_t index)
   {
-    return variables.data() + 5 * index;
+    return variables.data() + stateOffset(index);
+  }
+
+  static size_t stateOffset(size_t index)
+  {
+    return kStateSize * index;
+  }
+
+  static double directionSign(const Eigen::Vector3d & point, bool reversing_enabled)
+  {
+    if (!reversing_enabled) {
+      return 1.0;
+    }
+    return point.z() < 0.0 ? -1.0 : 1.0;
+  }
+
+  static int segmentStepCount(
+    double ds,
+    double output_spacing,
+    int fallback_upsample_factor,
+    bool use_output_spacing)
+  {
+    if (!use_output_spacing) {
+      return fallback_upsample_factor;
+    }
+    return std::max(1, static_cast<int>(std::ceil(ds / output_spacing)));
   }
 
   std::vector<double> & esdf_values_;

@@ -428,6 +428,32 @@ TEST(KinematicSmootherProblemBuilderTest, UpsamplePathKinematicDistributesClosur
   EXPECT_NEAR(upsampled[3].y(), 0.30, 1e-9);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, OutputSpacingUpsamplesByMetricDistance)
+{
+  constrained_smoother::KinematicProcessedPath processed;
+  processed.state_count = 2;
+  processed.gears = {1.0};
+  processed.is_cusp_segment = {false};
+
+  std::vector<double> variables = {
+    0.0, 0.0, 0.0, 0.0, 1.0,
+    1.0, 0.0, 0.0, 0.0, 0.0,
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.path_output_spacing = 0.25;
+
+  const auto upsampled = constrained_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematic(
+    variables,
+    processed,
+    params);
+
+  ASSERT_EQ(upsampled.size(), 5u);
+  for (size_t index = 0; index + 1 < upsampled.size(); ++index) {
+    EXPECT_NEAR((upsampled[index + 1].head<2>() - upsampled[index].head<2>()).norm(), 0.25, 1e-12);
+  }
+}
+
 TEST(KinematicSmootherProblemBuilderTest, PathTargetSpacingResamplesByMetricDistance)
 {
   const std::vector<Eigen::Vector3d> path = {

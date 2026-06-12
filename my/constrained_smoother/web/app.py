@@ -480,6 +480,7 @@ DEFAULT_RESOLUTION = 0.1
 DEFAULT_ORIGIN_X = 0.0
 DEFAULT_ORIGIN_Y = 0.0
 DEFAULT_REFERENCE_SPACING_TARGET_M = DEFAULT_RESOLUTION * 3
+DEFAULT_OUTPUT_SPACING_TARGET_M = DEFAULT_RESOLUTION
 DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M = max(DEFAULT_RESOLUTION * 0.35, 0.02)
 DEFAULT_FIX_WEIGHT = 100.0
 INFLATION_RADIUS_CELLS = 5
@@ -990,6 +991,7 @@ class PlanRequestConfig:
     max_curvature: float
     max_time: float
     reference_spacing_target_m: float
+    output_spacing_target_m: float
     max_iterations: int
     optimizer_type: str
     linear_solver_type: str
@@ -1063,6 +1065,13 @@ class PlanRequestConfig:
                     float(req.get("reference_spacing_target_m", DEFAULT_REFERENCE_SPACING_TARGET_M)),
                 ),
             ),
+            output_spacing_target_m=min(
+                2.0,
+                max(
+                    DEFAULT_RESOLUTION * 0.25,
+                    float(req.get("output_spacing_target_m", DEFAULT_OUTPUT_SPACING_TARGET_M)),
+                ),
+            ),
             max_iterations=max(1, int(req.get("max_iterations", 50))),
             optimizer_type="kinematic_smoother",
             linear_solver_type=linear_solver_type,
@@ -1133,6 +1142,7 @@ class PlanRequestConfig:
         smoother_params.path_target_spacing = self.reference_spacing_target_m
         smoother_params.path_downsampling_factor = 1
         smoother_params.path_upsampling_factor = 1
+        smoother_params.path_output_spacing = self.output_spacing_target_m
         return smoother_params
 
     def build_optimizer_params(self):
@@ -1644,6 +1654,7 @@ def _build_plan_response_payload(
         "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
         "kinematic_spacing_weight": round(config.kinematic_spacing_weight, 3),
         "target_spacing_m": round(target_spacing_m, 4),
+        "output_spacing_target_m": round(config.output_spacing_target_m, 4),
         "kinematic_max_spacing_m": round(config.kinematic_max_spacing_m, 3),
         "path_length_weight": round(config.path_length_weight, 3),
         "fix_weight": round(config.fix_weight, 3),

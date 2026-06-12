@@ -608,6 +608,9 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     "path_upsampling_factor",
     &constrained_smoother::SmootherParams::path_upsampling_factor)
     .def_readwrite(
+    "path_output_spacing",
+    &constrained_smoother::SmootherParams::path_output_spacing)
+    .def_readwrite(
     "goal_longitudinal_tolerance",
     &constrained_smoother::SmootherParams::goal_longitudinal_tolerance)
     .def_readwrite(
