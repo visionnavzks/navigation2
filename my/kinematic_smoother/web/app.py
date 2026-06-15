@@ -2,7 +2,7 @@
 
 Usage
 -----
-    cd my/constrained_smoother
+    cd my/kinematic_smoother
     # Build the pybind11 module first (see CMakeLists.txt, BUILD_PYTHON=ON)
     python3 web/app.py
 """
@@ -24,14 +24,14 @@ _parent_dir = os.path.dirname(_this_dir)
 
 # Add web/ directory so sibling modules resolve when app is imported as web.app.
 sys.path.insert(0, _this_dir)
-# Add parent directory (constrained_smoother/) to path so py_constrained_smoother can be found
+# Add parent directory (kinematic_smoother/) to path so py_kinematic_smoother can be found
 sys.path.insert(0, _parent_dir)
 # Also check in build/ directory
 _build_dir = os.path.join(_parent_dir, "build")
 if os.path.isdir(_build_dir):
     sys.path.insert(0, _build_dir)
 
-import py_constrained_smoother as pcs  # noqa: E402
+import py_kinematic_smoother as pks  # noqa: E402
 from astar import downsample_path  # noqa: E402
 
 
@@ -66,11 +66,11 @@ ERROR_FINAL_PATH_NONFINITE = "CS_FINAL_PATH_NONFINITE"
 ERROR_FINAL_PATH_OUT_OF_BOUNDS = "CS_FINAL_PATH_OUT_OF_BOUNDS"
 ERROR_FINAL_PATH_COLLISION = "CS_FINAL_PATH_COLLISION"
 PCS_ERROR_CODE_BY_TYPE = {
-    "InvalidPathError": getattr(pcs, "ERROR_INVALID_PATH", "CS_INVALID_PATH"),
-    "FailedToSmoothPathError": getattr(pcs, "ERROR_FAILED_TO_SMOOTH_PATH", "CS_SMOOTHING_FAILED"),
-    "InvalidCostmapError": getattr(pcs, "ERROR_INVALID_COSTMAP", "CS_INVALID_COSTMAP"),
+    "InvalidPathError": getattr(pks, "ERROR_INVALID_PATH", "CS_INVALID_PATH"),
+    "FailedToSmoothPathError": getattr(pks, "ERROR_FAILED_TO_SMOOTH_PATH", "CS_SMOOTHING_FAILED"),
+    "InvalidCostmapError": getattr(pks, "ERROR_INVALID_COSTMAP", "CS_INVALID_COSTMAP"),
     "PrecomputedEsdfSizeMismatchError": getattr(
-        pcs,
+        pks,
         "ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH",
         "CS_PRECOMPUTED_ESDF_SIZE_MISMATCH",
     ),
@@ -314,8 +314,8 @@ def _run_astar_stage(
         astar_time_ms: Planner runtime in milliseconds.
         stage: Pipeline-stage payload for frontend status rendering.
     """
-    planner = pcs.AStarPlanner()
-    planner_params = pcs.AStarPlannerParams()
+    planner = pks.AStarPlanner()
+    planner_params = pks.AStarPlannerParams()
     planner_params.safe_distance = footprint_model["safe_distance"]
     planner_params.cost_penalty_weight = planner_penalty_weight
     planner_params.point_radius = 0.0
@@ -496,7 +496,7 @@ DEFAULT_OBSTACLE_RECTS = [
 ]
 CURRENT_OBSTACLE_RECTS = [tuple(rect) for rect in DEFAULT_OBSTACLE_RECTS]
 STATE_LOCK = Lock()
-HAS_COMPUTE_ESDF = hasattr(pcs, "compute_esdf")
+HAS_COMPUTE_ESDF = hasattr(pks, "compute_esdf")
 
 
 def _build_costmap(obstacle_rects):
@@ -727,7 +727,7 @@ def _diagnose_astar_endpoint(
         }
 
     endpoint_payload["cell_cost"] = int(grid[my, mx])
-    if endpoint_payload["cell_cost"] >= int(pcs.Costmap2D.LETHAL_OBSTACLE):
+    if endpoint_payload["cell_cost"] >= int(pks.Costmap2D.LETHAL_OBSTACLE):
         return {
             "reason": f"{endpoint}_in_lethal_obstacle",
             "message": f"A* could not find a path because the {endpoint} pose lies inside a lethal obstacle cell.",
@@ -1118,7 +1118,7 @@ class PlanRequestConfig:
 
     def build_smoother_params(self, footprint_model):
         """Translate request-level tuning knobs into native smoother params."""
-        smoother_params = pcs.SmootherParams()
+        smoother_params = pks.SmootherParams()
         smoother_params.model_weight = self.model_weight
         smoother_params.obstacle_weight = self.obstacle_weight
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
@@ -1146,7 +1146,7 @@ class PlanRequestConfig:
         return smoother_params
 
     def build_optimizer_params(self):
-        optimizer_params = pcs.OptimizerParams()
+        optimizer_params = pks.OptimizerParams()
         optimizer_params.debug = self.optimizer_debug
         optimizer_params.linear_solver_type = self.linear_solver_type
         optimizer_params.max_iterations = self.max_iterations
@@ -1317,9 +1317,9 @@ ESDF_GRID = None
 
 
 def _grid_to_pcs_costmap(grid):
-    """Convert numpy grid to pcs.Costmap2D for the smoother."""
+    """Convert numpy grid to pks.Costmap2D for the smoother."""
     size_y, size_x = grid.shape
-    costmap = pcs.Costmap2D(size_x, size_y, DEFAULT_RESOLUTION, DEFAULT_ORIGIN_X, DEFAULT_ORIGIN_Y)
+    costmap = pks.Costmap2D(size_x, size_y, DEFAULT_RESOLUTION, DEFAULT_ORIGIN_X, DEFAULT_ORIGIN_Y)
     for my in range(size_y):
         for mx in range(size_x):
             costmap.setCost(mx, my, int(grid[my, mx]))
@@ -1332,7 +1332,7 @@ def _compute_esdf_grid(costmap):
         return None
 
     return np.asarray(
-        pcs.compute_esdf(costmap, pcs.Costmap2D.LETHAL_OBSTACLE),
+        pks.compute_esdf(costmap, pks.Costmap2D.LETHAL_OBSTACLE),
         dtype=np.float64,
     ).reshape((DEFAULT_SIZE_Y, DEFAULT_SIZE_X))
 
@@ -1433,7 +1433,7 @@ def _run_smoother_stage(
 ):
     """Run the kinematic smoother and normalize the fallback metadata."""
     optimizer_label = "Kinematic Smoother"
-    smoother = pcs.KinematicSmoother()
+    smoother = pks.KinematicSmoother()
     smoother.initialize(optimizer_params)
 
     smooth_t0 = time.time()

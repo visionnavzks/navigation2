@@ -1,6 +1,6 @@
 # Constrained Smoother 文档
 
-本站点记录 `my/constrained_smoother` 独立实验包的运动学后端设计、构建方式和稳定错误语义。
+本站点记录 `my/kinematic_smoother` 独立实验包的运动学后端设计、构建方式和稳定错误语义。
 
 ## 文档入口
 

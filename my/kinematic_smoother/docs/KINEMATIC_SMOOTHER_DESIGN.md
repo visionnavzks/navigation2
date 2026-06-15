@@ -1,6 +1,6 @@
 # 运动学平滑器设计说明
 
-本文档说明 `my/constrained_smoother` 中 `KinematicSmoother` 的实现思路，覆盖当前保留的 C++ 版本 `include/constrained_smoother/kinematic_smoother.hpp`。
+本文档说明 `my/kinematic_smoother` 中 `KinematicSmoother` 的实现思路，覆盖当前保留的 C++ 版本 `include/kinematic_smoother/kinematic_smoother.hpp`。
 
 当前 C++ 版本已经拆成"顶层编排 + 共享运行骨架 + 运动学问题构建器 + cost functor"几层，不再把状态展开、问题拼接和执行主线都塞在一个头文件里。
 
@@ -63,24 +63,24 @@
 
 当前运动学版实现建议按下面的对象边界来理解：
 
-1. 顶层对象：`include/constrained_smoother/kinematic_smoother.hpp`
+1. 顶层对象：`include/kinematic_smoother/kinematic_smoother.hpp`
     - 对外暴露 `initialize()` 和 `smooth()`。
     - 持有长期状态，比如 ESDF 缓存、validator 和求解器配置基线。
 2. 单次执行对象：`KinematicSmoother::Run`
     - 表示一次 `smooth()` 调用的生命周期。
     - 负责驱动"准备 -> 求解 -> 校验 -> 回写输出"。
-3. 问题构建器：`include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
+3. 问题构建器：`include/kinematic_smoother/kinematic_smoother_problem_builder.hpp`
     - 负责 ESDF 准备、状态展开、变量初值生成、残差拼接、显式边界约束和输出解包。
-4. 残差定义：`include/constrained_smoother/kinematic_smoother_costs.hpp`
+4. 残差定义：`include/kinematic_smoother/kinematic_smoother_costs.hpp`
     - 定义过渡（7 残差）、边界（4 残差）、参考路径（2 残差）和障碍物（动态残差）各类 cost functor。
 
 共享层还包括：
 
-- `include/constrained_smoother/smoother_request.hpp`
+- `include/kinematic_smoother/smoother_request.hpp`
     - 统一单次调用请求结构。
-- `include/constrained_smoother/options.hpp`
+- `include/kinematic_smoother/options.hpp`
     - 求解器参数和运行时配置。
-- `include/constrained_smoother/exceptions.hpp`
+- `include/kinematic_smoother/exceptions.hpp`
     - 稳定错误码、失败原因枚举和结构化失败信息。
 
 ## Web 层如何驱动它
@@ -254,17 +254,17 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 
 如果你只想先把 C++ 版的整体骨架看明白，建议按下面顺序读：
 
-1. `include/constrained_smoother/kinematic_smoother.hpp`
+1. `include/kinematic_smoother/kinematic_smoother.hpp`
     - 先看类注释、`smooth(...)` 入口和内部 `Run` 的三阶段生命周期。
-2. `include/constrained_smoother/smoother_request.hpp`
+2. `include/kinematic_smoother/smoother_request.hpp`
     - 搞清楚单次调用上下文里哪些字段是输入、哪些会被原地修改。
-3. `include/constrained_smoother/options.hpp`
+3. `include/kinematic_smoother/options.hpp`
     - 理解所有权重、约束和求解器配置的含义。
-4. `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
+4. `include/kinematic_smoother/kinematic_smoother_problem_builder.hpp`
     - 理解 ESDF 准备、状态展开、问题拼接、边界约束和输出解包。
-5. `include/constrained_smoother/kinematic_smoother_costs.hpp`
+5. `include/kinematic_smoother/kinematic_smoother_costs.hpp`
     - 再回头看过渡、边界、参考路径和障碍物残差各自编码了什么。
-6. `include/constrained_smoother/smoother_validator.hpp`
+6. `include/kinematic_smoother/smoother_validator.hpp`
     - 最后确认哪些运动学约束只是优化偏好，哪些会在求解后被硬性拒绝。
 
 如果你接下来要改失败处理或对外错误语义，再补读 [错误码参考](error-codes.md) 和 [包使用指南](package-guide.md) 里的"失败传播路径"小节。
@@ -301,12 +301,12 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 
 如果你要修改这部分实现，建议一起阅读：
 
-- `include/constrained_smoother/kinematic_smoother.hpp`
-- `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
-- `include/constrained_smoother/kinematic_smoother_costs.hpp`
-- `include/constrained_smoother/smoother_validator.hpp`
-- `include/constrained_smoother/options.hpp`
-- `include/constrained_smoother/exceptions.hpp`
+- `include/kinematic_smoother/kinematic_smoother.hpp`
+- `include/kinematic_smoother/kinematic_smoother_problem_builder.hpp`
+- `include/kinematic_smoother/kinematic_smoother_costs.hpp`
+- `include/kinematic_smoother/smoother_validator.hpp`
+- `include/kinematic_smoother/options.hpp`
+- `include/kinematic_smoother/exceptions.hpp`
 
 这样可以同时看到：
 

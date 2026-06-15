@@ -19,7 +19,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 struct KinematicStateLayout
@@ -61,6 +61,6 @@ struct KinematicStateLayout
   }
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__STATE_LAYOUT_HPP_

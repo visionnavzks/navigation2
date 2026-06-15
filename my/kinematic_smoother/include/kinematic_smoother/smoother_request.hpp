@@ -21,11 +21,11 @@
 
 #include "Eigen/Core"
 
-#include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/exceptions.hpp"
-#include "constrained_smoother/options.hpp"
+#include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/exceptions.hpp"
+#include "kinematic_smoother/options.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /// 一次平滑调用产出的显式结果对象。
@@ -74,6 +74,6 @@ struct SmootherRequest
   SmoothingFailureInfo * failure;
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__SMOOTHER_REQUEST_HPP_

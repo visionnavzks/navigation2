@@ -1,6 +1,6 @@
 # 包使用指南
 
-`my/constrained_smoother` 是一个只保留运动学后端的独立实验包：
+`my/kinematic_smoother` 是一个只保留运动学后端的独立实验包：
 
 - C++ `KinematicSmoother`
 - C++ A* + ESDF 工具
@@ -172,7 +172,7 @@ cmake -S . -B build-py \
   -DBUILD_TESTS=OFF \
   -DBUILD_PYTHON=ON \
   -Dpybind11_DIR="$(python3 -m pybind11 --cmakedir)"
-cmake --build build-py --target py_constrained_smoother --parallel
+cmake --build build-py --target py_kinematic_smoother --parallel
 ```
 
 ### Web Lab

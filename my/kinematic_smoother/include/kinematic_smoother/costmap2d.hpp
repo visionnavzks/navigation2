@@ -17,17 +17,17 @@
 #define CONSTRAINED_SMOOTHER__COSTMAP2D_HPP_
 
 // This header is a thin shim that re-exports esdf_core::Costmap2D into the
-// constrained_smoother namespace. The actual implementation lives in the
+// kinematic_smoother namespace. The actual implementation lives in the
 // esdf_core package so it can be shared with other consumers (e.g.
 // hybrid_astar) without pulling in Ceres.
 
 #include "esdf_core/costmap2d.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 using Costmap2D = esdf_core::Costmap2D;
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__COSTMAP2D_HPP_

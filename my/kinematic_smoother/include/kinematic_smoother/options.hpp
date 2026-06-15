@@ -21,11 +21,11 @@
 #include <string>
 #include <vector>
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /**
- * @struct constrained_smoother::SmootherParams
+ * @struct kinematic_smoother::SmootherParams
  * @brief 独立平滑器的运行时配置。
  *
  * 当前公开后端是 `KinematicSmoother`。
@@ -127,7 +127,7 @@ struct SmootherParams
 };
 
 /**
- * @struct constrained_smoother::OptimizerParams
+ * @struct kinematic_smoother::OptimizerParams
  * @brief 传递给 Ceres 的求解器级配置。
  *
  * 这个结构只保存核心求解配置。面向 Python / Web 的字符串形式线性求解器
@@ -188,6 +188,6 @@ struct OptimizerParams
   double gradient_tolerance{1e-10};
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__OPTIONS_HPP_

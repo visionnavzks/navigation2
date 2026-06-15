@@ -6,18 +6,18 @@
 
 #include "ceres/ceres.h"
 
-#include "constrained_smoother/exceptions.hpp"
-#include "constrained_smoother/kinematic_smoother_problem_builder.hpp"
-#include "constrained_smoother/options.hpp"
-#include "constrained_smoother/smoother_request.hpp"
-#include "constrained_smoother/solver_utils.hpp"
-#include "constrained_smoother/smoother_validator.hpp"
+#include "kinematic_smoother/exceptions.hpp"
+#include "kinematic_smoother/kinematic_smoother_problem_builder.hpp"
+#include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/smoother_request.hpp"
+#include "kinematic_smoother/solver_utils.hpp"
+#include "kinematic_smoother/smoother_validator.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /**
- * @class constrained_smoother::KinematicSmoother
+ * @class kinematic_smoother::KinematicSmoother
  * @brief 基于简化运动学状态的路径平滑器。
  *
  * 这个版本把每个状态显式表示为
@@ -176,6 +176,6 @@ private:
   ceres::Solver::Options solver_options_{};
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_

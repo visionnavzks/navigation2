@@ -23,7 +23,7 @@
 #include "esdf_core/esdf.hpp"
 #include "esdf_core/exceptions.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 using ESDF = esdf_core::ESDF;
@@ -31,6 +31,6 @@ using ESDFAlgorithm = esdf_core::ESDFAlgorithm;
 using InvalidCostmap = esdf_core::InvalidCostmap;
 using PrecomputedEsdfSizeMismatch = esdf_core::PrecomputedEsdfSizeMismatch;
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__ESDF_HPP_

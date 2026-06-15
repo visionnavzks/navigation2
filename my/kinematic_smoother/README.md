@@ -1,6 +1,6 @@
 # Constrained Smoother (Standalone)
 
-`my/constrained_smoother` is a standalone extraction of the Navigation2 constrained smoother experiment package.
+`my/kinematic_smoother` is a standalone extraction of the Navigation2 constrained smoother experiment package.
 
 The current standalone package keeps one smoothing backend only: `KinematicSmoother`.
 
@@ -24,15 +24,15 @@ The current standalone package keeps one smoothing backend only: `KinematicSmoot
 
 ## Core Code Layout
 
-- `include/constrained_smoother/kinematic_smoother.hpp`
+- `include/kinematic_smoother/kinematic_smoother.hpp`
 	- Public smoother entrypoint and per-call execution lifecycle.
-- `include/constrained_smoother/kinematic_smoother_problem_builder.hpp`
+- `include/kinematic_smoother/kinematic_smoother_problem_builder.hpp`
 	- ESDF preparation, state expansion, residual assembly, bounds, and unpacking.
-- `include/constrained_smoother/kinematic_smoother_costs.hpp`
+- `include/kinematic_smoother/kinematic_smoother_costs.hpp`
 	- Kinematic residual functors.
-- `include/constrained_smoother/smoother_request.hpp`
+- `include/kinematic_smoother/smoother_request.hpp`
 	- Shared request object for one smoothing call.
-- `include/constrained_smoother/smoother_validator.hpp`
+- `include/kinematic_smoother/smoother_validator.hpp`
 	- Post-solve hard validation.
 - `web/app.py`
 	- Flask API, Web Lab scene state, and response shaping.
@@ -91,7 +91,7 @@ cmake -S . -B build-py \
 	-DBUILD_TESTS=OFF \
 	-DBUILD_PYTHON=ON \
 	-Dpybind11_DIR="$(python3 -m pybind11 --cmakedir)"
-cmake --build build-py --target py_constrained_smoother --parallel
+cmake --build build-py --target py_kinematic_smoother --parallel
 ```
 
 ### Tests
@@ -134,7 +134,17 @@ The Web Lab is kinematic-only. It no longer exposes any backend switch.
 
 ## Original Source
 
-Extracted from `nav2_constrained_smoother` in the Navigation2 repository.
+This standalone package was extracted from the Navigation2 repository
+(<https://github.com/ros-navigation/navigation2>). The smoothing backend
+descends from the upstream package `nav2_constrained_smoother`, which
+exposes two backends: a `ConstrainedSmoother` (geometric, retained only as
+a historical reference in the upstream source) and the kinematic smoother
+originally implemented as `nav2_smoother` / `Smoother` and now kept here
+under the class name `KinematicSmoother`. The bundled A* planner and
+ESDF helpers share lineage with `nav2_smoother` and `nav2_costmap_2d`
+respectively. This package drops the ROS 2 build glue, the
+`nav2_constrained_smoother` ROS `package.xml`, and the geometric
+smoother backend; only the kinematic smoother is shipped.
 
 ## License
 

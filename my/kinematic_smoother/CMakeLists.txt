@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(constrained_smoother)
+project(kinematic_smoother)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,10 +61,10 @@ install(DIRECTORY include/ DESTINATION include)
 option(BUILD_PYTHON "Build Python bindings" OFF)
 if(BUILD_PYTHON)
   find_package(pybind11 REQUIRED)
-  pybind11_add_module(py_constrained_smoother pybind/py_constrained_smoother.cpp)
-  target_link_libraries(py_constrained_smoother PRIVATE ${PROJECT_NAME})
+  pybind11_add_module(py_kinematic_smoother pybind/py_kinematic_smoother.cpp)
+  target_link_libraries(py_kinematic_smoother PRIVATE ${PROJECT_NAME})
   # Install to the project root so the web app can find it
-  install(TARGETS py_constrained_smoother DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
+  install(TARGETS py_kinematic_smoother DESTINATION ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # ---- tests ----

@@ -11,11 +11,11 @@
 #include <vector>
 
 #include "Eigen/Core"
-#include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/esdf.hpp"
-#include "constrained_smoother/exceptions.hpp"
+#include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/esdf.hpp"
+#include "kinematic_smoother/exceptions.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 struct AStarPlannerParams
@@ -436,6 +436,6 @@ private:
   std::vector<double> esdf_;
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__ASTAR_ESDF_HPP_

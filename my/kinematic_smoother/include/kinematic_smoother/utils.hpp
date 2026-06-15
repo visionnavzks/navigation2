@@ -31,7 +31,7 @@
   #define CERES_ISINF(x) ceres::isinf(x)
 #endif
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 constexpr double EPSILON = 0.0001;
@@ -138,6 +138,6 @@ inline Eigen::Matrix<T, 2, 1> tangentDir(
   return Eigen::Matrix<T, 2, 1>(center[1] - pt[1], pt[0] - center[0]);
 }
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__UTILS_HPP_

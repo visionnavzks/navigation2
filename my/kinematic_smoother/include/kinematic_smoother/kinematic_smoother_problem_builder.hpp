@@ -25,14 +25,14 @@
 #include "ceres/ceres.h"
 #include "Eigen/Core"
 
-#include "constrained_smoother/esdf.hpp"
-#include "constrained_smoother/exceptions.hpp"
-#include "constrained_smoother/kinematic_smoother_costs.hpp"
-#include "constrained_smoother/options.hpp"
-#include "constrained_smoother/state_layout.hpp"
-#include "constrained_smoother/utils.hpp"
+#include "kinematic_smoother/esdf.hpp"
+#include "kinematic_smoother/exceptions.hpp"
+#include "kinematic_smoother/kinematic_smoother_costs.hpp"
+#include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/state_layout.hpp"
+#include "kinematic_smoother/utils.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /// 运动学版 smoother 展开的内部状态链。
@@ -162,7 +162,7 @@ public:
       if (segment_norm > KinematicStateLayout::GeometryEpsilon) {
         double heading = std::atan2(delta.y(), delta.x());
         if (processed.gears[index] < 0.0) {
-          heading += constrained_smoother::PI;
+          heading += kinematic_smoother::PI;
         }
         theta[index] = normalizeAngle(heading);
         ds[index] = segment_norm;
@@ -662,6 +662,6 @@ private:
   std::shared_ptr<EsdfInterpolator> esdf_interpolator_{};
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_PROBLEM_BUILDER_HPP_

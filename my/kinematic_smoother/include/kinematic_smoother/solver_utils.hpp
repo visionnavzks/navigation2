@@ -21,9 +21,9 @@
 
 #include "ceres/ceres.h"
 
-#include "constrained_smoother/exceptions.hpp"
+#include "kinematic_smoother/exceptions.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /// 共享的 Ceres 求解入口。
@@ -59,6 +59,6 @@ inline bool solveProblemOrReportFailure(
   return true;
 }
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__SOLVER_UTILS_HPP_

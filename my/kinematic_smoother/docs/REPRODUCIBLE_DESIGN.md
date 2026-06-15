@@ -1,6 +1,6 @@
 # Kinematic Smoother — 可复现设计文档
 
-> **目的**：本文档足够自包含，可以让另一个 AI 模型或工程师从零实现 `constrained_smoother` 包的全部功能，无需阅读任何源码。
+> **目的**：本文档足够自包含，可以让另一个 AI 模型或工程师从零实现 `kinematic_smoother` 包的全部功能，无需阅读任何源码。
 >
 > **阅读约定**：数学符号中，向量用粗体，标量用斜体。代码片段为 Python 风格伪代码，C++ 实现与之逻辑等价。
 
@@ -696,7 +696,7 @@ struct SmoothingFailureInfo {
 ### 16.1 C++ 头文件
 
 ```
-include/constrained_smoother/
+include/kinematic_smoother/
 ├── kinematic_smoother.hpp              # 顶层编排：initialize() + smooth()
 ├── kinematic_smoother_problem_builder.hpp  # 状态展开 + 问题拼接 + 变量边界 + 解包
 ├── kinematic_smoother_costs.hpp        # 4 个 cost functor 定义
@@ -710,12 +710,12 @@ include/constrained_smoother/
 └── esdf.hpp                            # 薄 shim → esdf_core::ESDF
 ```
 
-**header-only 设计**：`constrained_smoother` 库本身是 header-only（`INTERFACE` CMake target）。`costmap2d.hpp` 和 `esdf.hpp` 是转发层，实际实现位于独立的 `esdf_core` 库。
+**header-only 设计**：`kinematic_smoother` 库本身是 header-only（`INTERFACE` CMake target）。`costmap2d.hpp` 和 `esdf.hpp` 是转发层，实际实现位于独立的 `esdf_core` 库。
 
 ### 16.2 Python 包
 
 ```
-constrained_smoother/
+kinematic_smoother/
 ├── __init__.py
 ├── smoother.py           # KinematicSmoother（镜像 C++ 顶层）
 ├── problem_builder.py    # 状态展开 + 残差构建 + 变量边界
@@ -735,7 +735,7 @@ constrained_smoother/
 
 ### 16.3 Pybind11 绑定
 
-`pybind/py_constrained_smoother.cpp` 暴露：
+`pybind/py_kinematic_smoother.cpp` 暴露：
 
 - `KinematicSmoother` 类：`initialize()` / `smooth()` / `try_smooth()`
 - `SmootherParams` / `OptimizerParams` 结构

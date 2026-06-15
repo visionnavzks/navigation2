@@ -26,10 +26,10 @@
 #include "ceres/cubic_interpolation.h"
 #include "Eigen/Core"
 
-#include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/options.hpp"
+#include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/options.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 namespace kinematic_smoother_detail
 {
@@ -631,6 +631,6 @@ private:
 };
 
 }  // namespace kinematic_smoother_detail
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_COSTS_HPP_

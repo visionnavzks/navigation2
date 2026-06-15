@@ -5,12 +5,12 @@
 #include <pybind11/stl.h>
 #include <pybind11/eigen.h>
 
-#include "constrained_smoother/astar_esdf.hpp"
-#include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/kinematic_smoother.hpp"
-#include "constrained_smoother/options.hpp"
-#include "constrained_smoother/exceptions.hpp"
-#include "constrained_smoother/esdf.hpp"
+#include "kinematic_smoother/astar_esdf.hpp"
+#include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/kinematic_smoother.hpp"
+#include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/exceptions.hpp"
+#include "kinematic_smoother/esdf.hpp"
 
 #include <vector>
 #include <cmath>
@@ -74,26 +74,26 @@ std::vector<Eigen::Vector3d> copy_path3d(const py::handle & handle, const char *
   return path;
 }
 
-const constrained_smoother::Costmap2D * copy_optional_costmap(const py::handle & handle)
+const kinematic_smoother::Costmap2D * copy_optional_costmap(const py::handle & handle)
 {
   if (handle.is_none()) {
     return nullptr;
   }
 
-  return &py::cast<const constrained_smoother::Costmap2D &>(handle);
+  return &py::cast<const kinematic_smoother::Costmap2D &>(handle);
 }
 
-constrained_smoother::SmootherResult run_smooth_request(
-  constrained_smoother::KinematicSmoother & smoother,
+kinematic_smoother::SmootherResult run_smooth_request(
+  kinematic_smoother::KinematicSmoother & smoother,
   const std::vector<Eigen::Vector3d> & path,
   const Eigen::Vector2d & start_dir,
   const Eigen::Vector2d & end_dir,
-  const constrained_smoother::Costmap2D * costmap,
-  const constrained_smoother::SmootherParams & params,
+  const kinematic_smoother::Costmap2D * costmap,
+  const kinematic_smoother::SmootherParams & params,
   const std::vector<double> * precomputed_esdf,
-  constrained_smoother::SmoothingFailureInfo * failure)
+  kinematic_smoother::SmoothingFailureInfo * failure)
 {
-  const constrained_smoother::SmootherRequest request{
+  const kinematic_smoother::SmootherRequest request{
     path,
     start_dir,
     end_dir,
@@ -110,20 +110,20 @@ struct SmoothBindingInput
   std::vector<Eigen::Vector3d> path;
   Eigen::Vector2d start_dir;
   Eigen::Vector2d end_dir;
-  const constrained_smoother::Costmap2D * costmap;
+  const kinematic_smoother::Costmap2D * costmap;
 };
 
-PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFailureInfo & failure);
+PyObject * make_python_smoothing_failure(const kinematic_smoother::SmoothingFailureInfo & failure);
 
 template<typename ErrorT>
 py::dict make_error_result(const ErrorT & error);
 
-py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & error);
+py::dict make_error_result(const kinematic_smoother::FailedToSmoothPath & error);
 py::dict make_error_result(
-  const constrained_smoother::SmoothingFailureInfo & failure,
-  const constrained_smoother::SmootherResult & result);
+  const kinematic_smoother::SmoothingFailureInfo & failure,
+  const kinematic_smoother::SmootherResult & result);
 
-py::dict make_ok_result(const constrained_smoother::SmootherResult & result);
+py::dict make_ok_result(const kinematic_smoother::SmootherResult & result);
 
 template<typename Fn>
 py::dict invoke_try_smooth(Fn && fn);
@@ -246,7 +246,7 @@ py::dict make_error_result_base(const ErrorT & error)
 
 void fill_result_payload(
   py::dict & result_dict,
-  const constrained_smoother::SmootherResult & smooth_result)
+  const kinematic_smoother::SmootherResult & smooth_result)
 {
   const py::object candidate_path = smooth_result.candidate_path.empty() ?
     py::none() : py::cast(smooth_result.candidate_path);
@@ -275,7 +275,7 @@ py::dict make_error_result(const ErrorT & error)
   return make_error_result_base(error);
 }
 
-py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & error)
+py::dict make_error_result(const kinematic_smoother::FailedToSmoothPath & error)
 {
   py::dict result = make_error_result_base(error);
   const ParsedSmoothingFailure parsed = parse_smoothing_failure_message(error.what());
@@ -285,7 +285,7 @@ py::dict make_error_result(const constrained_smoother::FailedToSmoothPath & erro
   return result;
 }
 
-py::dict make_error_result(const constrained_smoother::InvalidCostmap & error)
+py::dict make_error_result(const kinematic_smoother::InvalidCostmap & error)
 {
   py::dict result;
   result["ok"] = false;
@@ -297,7 +297,7 @@ py::dict make_error_result(const constrained_smoother::InvalidCostmap & error)
   result["smoothed_curvatures"] = py::none();
   result["smoothed_curvature_rates"] = py::none();
   result["error_code"] = py::str(
-    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidCostmap));
+    kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::InvalidCostmap));
   result["error_message"] = py::str(error.what());
   result["error_reason"] = py::none();
   result["error_details"] = py::none();
@@ -305,7 +305,7 @@ py::dict make_error_result(const constrained_smoother::InvalidCostmap & error)
 }
 
 py::dict make_error_result(
-  const constrained_smoother::PrecomputedEsdfSizeMismatch & error)
+  const kinematic_smoother::PrecomputedEsdfSizeMismatch & error)
 {
   py::dict result;
   result["ok"] = false;
@@ -317,8 +317,8 @@ py::dict make_error_result(
   result["smoothed_curvatures"] = py::none();
   result["smoothed_curvature_rates"] = py::none();
   result["error_code"] = py::str(
-    constrained_smoother::toErrorCodeString(
-      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
+    kinematic_smoother::toErrorCodeString(
+      kinematic_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
   result["error_message"] = py::str(error.what());
   result["error_reason"] = py::none();
   result["error_details"] = py::none();
@@ -326,17 +326,17 @@ py::dict make_error_result(
 }
 
 py::dict make_error_result(
-  const constrained_smoother::SmoothingFailureInfo & failure,
-  const constrained_smoother::SmootherResult & smooth_result)
+  const kinematic_smoother::SmoothingFailureInfo & failure,
+  const kinematic_smoother::SmootherResult & smooth_result)
 {
   py::dict result;
   result["ok"] = false;
   fill_result_payload(result, smooth_result);
   result["error_code"] = py::str(
-    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::FailedToSmoothPath));
+    kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::FailedToSmoothPath));
   result["error_message"] = py::str(failure.message);
   result["error_reason"] = py::str(
-    constrained_smoother::toSmoothingFailureReasonString(failure.reason));
+    kinematic_smoother::toSmoothingFailureReasonString(failure.reason));
   if (
     failure.failed_index >= 0 ||
     std::isfinite(failure.actual_curvature) ||
@@ -382,17 +382,17 @@ py::dict make_error_result(
   return result;
 }
 
-PyObject * make_python_smoothing_failure(const constrained_smoother::SmoothingFailureInfo & failure)
+PyObject * make_python_smoothing_failure(const kinematic_smoother::SmoothingFailureInfo & failure)
 {
   PyErr_SetString(
     PyExc_RuntimeError,
-    (std::string(constrained_smoother::toErrorCodeString(
-       constrained_smoother::ErrorCode::FailedToSmoothPath)) +
+    (std::string(kinematic_smoother::toErrorCodeString(
+       kinematic_smoother::ErrorCode::FailedToSmoothPath)) +
     ": " + failure.formattedMessage()).c_str());
   return nullptr;
 }
 
-py::dict make_ok_result(const constrained_smoother::SmootherResult & smooth_result)
+py::dict make_ok_result(const kinematic_smoother::SmootherResult & smooth_result)
 {
   py::dict result;
   result["ok"] = true;
@@ -405,13 +405,13 @@ py::dict make_ok_result(const constrained_smoother::SmootherResult & smooth_resu
 }
 
 PyObject * run_smooth_or_raise(
-  constrained_smoother::KinematicSmoother & smoother,
+  kinematic_smoother::KinematicSmoother & smoother,
   SmoothBindingInput && input,
-  const constrained_smoother::SmootherParams & params,
+  const kinematic_smoother::SmootherParams & params,
   const std::vector<double> * precomputed_esdf)
 {
-  constrained_smoother::SmoothingFailureInfo failure;
-  const constrained_smoother::SmootherResult result = run_smooth_request(
+  kinematic_smoother::SmoothingFailureInfo failure;
+  const kinematic_smoother::SmootherResult result = run_smooth_request(
     smoother,
     input.path,
     input.start_dir,
@@ -428,13 +428,13 @@ PyObject * run_smooth_or_raise(
 }
 
 py::dict run_try_smooth_result(
-  constrained_smoother::KinematicSmoother & smoother,
+  kinematic_smoother::KinematicSmoother & smoother,
   SmoothBindingInput && input,
-  const constrained_smoother::SmootherParams & params,
+  const kinematic_smoother::SmootherParams & params,
   const std::vector<double> * precomputed_esdf)
 {
-  constrained_smoother::SmoothingFailureInfo failure;
-  const constrained_smoother::SmootherResult result = run_smooth_request(
+  kinematic_smoother::SmoothingFailureInfo failure;
+  const kinematic_smoother::SmootherResult result = run_smooth_request(
     smoother,
     input.path,
     input.start_dir,
@@ -451,12 +451,12 @@ py::dict run_try_smooth_result(
 }
 
 PyObject * run_smooth_binding(
-  constrained_smoother::KinematicSmoother & smoother,
+  kinematic_smoother::KinematicSmoother & smoother,
   const py::handle & path_handle,
   const py::handle & start_dir_handle,
   const py::handle & end_dir_handle,
   const py::handle & costmap_handle,
-  const constrained_smoother::SmootherParams & params,
+  const kinematic_smoother::SmootherParams & params,
   const std::vector<double> * precomputed_esdf)
 {
   return run_smooth_or_raise(
@@ -467,12 +467,12 @@ PyObject * run_smooth_binding(
 }
 
 py::dict run_try_smooth_binding(
-  constrained_smoother::KinematicSmoother & smoother,
+  kinematic_smoother::KinematicSmoother & smoother,
   const py::handle & path_handle,
   const py::handle & start_dir_handle,
   const py::handle & end_dir_handle,
   const py::handle & costmap_handle,
-  const constrained_smoother::SmootherParams & params,
+  const kinematic_smoother::SmootherParams & params,
   const std::vector<double> * precomputed_esdf)
 {
   return invoke_try_smooth([&]() -> py::dict {
@@ -489,13 +489,13 @@ py::dict invoke_try_smooth(Fn && fn)
 {
   try {
     return fn();
-  } catch (const constrained_smoother::InvalidPath & error) {
+  } catch (const kinematic_smoother::InvalidPath & error) {
     return make_error_result(error);
-  } catch (const constrained_smoother::FailedToSmoothPath & error) {
+  } catch (const kinematic_smoother::FailedToSmoothPath & error) {
     return make_error_result(error);
-  } catch (const constrained_smoother::InvalidCostmap & error) {
+  } catch (const kinematic_smoother::InvalidCostmap & error) {
     return make_error_result(error);
-  } catch (const constrained_smoother::PrecomputedEsdfSizeMismatch & error) {
+  } catch (const kinematic_smoother::PrecomputedEsdfSizeMismatch & error) {
     return make_error_result(error);
   } catch (const py::error_already_set &) {
     throw;
@@ -517,235 +517,235 @@ py::dict invoke_try_smooth(Fn && fn)
 
 }  // namespace
 
-PYBIND11_MODULE(py_constrained_smoother, m)
+PYBIND11_MODULE(py_kinematic_smoother, m)
 {
-  m.doc() = "Python bindings for the constrained_smoother C++ library";
+  m.doc() = "Python bindings for the kinematic_smoother C++ library";
 
   // ---- Stable error-code surface ----
 
-  py::enum_<constrained_smoother::ErrorCode>(m, "ErrorCode")
-    .value("INVALID_PATH", constrained_smoother::ErrorCode::InvalidPath)
-    .value("FAILED_TO_SMOOTH_PATH", constrained_smoother::ErrorCode::FailedToSmoothPath)
-    .value("INVALID_COSTMAP", constrained_smoother::ErrorCode::InvalidCostmap)
+  py::enum_<kinematic_smoother::ErrorCode>(m, "ErrorCode")
+    .value("INVALID_PATH", kinematic_smoother::ErrorCode::InvalidPath)
+    .value("FAILED_TO_SMOOTH_PATH", kinematic_smoother::ErrorCode::FailedToSmoothPath)
+    .value("INVALID_COSTMAP", kinematic_smoother::ErrorCode::InvalidCostmap)
     .value(
       "PRECOMPUTED_ESDF_SIZE_MISMATCH",
-      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch);
+      kinematic_smoother::ErrorCode::PrecomputedEsdfSizeMismatch);
 
   m.def(
     "error_code_to_string",
-    [](constrained_smoother::ErrorCode code) {
-      return constrained_smoother::toErrorCodeString(code);
+    [](kinematic_smoother::ErrorCode code) {
+      return kinematic_smoother::toErrorCodeString(code);
     },
     py::arg("code"));
 
   m.attr("ERROR_INVALID_PATH") = py::str(
-    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidPath));
+    kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::InvalidPath));
   m.attr("ERROR_FAILED_TO_SMOOTH_PATH") = py::str(
-    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::FailedToSmoothPath));
+    kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::FailedToSmoothPath));
   m.attr("ERROR_INVALID_COSTMAP") = py::str(
-    constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidCostmap));
+    kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::InvalidCostmap));
   m.attr("ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH") = py::str(
-    constrained_smoother::toErrorCodeString(
-      constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
+    kinematic_smoother::toErrorCodeString(
+      kinematic_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
 
-  py::class_<constrained_smoother::SmootherResult>(m, "SmootherResult")
-    .def_readonly("success", &constrained_smoother::SmootherResult::success)
-    .def_readonly("candidate_path", &constrained_smoother::SmootherResult::candidate_path)
-    .def_readonly("smoothed_path", &constrained_smoother::SmootherResult::smoothed_path)
+  py::class_<kinematic_smoother::SmootherResult>(m, "SmootherResult")
+    .def_readonly("success", &kinematic_smoother::SmootherResult::success)
+    .def_readonly("candidate_path", &kinematic_smoother::SmootherResult::candidate_path)
+    .def_readonly("smoothed_path", &kinematic_smoother::SmootherResult::smoothed_path)
     .def_readonly(
       "smoothed_curvatures",
-      &constrained_smoother::SmootherResult::smoothed_curvatures)
+      &kinematic_smoother::SmootherResult::smoothed_curvatures)
     .def_readonly(
       "smoothed_curvature_rates",
-      &constrained_smoother::SmootherResult::smoothed_curvature_rates)
+      &kinematic_smoother::SmootherResult::smoothed_curvature_rates)
     .def_readonly(
       "optimized_knot_count",
-      &constrained_smoother::SmootherResult::optimized_knot_count)
+      &kinematic_smoother::SmootherResult::optimized_knot_count)
     .def_property_readonly(
       "target_spacing_m",
-      [](const constrained_smoother::SmootherResult & result) {
+      [](const kinematic_smoother::SmootherResult & result) {
         return result.target_spacing;
       })
     .def_property_readonly(
       "path",
-      [](const constrained_smoother::SmootherResult & result) {
+      [](const kinematic_smoother::SmootherResult & result) {
         return result.smoothed_path;
       });
 
   // ---- Core value types and planning utilities ----
 
-  py::class_<constrained_smoother::Costmap2D>(m, "Costmap2D")
+  py::class_<kinematic_smoother::Costmap2D>(m, "Costmap2D")
     .def(py::init<>())
     .def(
     py::init<unsigned int, unsigned int, double, double, double>(),
     py::arg("size_x"), py::arg("size_y"), py::arg("resolution"),
     py::arg("origin_x"), py::arg("origin_y"))
-    .def("getSizeInCellsX", &constrained_smoother::Costmap2D::getSizeInCellsX)
-    .def("getSizeInCellsY", &constrained_smoother::Costmap2D::getSizeInCellsY)
-    .def("getResolution", &constrained_smoother::Costmap2D::getResolution)
-    .def("getOriginX", &constrained_smoother::Costmap2D::getOriginX)
-    .def("getOriginY", &constrained_smoother::Costmap2D::getOriginY)
-    .def("getCost", &constrained_smoother::Costmap2D::getCost)
-    .def("setCost", &constrained_smoother::Costmap2D::setCost)
-    .def_readonly_static("NO_INFORMATION", &constrained_smoother::Costmap2D::NO_INFORMATION)
-    .def_readonly_static("LETHAL_OBSTACLE", &constrained_smoother::Costmap2D::LETHAL_OBSTACLE)
+    .def("getSizeInCellsX", &kinematic_smoother::Costmap2D::getSizeInCellsX)
+    .def("getSizeInCellsY", &kinematic_smoother::Costmap2D::getSizeInCellsY)
+    .def("getResolution", &kinematic_smoother::Costmap2D::getResolution)
+    .def("getOriginX", &kinematic_smoother::Costmap2D::getOriginX)
+    .def("getOriginY", &kinematic_smoother::Costmap2D::getOriginY)
+    .def("getCost", &kinematic_smoother::Costmap2D::getCost)
+    .def("setCost", &kinematic_smoother::Costmap2D::setCost)
+    .def_readonly_static("NO_INFORMATION", &kinematic_smoother::Costmap2D::NO_INFORMATION)
+    .def_readonly_static("LETHAL_OBSTACLE", &kinematic_smoother::Costmap2D::LETHAL_OBSTACLE)
     .def_readonly_static(
     "INSCRIBED_INFLATED_OBSTACLE",
-    &constrained_smoother::Costmap2D::INSCRIBED_INFLATED_OBSTACLE)
-    .def_readonly_static("FREE_SPACE", &constrained_smoother::Costmap2D::FREE_SPACE);
+    &kinematic_smoother::Costmap2D::INSCRIBED_INFLATED_OBSTACLE)
+    .def_readonly_static("FREE_SPACE", &kinematic_smoother::Costmap2D::FREE_SPACE);
 
   // --- SmootherParams ---
-  py::class_<constrained_smoother::SmootherParams>(m, "SmootherParams")
+  py::class_<kinematic_smoother::SmootherParams>(m, "SmootherParams")
     .def(py::init<>())
-    .def_readwrite("model_weight", &constrained_smoother::SmootherParams::model_weight)
+    .def_readwrite("model_weight", &kinematic_smoother::SmootherParams::model_weight)
     .def_readwrite(
     "obstacle_weight",
-    &constrained_smoother::SmootherParams::obstacle_weight)
+    &kinematic_smoother::SmootherParams::obstacle_weight)
     .def_readwrite(
     "reference_path_weight",
-    &constrained_smoother::SmootherParams::reference_path_weight)
+    &kinematic_smoother::SmootherParams::reference_path_weight)
     .def_readwrite(
     "reference_point_max_deviation_m",
-    &constrained_smoother::SmootherParams::reference_point_max_deviation_m)
+    &kinematic_smoother::SmootherParams::reference_point_max_deviation_m)
     .def_readwrite(
     "kinematic_curvature_weight",
-    &constrained_smoother::SmootherParams::kinematic_curvature_weight)
+    &kinematic_smoother::SmootherParams::kinematic_curvature_weight)
     .def_readwrite(
     "kinematic_curvature_rate_weight",
-    &constrained_smoother::SmootherParams::kinematic_curvature_rate_weight)
+    &kinematic_smoother::SmootherParams::kinematic_curvature_rate_weight)
     .def_readwrite(
     "kinematic_spacing_weight",
-    &constrained_smoother::SmootherParams::kinematic_spacing_weight)
+    &kinematic_smoother::SmootherParams::kinematic_spacing_weight)
     .def_readwrite(
     "kinematic_max_spacing",
-    &constrained_smoother::SmootherParams::kinematic_max_spacing)
+    &kinematic_smoother::SmootherParams::kinematic_max_spacing)
     .def_readwrite(
     "path_length_weight",
-    &constrained_smoother::SmootherParams::path_length_weight)
-    .def_readwrite("fix_weight", &constrained_smoother::SmootherParams::fix_weight)
-    .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
-    .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)
-    .def_readwrite("use_exact_esdf", &constrained_smoother::SmootherParams::use_exact_esdf)
+    &kinematic_smoother::SmootherParams::path_length_weight)
+    .def_readwrite("fix_weight", &kinematic_smoother::SmootherParams::fix_weight)
+    .def_readwrite("max_curvature", &kinematic_smoother::SmootherParams::max_curvature)
+    .def_readwrite("max_time", &kinematic_smoother::SmootherParams::max_time)
+    .def_readwrite("use_exact_esdf", &kinematic_smoother::SmootherParams::use_exact_esdf)
     .def_readwrite(
     "obstacle_safe_distance",
-    &constrained_smoother::SmootherParams::obstacle_safe_distance)
+    &kinematic_smoother::SmootherParams::obstacle_safe_distance)
     .def_readwrite(
     "cost_check_radius",
-    &constrained_smoother::SmootherParams::cost_check_radius)
+    &kinematic_smoother::SmootherParams::cost_check_radius)
     .def_readwrite(
     "path_target_spacing",
-    &constrained_smoother::SmootherParams::path_target_spacing)
+    &kinematic_smoother::SmootherParams::path_target_spacing)
     .def_readwrite(
     "path_downsampling_factor",
-    &constrained_smoother::SmootherParams::path_downsampling_factor)
+    &kinematic_smoother::SmootherParams::path_downsampling_factor)
     .def_readwrite(
     "path_upsampling_factor",
-    &constrained_smoother::SmootherParams::path_upsampling_factor)
+    &kinematic_smoother::SmootherParams::path_upsampling_factor)
     .def_readwrite(
     "path_output_spacing",
-    &constrained_smoother::SmootherParams::path_output_spacing)
+    &kinematic_smoother::SmootherParams::path_output_spacing)
     .def_readwrite(
     "goal_longitudinal_tolerance",
-    &constrained_smoother::SmootherParams::goal_longitudinal_tolerance)
+    &kinematic_smoother::SmootherParams::goal_longitudinal_tolerance)
     .def_readwrite(
     "goal_lateral_tolerance",
-    &constrained_smoother::SmootherParams::goal_lateral_tolerance)
+    &kinematic_smoother::SmootherParams::goal_lateral_tolerance)
     .def_readwrite(
     "goal_orientation_tolerance",
-    &constrained_smoother::SmootherParams::goal_orientation_tolerance)
-    .def_readwrite("reversing_enabled", &constrained_smoother::SmootherParams::reversing_enabled)
+    &kinematic_smoother::SmootherParams::goal_orientation_tolerance)
+    .def_readwrite("reversing_enabled", &kinematic_smoother::SmootherParams::reversing_enabled)
     .def_readwrite(
     "keep_goal_orientation",
-    &constrained_smoother::SmootherParams::keep_goal_orientation)
+    &kinematic_smoother::SmootherParams::keep_goal_orientation)
     .def_readwrite(
     "keep_start_orientation",
-    &constrained_smoother::SmootherParams::keep_start_orientation)
+    &kinematic_smoother::SmootherParams::keep_start_orientation)
     .def_readwrite(
     "cost_check_points",
-    &constrained_smoother::SmootherParams::cost_check_points);
+    &kinematic_smoother::SmootherParams::cost_check_points);
 
   // --- OptimizerParams ---
-  py::class_<constrained_smoother::OptimizerParams>(m, "OptimizerParams")
+  py::class_<kinematic_smoother::OptimizerParams>(m, "OptimizerParams")
     .def(py::init<>())
-    .def_readwrite("debug", &constrained_smoother::OptimizerParams::debug)
+    .def_readwrite("debug", &kinematic_smoother::OptimizerParams::debug)
     .def_property(
     "linear_solver_type",
-    [](const constrained_smoother::OptimizerParams & params) {
+    [](const kinematic_smoother::OptimizerParams & params) {
       return std::string(
-        constrained_smoother::OptimizerParams::linearSolverToString(params.linear_solver));
+        kinematic_smoother::OptimizerParams::linearSolverToString(params.linear_solver));
     },
-    [](constrained_smoother::OptimizerParams & params, const std::string & solver_name) {
+    [](kinematic_smoother::OptimizerParams & params, const std::string & solver_name) {
       params.linear_solver =
-        constrained_smoother::OptimizerParams::linearSolverFromString(solver_name);
+        kinematic_smoother::OptimizerParams::linearSolverFromString(solver_name);
     })
-    .def_readwrite("max_iterations", &constrained_smoother::OptimizerParams::max_iterations)
-    .def_readwrite("parameter_tolerance", &constrained_smoother::OptimizerParams::parameter_tolerance)
-    .def_readwrite("function_tolerance", &constrained_smoother::OptimizerParams::function_tolerance)
-    .def_readwrite("gradient_tolerance", &constrained_smoother::OptimizerParams::gradient_tolerance);
+    .def_readwrite("max_iterations", &kinematic_smoother::OptimizerParams::max_iterations)
+    .def_readwrite("parameter_tolerance", &kinematic_smoother::OptimizerParams::parameter_tolerance)
+    .def_readwrite("function_tolerance", &kinematic_smoother::OptimizerParams::function_tolerance)
+    .def_readwrite("gradient_tolerance", &kinematic_smoother::OptimizerParams::gradient_tolerance);
 
-  py::class_<constrained_smoother::AStarPlannerParams>(m, "AStarPlannerParams")
+  py::class_<kinematic_smoother::AStarPlannerParams>(m, "AStarPlannerParams")
     .def(py::init<>())
-    .def_readwrite("lethal_cost", &constrained_smoother::AStarPlannerParams::lethal_cost)
-    .def_readwrite("use_exact_esdf", &constrained_smoother::AStarPlannerParams::use_exact_esdf)
-    .def_readwrite("safe_distance", &constrained_smoother::AStarPlannerParams::safe_distance)
-    .def_readwrite("cost_penalty_weight", &constrained_smoother::AStarPlannerParams::cost_penalty_weight)
-    .def_readwrite("point_radius", &constrained_smoother::AStarPlannerParams::point_radius)
+    .def_readwrite("lethal_cost", &kinematic_smoother::AStarPlannerParams::lethal_cost)
+    .def_readwrite("use_exact_esdf", &kinematic_smoother::AStarPlannerParams::use_exact_esdf)
+    .def_readwrite("safe_distance", &kinematic_smoother::AStarPlannerParams::safe_distance)
+    .def_readwrite("cost_penalty_weight", &kinematic_smoother::AStarPlannerParams::cost_penalty_weight)
+    .def_readwrite("point_radius", &kinematic_smoother::AStarPlannerParams::point_radius)
     .def_readwrite(
     "collision_check_radius",
-    &constrained_smoother::AStarPlannerParams::collision_check_radius)
+    &kinematic_smoother::AStarPlannerParams::collision_check_radius)
     .def_readwrite(
     "collision_check_points",
-    &constrained_smoother::AStarPlannerParams::collision_check_points)
+    &kinematic_smoother::AStarPlannerParams::collision_check_points)
     .def_readwrite(
     "use_rectangular_footprint",
-    &constrained_smoother::AStarPlannerParams::use_rectangular_footprint)
-    .def_readwrite("rectangular_length", &constrained_smoother::AStarPlannerParams::rectangular_length)
-    .def_readwrite("rectangular_width", &constrained_smoother::AStarPlannerParams::rectangular_width);
+    &kinematic_smoother::AStarPlannerParams::use_rectangular_footprint)
+    .def_readwrite("rectangular_length", &kinematic_smoother::AStarPlannerParams::rectangular_length)
+    .def_readwrite("rectangular_width", &kinematic_smoother::AStarPlannerParams::rectangular_width);
 
-  py::class_<constrained_smoother::AStarPlanner>(m, "AStarPlanner")
+  py::class_<kinematic_smoother::AStarPlanner>(m, "AStarPlanner")
     .def(py::init<>())
     .def(
       "plan",
-      [](constrained_smoother::AStarPlanner & self,
-      const constrained_smoother::Costmap2D & costmap,
+      [](kinematic_smoother::AStarPlanner & self,
+      const kinematic_smoother::Costmap2D & costmap,
       double start_x, double start_y,
       double goal_x, double goal_y,
-      const constrained_smoother::AStarPlannerParams & params)
+      const kinematic_smoother::AStarPlannerParams & params)
       {
         return self.plan(&costmap, start_x, start_y, goal_x, goal_y, params);
       },
       py::arg("costmap"), py::arg("start_x"), py::arg("start_y"),
       py::arg("goal_x"), py::arg("goal_y"), py::arg("params"))
-    .def("get_esdf", &constrained_smoother::AStarPlanner::getESDF);
+    .def("get_esdf", &kinematic_smoother::AStarPlanner::getESDF);
 
   m.def(
     "compute_esdf",
-    [](const constrained_smoother::Costmap2D & costmap, unsigned char lethal_cost, bool use_exact)
+    [](const kinematic_smoother::Costmap2D & costmap, unsigned char lethal_cost, bool use_exact)
     {
-      return constrained_smoother::ESDF::ComputeESDF(
+      return kinematic_smoother::ESDF::ComputeESDF(
         &costmap,
         lethal_cost,
-        use_exact ? constrained_smoother::ESDFAlgorithm::Exact :
-        constrained_smoother::ESDFAlgorithm::Approximate);
+        use_exact ? kinematic_smoother::ESDFAlgorithm::Exact :
+        kinematic_smoother::ESDFAlgorithm::Approximate);
     },
     py::arg("costmap"),
-    py::arg("lethal_cost") = constrained_smoother::Costmap2D::LETHAL_OBSTACLE,
+    py::arg("lethal_cost") = kinematic_smoother::Costmap2D::LETHAL_OBSTACLE,
     py::arg("use_exact") = true);
 
   // ---- Kinematic smoother bindings ----
   // This is now the only smoothing backend exposed by the standalone module.
 
-  py::class_<constrained_smoother::KinematicSmoother>(m, "KinematicSmoother")
+  py::class_<kinematic_smoother::KinematicSmoother>(m, "KinematicSmoother")
     .def(py::init<>())
-    .def("initialize", &constrained_smoother::KinematicSmoother::initialize)
+    .def("initialize", &kinematic_smoother::KinematicSmoother::initialize)
     .def(
       "smooth",
-      [](constrained_smoother::KinematicSmoother & self,
+      [](kinematic_smoother::KinematicSmoother & self,
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
       const py::handle & costmap_handle,
-      const constrained_smoother::SmootherParams & params) -> PyObject *
+      const kinematic_smoother::SmootherParams & params) -> PyObject *
       {
         return run_smooth_binding(
           self,
@@ -763,12 +763,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); the returned result carries both candidate/final paths and optimization diagnostics.")
     .def(
       "try_smooth",
-      [](constrained_smoother::KinematicSmoother & self,
+      [](kinematic_smoother::KinematicSmoother & self,
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
       const py::handle & costmap_handle,
-      const constrained_smoother::SmootherParams & params) -> py::dict
+      const kinematic_smoother::SmootherParams & params) -> py::dict
       {
         return run_try_smooth_binding(
           self,
@@ -785,13 +785,13 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       "Try to smooth a path with the kinematic backend and return a structured result.")
     .def(
       "smooth_with_planner_esdf",
-      [](constrained_smoother::KinematicSmoother & self,
+      [](kinematic_smoother::KinematicSmoother & self,
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
-      const constrained_smoother::Costmap2D & costmap,
-      const constrained_smoother::SmootherParams & params,
-      const constrained_smoother::AStarPlanner & planner) -> PyObject *
+      const kinematic_smoother::Costmap2D & costmap,
+      const kinematic_smoother::SmootherParams & params,
+      const kinematic_smoother::AStarPlanner & planner) -> PyObject *
       {
         return run_smooth_binding(
           self,
@@ -809,13 +809,13 @@ PYBIND11_MODULE(py_constrained_smoother, m)
       "Smooth a path with the kinematic backend while reusing the ESDF previously computed by an A* planner, returning a structured result object on success.")
     .def(
       "try_smooth_with_planner_esdf",
-      [](constrained_smoother::KinematicSmoother & self,
+      [](kinematic_smoother::KinematicSmoother & self,
       const py::handle & path_handle,
       const py::handle & start_dir_handle,
       const py::handle & end_dir_handle,
-      const constrained_smoother::Costmap2D & costmap,
-      const constrained_smoother::SmootherParams & params,
-      const constrained_smoother::AStarPlanner & planner) -> py::dict
+      const kinematic_smoother::Costmap2D & costmap,
+      const kinematic_smoother::SmootherParams & params,
+      const kinematic_smoother::AStarPlanner & planner) -> py::dict
       {
         return run_try_smooth_binding(
           self,
@@ -833,10 +833,10 @@ PYBIND11_MODULE(py_constrained_smoother, m)
 
   // ---- Native exception translation ----
 
-  py::register_exception<constrained_smoother::InvalidPath>(m, "InvalidPathError");
-  py::register_exception<constrained_smoother::FailedToSmoothPath>(m, "FailedToSmoothPathError");
-  py::register_exception<constrained_smoother::InvalidCostmap>(m, "InvalidCostmapError");
-  py::register_exception<constrained_smoother::PrecomputedEsdfSizeMismatch>(
+  py::register_exception<kinematic_smoother::InvalidPath>(m, "InvalidPathError");
+  py::register_exception<kinematic_smoother::FailedToSmoothPath>(m, "FailedToSmoothPathError");
+  py::register_exception<kinematic_smoother::InvalidCostmap>(m, "InvalidCostmapError");
+  py::register_exception<kinematic_smoother::PrecomputedEsdfSizeMismatch>(
     m,
     "PrecomputedEsdfSizeMismatchError");
 }

@@ -23,11 +23,11 @@
 
 #include "esdf_core/exceptions.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
-// Re-export the esdf_core exceptions so existing constrained_smoother call
-// sites that reference `constrained_smoother::InvalidCostmap` etc. continue
+// Re-export the esdf_core exceptions so existing kinematic_smoother call
+// sites that reference `kinematic_smoother::InvalidCostmap` etc. continue
 // to compile.
 using InvalidCostmap = esdf_core::InvalidCostmap;
 using PrecomputedEsdfSizeMismatch = esdf_core::PrecomputedEsdfSizeMismatch;
@@ -223,6 +223,6 @@ inline bool throwOrStoreSmoothingFailure(
 // esdf_core package (see esdf_core/exceptions.hpp). They are re-exported as
 // type aliases at the top of this file so existing call sites still work.
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__EXCEPTIONS_HPP_

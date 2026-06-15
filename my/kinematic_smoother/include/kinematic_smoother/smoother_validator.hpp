@@ -27,13 +27,13 @@
 
 #include "Eigen/Core"
 
-#include "constrained_smoother/costmap2d.hpp"
-#include "constrained_smoother/exceptions.hpp"
-#include "constrained_smoother/options.hpp"
-#include "constrained_smoother/state_layout.hpp"
-#include "constrained_smoother/utils.hpp"
+#include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/exceptions.hpp"
+#include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/state_layout.hpp"
+#include "kinematic_smoother/utils.hpp"
 
-namespace constrained_smoother
+namespace kinematic_smoother
 {
 
 /// 求解后统一执行的硬性校验器。
@@ -654,6 +654,6 @@ private:
   }
 };
 
-}  // namespace constrained_smoother
+}  // namespace kinematic_smoother
 
 #endif  // CONSTRAINED_SMOOTHER__SMOOTHER_VALIDATOR_HPP_
