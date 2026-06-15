@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <vector>
 #include <cmath>
 #include <string>
@@ -422,6 +423,61 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   EXPECT_NEAR(evaluate_cost(3.0), 1.5, 1e-9);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, ApplyBoundsOnlyCapsUsedNonCuspDs)
+{
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+  params.keep_start_orientation = false;
+  params.keep_goal_orientation = false;
+  params.goal_longitudinal_tolerance = 2.0;
+  params.goal_lateral_tolerance = 2.0;
+
+  std::vector<double> esdf_values;
+  kinematic_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
+  const auto processed = kinematic_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d::UnitX(),
+    Eigen::Vector2d::UnitX(),
+    params,
+    nullptr);
+
+  std::vector<double> variables = processed.initial_variables;
+  ceres::Problem problem;
+  builder.buildProblem(processed, nullptr, params, variables, problem);
+  kinematic_smoother::KinematicSmootherProblemBuilder::applyBounds(
+    problem,
+    variables.data(),
+    processed.reference_points,
+    processed.is_cusp_segment,
+    processed.state_count,
+    2.0,
+    0.25,
+    0.0);
+
+  const double * first_state = kinematic_smoother::KinematicStateLayout::data(variables, 0);
+  const double * last_state = kinematic_smoother::KinematicStateLayout::data(variables, 1);
+  EXPECT_NEAR(
+    problem.GetParameterLowerBound(first_state, kinematic_smoother::KinematicStateLayout::Ds),
+    kinematic_smoother::KinematicStateLayout::GeometryEpsilon,
+    1e-12);
+  EXPECT_NEAR(
+    problem.GetParameterUpperBound(first_state, kinematic_smoother::KinematicStateLayout::Ds),
+    0.25,
+    1e-12);
+  EXPECT_NEAR(
+    problem.GetParameterLowerBound(last_state, kinematic_smoother::KinematicStateLayout::Ds),
+    0.0,
+    1e-12);
+  EXPECT_GT(
+    problem.GetParameterUpperBound(last_state, kinematic_smoother::KinematicStateLayout::Ds),
+    1e100);
+}
+
 TEST(KinematicSmootherProblemBuilderTest, UpsamplePathKinematicDistributesClosureError)
 {
   kinematic_smoother::KinematicProcessedPath processed;
@@ -641,6 +697,37 @@ TEST(KinematicSmootherProblemBuilderTest, PathTargetSpacingPreservesCuspPoint)
   EXPECT_NEAR(processed.target_spacing, 0.75, 1e-12);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, PathTargetSpacingPreservesDuplicateStartGearChange)
+{
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {0.0, 0.0, -1.0},
+    {-1.0, 0.0, -1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.path_target_spacing = 0.5;
+
+  const auto processed = kinematic_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d::UnitX(),
+    -Eigen::Vector2d::UnitX(),
+    params,
+    nullptr);
+
+  ASSERT_EQ(processed.gears.size(), processed.is_cusp_segment.size());
+  ASSERT_GE(processed.state_count, 3u);
+  EXPECT_DOUBLE_EQ(processed.gears.front(), 0.0);
+  EXPECT_TRUE(processed.is_cusp_segment.front());
+  EXPECT_NEAR(processed.reference_points[0].x(), 0.0, 1e-12);
+  EXPECT_NEAR(processed.reference_points[1].x(), 0.0, 1e-12);
+  EXPECT_NEAR(processed.reference_points[0].y(), 0.0, 1e-12);
+  EXPECT_NEAR(processed.reference_points[1].y(), 0.0, 1e-12);
+  EXPECT_EQ(processed.gears[1], -1.0);
+  EXPECT_FALSE(processed.is_cusp_segment[1]);
+  EXPECT_NEAR(processed.target_spacing, 0.5, 1e-12);
+}
+
 // ---- Stable error-code and failure-message contract tests ----
 
 TEST(ErrorTest, InvalidPathCarriesStableCode)
@@ -660,6 +747,29 @@ TEST(ErrorTest, SmoothingFailureMessageCarriesReasonAndIndex)
     7);
 
   EXPECT_EQ(message, "goal_orientation_constraint@7: test smoothing failure");
+}
+
+TEST(KinematicSmootherTest, InvalidOptimizerIterationLimitThrowsInvalidArgument)
+{
+  kinematic_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 0;
+
+  kinematic_smoother::KinematicSmoother smoother;
+
+  EXPECT_THROW(smoother.initialize(opt_params), std::invalid_argument);
+}
+
+TEST(KinematicSmootherTest, InvalidOptimizerToleranceThrowsInvalidArgument)
+{
+  kinematic_smoother::OptimizerParams opt_params;
+  opt_params.parameter_tolerance = -1.0;
+
+  kinematic_smoother::KinematicSmoother smoother;
+
+  EXPECT_THROW(smoother.initialize(opt_params), std::invalid_argument);
+
+  opt_params.parameter_tolerance = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(smoother.initialize(opt_params), std::invalid_argument);
 }
 
 // ---- Kinematic smoother behavior and error-surface tests ----
@@ -843,6 +953,117 @@ TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
     kinematic_smoother::InvalidCostmap);
 }
 
+TEST(KinematicSmootherTest, NonFinitePathPointThrowsInvalidPath)
+{
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {nan, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(kinematic_smoother::OptimizerParams{});
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    kinematic_smoother::InvalidPath);
+}
+
+TEST(KinematicSmootherTest, NonFiniteEndpointDirectionThrowsInvalidPath)
+{
+  const double infinity = std::numeric_limits<double>::infinity();
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(kinematic_smoother::OptimizerParams{});
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {
+        path,
+        Eigen::Vector2d(infinity, 0.0),
+        Eigen::Vector2d::UnitX(),
+        nullptr,
+        params,
+        nullptr,
+        nullptr,
+      }),
+    kinematic_smoother::InvalidPath);
+}
+
+TEST(KinematicSmootherTest, NonFiniteSmootherParamThrowsInvalidArgument)
+{
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+  params.model_weight = nan;
+
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(kinematic_smoother::OptimizerParams{});
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    std::invalid_argument);
+}
+
+TEST(KinematicSmootherTest, InvalidCostCheckPointsShapeThrowsInvalidArgument)
+{
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+  params.cost_check_points = {0.0, 0.0};
+
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(kinematic_smoother::OptimizerParams{});
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    std::invalid_argument);
+}
+
+TEST(KinematicSmootherTest, NonFiniteCostCheckPointThrowsInvalidArgument)
+{
+  const double infinity = std::numeric_limits<double>::infinity();
+  std::vector<Eigen::Vector3d> path = {
+    {1.0, 2.0, 1.0},
+    {2.0, 2.0, 1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
+  params.cost_check_points = {0.0, infinity, 1.0};
+
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(kinematic_smoother::OptimizerParams{});
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    std::invalid_argument);
+}
+
 TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
 {
   kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
@@ -928,7 +1149,7 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   const std::string error_message = expectFailedToSmoothPath(
     [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
-  EXPECT_NE(error_message.find("motion_direction_constraint@"), std::string::npos);
+  EXPECT_NE(error_message.find("goal_orientation_constraint@"), std::string::npos);
 }
 
 TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
@@ -974,6 +1195,90 @@ TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
   EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::Unknown);
   EXPECT_EQ(failure.failed_index, -1);
   EXPECT_TRUE(failure.message.empty());
+}
+
+TEST(SmootherValidatorTest, KinematicGoalOrientationDefaultToleranceIsStrict)
+{
+  kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    1.0, 2.0, 0.0, 0.0, 0.5,
+    1.5, 2.0, 0.05, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 2.0},
+    {1.5, 2.0},
+  };
+  const std::vector<double> gears = {1.0};
+  const std::vector<bool> is_cusp_segment = {false};
+
+  kinematic_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = true;
+  params.max_curvature = 10.0;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  kinematic_smoother::SmoothingFailureInfo failure;
+  kinematic_smoother::SmootherValidator validator;
+
+  EXPECT_FALSE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        2,
+        0.0,
+        0.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::GoalOrientationConstraint);
+  EXPECT_EQ(failure.failed_index, 1);
+}
+
+TEST(SmootherValidatorTest, KinematicGoalOrientationHonorsConfiguredTolerance)
+{
+  kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    1.0, 2.0, 0.0, 0.0, 0.5,
+    1.5, 2.0, 0.05, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 2.0},
+    {1.5, 2.0},
+  };
+  const std::vector<double> gears = {1.0};
+  const std::vector<bool> is_cusp_segment = {false};
+
+  kinematic_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = true;
+  params.goal_orientation_tolerance = 0.06;
+  params.max_curvature = 10.0;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  kinematic_smoother::SmoothingFailureInfo failure;
+  kinematic_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        2,
+        0.0,
+        0.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::Unknown);
 }
 
 TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsGoalSlack)
@@ -1150,9 +1455,9 @@ TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThro
   EXPECT_FALSE(result.success);
   EXPECT_FALSE(result.candidate_path.empty());
   expectPathsNear(path, input_path);
-  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::MotionDirectionConstraint);
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::GoalOrientationConstraint);
   EXPECT_GE(failure.failed_index, 0);
-  EXPECT_NE(failure.message.find("motion direction"), std::string::npos);
+  EXPECT_NE(failure.message.find("goal orientation"), std::string::npos);
 }
 
 TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
@@ -1194,6 +1499,57 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
     [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("footprint_collision@"), std::string::npos);
+}
+
+TEST(SmootherValidatorTest, ObstacleSafeDistanceIsSoftAndDoesNotFailPostValidation)
+{
+  kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
+
+  const std::vector<double> variables = {
+    1.0, 1.0, 0.0, 0.0, 0.5,
+    1.5, 1.0, 0.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 1.0},
+    {1.5, 1.0},
+  };
+  const std::vector<double> gears = {1.0};
+  const std::vector<bool> is_cusp_segment = {false};
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 1.0;
+  params.cost_check_radius = 0.10;
+  params.obstacle_safe_distance = 0.50;
+  params.keep_start_orientation = true;
+  params.keep_goal_orientation = true;
+  params.max_curvature = 10.0;
+
+  // Clearance is greater than the footprint radius, so there is no collision,
+  // but it is less than radius + obstacle_safe_distance. That soft margin should
+  // affect optimization cost only, not post-validation acceptance.
+  const std::vector<double> esdf_values(
+    costmap.getSizeInCellsX() * costmap.getSizeInCellsY(),
+    0.25);
+  kinematic_smoother::SmoothingFailureInfo failure;
+  kinematic_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        2,
+        0.0,
+        0.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::Unknown);
+  EXPECT_EQ(failure.failed_index, -1);
+  EXPECT_TRUE(failure.message.empty());
 }
 
 TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation)

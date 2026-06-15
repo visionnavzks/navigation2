@@ -293,8 +293,8 @@ private:
   ///     当 `keep_goal_orientation` 为真时取 `end_theta`（终点姿态）；
   ///     否则用参考路径最后一段的切向，让容差盒方向与参考方向一致。
   ///   * 终点朝向：仅当 `params.keep_goal_orientation = true` 时启用，
-  ///     容差取 `max(goal_orientation_tolerance, orientation_tol)`，
-  ///     这样用户在配置里调小朝向容差时不会被默认 0.1 rad 反向放大。
+  ///     容差取用户声明的 `goal_orientation_tolerance` 加一个很小的
+  ///     收敛余量；当配置为 0 时仍按严格终点朝向约束处理。
   ///
   /// 起点失败报 `StartPositionConstraint` / `StartOrientationConstraint`；
   /// 终点失败报 `GoalPositionConstraint` / `GoalOrientationConstraint`。
@@ -376,7 +376,9 @@ private:
         message,
         static_cast<int>(request.state_count - 1));
     }
-    const double goal_angle_tol = std::max(request.params.goal_orientation_tolerance, angle_tol);
+    constexpr double orientation_convergence_epsilon = 1e-4;
+    const double goal_angle_tol =
+      std::max(request.params.goal_orientation_tolerance, 0.0) + orientation_convergence_epsilon;
     if (request.params.keep_goal_orientation &&
       std::abs(angleDifference(goal_state[KinematicStateLayout::Theta], request.end_theta)) >
       goal_angle_tol)
@@ -560,14 +562,14 @@ private:
     return true;
   }
 
-  /// 校验路径上每个状态的足迹采样点是否都满足最小 ESDF 净空。
+  /// 校验路径上每个状态的足迹采样点是否发生硬碰撞或离开地图。
   ///
   /// 这是一道「只在工程上需要时才执行」的检查：调用层通过
   /// `params.obstacleTermsEnabled()`（`obstacle_weight > KinematicStateLayout::EnabledEpsilon`）
   /// 显式声明要不要障碍物项；没声明就整段直接放行（返回 `true`），
   /// 不会污染纯几何调参场景。
   ///
-  /// 走到这里意味着既需要净空检查、也提供了 costmap。剩下的判据是
+  /// 走到这里意味着既需要足迹检查、也提供了 costmap。剩下的判据是
   /// 「必须配置了至少一种足迹模型」：当 `cost_check_radius` 接近 0 且
   /// `cost_check_points` 为空时，没有可检查的几何形状，同样直接放行，
   /// 以兼容「我只想要运动学一致、不在乎车体是否撞墙」的退化用法。
@@ -580,7 +582,11 @@ private:
   ///     逐点采样 ESDF。`w` 在构造代价时参与权重，但后验阶段只判断
   ///     点位置是否满足净空，不重复使用 `w`。
   ///
-  /// 每个采样点用 `clearanceAtWorldPoint` 查 ESDF：
+  /// 每个采样点用 `clearanceAtWorldPoint` 查 ESDF。这里的后验检查只
+  /// 执行硬安全验收：`obstacle_safe_distance` 是优化阶段的软净空 margin，
+  /// 低于它会产生代价，但不会单独导致后验失败。
+  ///
+  /// 具体判据：
   ///   * 查不到（地图外 / 索引越界）→ 返回 `-Inf`，本步判为越界
   ///     失败（`PathOutOfBounds`），避免对「地图未覆盖区域」误判成
   ///     「安全」。

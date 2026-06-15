@@ -350,7 +350,7 @@ public:
         state,
         KinematicStateLayout::Ds,
         ds_is_used && !is_cusp_ds ? KinematicStateLayout::GeometryEpsilon : 0.0);
-      if (max_spacing > KinematicStateLayout::EnabledEpsilon) {
+      if (ds_is_used && !is_cusp_ds && max_spacing > KinematicStateLayout::EnabledEpsilon) {
         problem.SetParameterUpperBound(state, KinematicStateLayout::Ds, max_spacing);
       }
     }
@@ -585,7 +585,13 @@ private:
         !sampled.empty() &&
         (sampled.back().head<2>() - point.head<2>()).norm() <= KinematicStateLayout::PointEpsilon)
       {
-        sampled.back().z() = point.z();
+        const double previous_sign = directionSign(sampled.back(), params.reversing_enabled);
+        const double point_sign = directionSign(point, params.reversing_enabled);
+        if (previous_sign != point_sign) {
+          sampled.push_back(point);
+        } else {
+          sampled.back().z() = point.z();
+        }
       } else {
         sampled.push_back(point);
       }

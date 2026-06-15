@@ -1,6 +1,8 @@
 #ifndef CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 #define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_HPP_
 
+#include <cmath>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -37,6 +39,7 @@ public:
    */
   void initialize(const OptimizerParams & params)
   {
+    validateOptimizerParams(params);
     debug_ = params.debug;
     // 当前仅公开两种线性求解器：DenseQr（小规模稠密）与
     // SparseNormalCholesky（当前默认，适合本问题稀疏结构）。
@@ -72,6 +75,8 @@ public:
     if (request.path.size() < 2) {
       throw InvalidPath(std::string(smoother_name) + ": Path must have at least 2 points");
     }
+    validateFiniteInput(request, smoother_name);
+    validateFiniteParams(request.params, smoother_name);
     if (request.params.obstacleTermsEnabled() && request.costmap == nullptr) {
       throw InvalidCostmap(std::string(smoother_name) + ": Costmap must not be null");
     }
@@ -164,6 +169,93 @@ public:
   }
 
 private:
+  static void validateOptimizerParams(const OptimizerParams & params)
+  {
+    if (params.max_iterations <= 0) {
+      throw std::invalid_argument("OptimizerParams.max_iterations must be positive");
+    }
+
+    auto require_nonnegative_finite = [&](double value, const char * field_name) {
+        if (!std::isfinite(value) || value < 0.0) {
+          throw std::invalid_argument(
+                  std::string("OptimizerParams.") + field_name +
+                  " must be finite and non-negative");
+        }
+      };
+    require_nonnegative_finite(params.parameter_tolerance, "parameter_tolerance");
+    require_nonnegative_finite(params.function_tolerance, "function_tolerance");
+    require_nonnegative_finite(params.gradient_tolerance, "gradient_tolerance");
+  }
+
+  static void validateFiniteInput(
+    const SmootherRequest & request,
+    const char * smoother_name)
+  {
+    for (size_t index = 0; index < request.path.size(); ++index) {
+      const Eigen::Vector3d & point = request.path[index];
+      if (!std::isfinite(point.x()) || !std::isfinite(point.y()) || !std::isfinite(point.z())) {
+        throw InvalidPath(
+                std::string(smoother_name) +
+                ": Path contains a non-finite point at index " + std::to_string(index));
+      }
+    }
+    if (
+      !std::isfinite(request.start_dir.x()) ||
+      !std::isfinite(request.start_dir.y()) ||
+      !std::isfinite(request.end_dir.x()) ||
+      !std::isfinite(request.end_dir.y()))
+    {
+      throw InvalidPath(std::string(smoother_name) + ": Start or goal direction is non-finite");
+    }
+  }
+
+  static void validateFiniteParams(
+    const SmootherParams & params,
+    const char * smoother_name)
+  {
+    auto require_finite = [&](double value, const char * field_name) {
+        if (!std::isfinite(value)) {
+          throw std::invalid_argument(
+                  std::string(smoother_name) +
+                  ": SmootherParams." + field_name + " must be finite");
+        }
+      };
+
+    require_finite(params.model_weight, "model_weight");
+    require_finite(params.obstacle_weight, "obstacle_weight");
+    require_finite(params.reference_path_weight, "reference_path_weight");
+    require_finite(params.reference_point_max_deviation_m, "reference_point_max_deviation_m");
+    require_finite(params.kinematic_curvature_weight, "kinematic_curvature_weight");
+    require_finite(params.kinematic_curvature_rate_weight, "kinematic_curvature_rate_weight");
+    require_finite(params.kinematic_spacing_weight, "kinematic_spacing_weight");
+    require_finite(params.kinematic_max_spacing, "kinematic_max_spacing");
+    require_finite(params.path_length_weight, "path_length_weight");
+    require_finite(params.fix_weight, "fix_weight");
+    require_finite(params.max_curvature, "max_curvature");
+    require_finite(params.max_time, "max_time");
+    require_finite(params.obstacle_safe_distance, "obstacle_safe_distance");
+    require_finite(params.cost_check_radius, "cost_check_radius");
+    require_finite(params.path_target_spacing, "path_target_spacing");
+    require_finite(params.path_output_spacing, "path_output_spacing");
+    require_finite(params.goal_longitudinal_tolerance, "goal_longitudinal_tolerance");
+    require_finite(params.goal_lateral_tolerance, "goal_lateral_tolerance");
+    require_finite(params.goal_orientation_tolerance, "goal_orientation_tolerance");
+
+    if (!params.cost_check_points.empty() && params.cost_check_points.size() % 3 != 0) {
+      throw std::invalid_argument(
+              std::string(smoother_name) +
+              ": SmootherParams.cost_check_points size must be a multiple of 3");
+    }
+    for (size_t index = 0; index < params.cost_check_points.size(); ++index) {
+      if (!std::isfinite(params.cost_check_points[index])) {
+        throw std::invalid_argument(
+                std::string(smoother_name) +
+                ": SmootherParams.cost_check_points contains a non-finite value at index " +
+                std::to_string(index));
+      }
+    }
+  }
+
   // 与本实例生命周期绑定的 ESDF 缓存，用于构建器与后验校验共享读取。
   std::vector<double> esdf_values_{};
   // 后验硬约束校验器：用于拒绝数值收敛但工程不可交付的结果。
