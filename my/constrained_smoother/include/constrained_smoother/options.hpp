@@ -46,36 +46,36 @@ struct SmootherParams
   /// “必须提供地图才能继续”的两种情况。
   bool obstacleTermsEnabled() const
   {
-    return costmap_weight > 1e-9;
+    return obstacle_weight > 1e-9;
   }
 
   // --- Kinematic and reference-path weights ---
 
   /// 运动学状态转移一致性残差的权重（传入的是平方后的值，内部自动开方）。
-  double model_weight{0.0};
+  double model_weight{20.0};
   /// 障碍物净空残差的基础权重（传入的是平方后的值，内部自动开方）。
-  double costmap_weight{0.0};
+  double obstacle_weight{1.0};
   /// 约束优化后控制点贴近参考路径的权重（传入的是平方后的值，内部自动开方）。
   /// 设为 0 时，路径只受运动学与障碍物项驱动。
   double reference_path_weight{0.0};
   /// 每个优化点相对对应参考点的最大 x/y 偏移半径，单位米；<= 0 表示关闭。
   double reference_point_max_deviation_m{0.0};
   /// 运动学版显式曲率状态 kappa 的正则权重（传入的是平方后的值，内部自动开方）。
-  double kinematic_curvature_weight{0.0};
+  double kinematic_curvature_weight{1.0};
   /// 运动学版显式曲率变化率项的权重（传入的是平方后的值，内部自动开方）。
-  double kinematic_curvature_rate_weight{0.0};
+  double kinematic_curvature_rate_weight{1.0};
   /// 运动学版显式弧长步长 ds 贴近目标间距的正则权重（传入的是平方后的值，内部自动开方）。
   /// 默认保留为 1.0，用于避免步长变量在无约束时完全漂移。
-  double kinematic_spacing_weight{1.0};
+  double kinematic_spacing_weight{0.0};
   /// 运动学版显式弧长步长 ds 的上界，单位米；<= 0 表示不启用上界。
   double kinematic_max_spacing{0.0};
   /// 总长度惩罚的权重（传入的是平方后的值，内部自动开方）；值越大，越倾向于压缩整条路径的总弧长。
-  double path_length_weight{0.0};
+  double path_length_weight{1.0};
   /// cusp 保持段和起终点边界残差共用的直接约束权重。
   /// 与 `*_sqrt` 参数不同，这个值不会再开方，直接乘到残差上。
   double fix_weight{100.0};
   /// 允许的最大曲率，单位为 1 / m。
-  double max_curvature{0.0};
+  double max_curvature{10.0};
   /// 传给 Ceres 求解器的最大墙钟时间，单位秒。
   double max_time{10.0};
 

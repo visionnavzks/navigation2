@@ -565,8 +565,8 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def(py::init<>())
     .def_readwrite("model_weight", &constrained_smoother::SmootherParams::model_weight)
     .def_readwrite(
-    "costmap_weight",
-    &constrained_smoother::SmootherParams::costmap_weight)
+    "obstacle_weight",
+    &constrained_smoother::SmootherParams::obstacle_weight)
     .def_readwrite(
     "reference_path_weight",
     &constrained_smoother::SmootherParams::reference_path_weight)

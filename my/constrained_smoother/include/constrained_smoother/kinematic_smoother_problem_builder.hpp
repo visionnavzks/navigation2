@@ -275,7 +275,7 @@ public:
 
     // 障碍物残差：所有状态使用统一的 ESDF 障碍物权重。
     if (has_obstacle_cost) {
-      const double obstacle_weight = std::sqrt(std::max(params.costmap_weight, 0.0));
+      const double obstacle_weight = std::sqrt(std::max(params.obstacle_weight, 0.0));
       for (size_t index = 0; index < processed.state_count; ++index) {
         problem.AddResidualBlock(
           kinematic_smoother_detail::ObstacleCostFunctor::Create(

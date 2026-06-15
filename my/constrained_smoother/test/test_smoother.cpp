@@ -212,7 +212,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryB
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 1.0;
-  params.costmap_weight = 0.0;
+  params.obstacle_weight = 0.0;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 0.0;
   params.kinematic_curvature_rate_weight = 0.0;
@@ -252,7 +252,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 3.0;
-  params.costmap_weight = 0.0;
+  params.obstacle_weight = 0.0;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 0.0;
   params.kinematic_curvature_rate_weight = 0.0;
@@ -290,7 +290,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
   auto evaluate_cost = [&](double kinematic_curvature_weight) {
     constrained_smoother::SmootherParams params;
     params.model_weight = 0.0;
-    params.costmap_weight = 0.0;
+    params.obstacle_weight = 0.0;
     params.reference_path_weight = 0.0;
     params.kinematic_curvature_weight = kinematic_curvature_weight;
     params.kinematic_curvature_rate_weight = 0.0;
@@ -346,7 +346,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   auto evaluate_cost = [&](double spacing_weight) {
     constrained_smoother::SmootherParams params;
     params.model_weight = 0.0;
-    params.costmap_weight = 0.0;
+    params.obstacle_weight = 0.0;
     params.reference_path_weight = 0.0;
     params.kinematic_curvature_weight = 0.0;
     params.kinematic_curvature_rate_weight = 0.0;
@@ -553,7 +553,7 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 0.5;
+  params.obstacle_weight = 0.5;
   params.reference_path_weight = 1.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -597,7 +597,7 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
 
       constrained_smoother::SmootherParams params;
       params.model_weight = 20.0;
-      params.costmap_weight = 0.0;
+      params.obstacle_weight = 0.0;
       params.reference_path_weight = 0.0;
       params.kinematic_curvature_weight = 0.0;
       params.kinematic_curvature_rate_weight = 0.0;
@@ -644,7 +644,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 0.0;
+  params.obstacle_weight = 0.0;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -704,7 +704,7 @@ TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   constrained_smoother::SmootherParams params;
-  params.costmap_weight = 1.0;
+  params.obstacle_weight = 1.0;
   constrained_smoother::OptimizerParams opt_params;
   constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
@@ -733,7 +733,7 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1.0;
+  params.obstacle_weight = 1.0;
   params.reference_path_weight = 1.0;
   params.kinematic_curvature_weight = 10.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -778,7 +778,7 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1e-4;
+  params.obstacle_weight = 1e-4;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -996,7 +996,7 @@ TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThro
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1e-4;
+  params.obstacle_weight = 1e-4;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -1043,7 +1043,7 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1e-4;
+  params.obstacle_weight = 1e-4;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -1084,7 +1084,7 @@ TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1e-4;
+  params.obstacle_weight = 1e-4;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
@@ -1119,7 +1119,7 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
 
   constrained_smoother::SmootherParams params;
   params.model_weight = 20.0;
-  params.costmap_weight = 1e-4;
+  params.obstacle_weight = 1e-4;
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;

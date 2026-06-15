@@ -980,7 +980,7 @@ class PlanRequestConfig:
     robot_length_m: float
     robot_width_m: float
     model_weight: float
-    costmap_weight: float
+    obstacle_weight: float
     reference_path_weight: float
     enable_reference_point_max_deviation: bool
     reference_point_deviation_limit_m: float
@@ -1042,7 +1042,7 @@ class PlanRequestConfig:
             robot_length_m=max(DEFAULT_RESOLUTION, float(req.get("robot_length_m", 0.8))),
             robot_width_m=max(DEFAULT_RESOLUTION, float(req.get("robot_width_m", 0.5))),
             model_weight=float(req.get("model_weight", 20.0)),
-            costmap_weight=float(req.get("costmap_weight", 1.0)),
+            obstacle_weight=float(req.get("obstacle_weight", 1.0)),
             reference_path_weight=float(req.get("reference_path_weight", 0.0)),
             enable_reference_point_max_deviation=_coerce_bool(
                 req.get("enable_reference_point_max_deviation"),
@@ -1120,7 +1120,7 @@ class PlanRequestConfig:
         """Translate request-level tuning knobs into native smoother params."""
         smoother_params = pcs.SmootherParams()
         smoother_params.model_weight = self.model_weight
-        smoother_params.costmap_weight = self.costmap_weight
+        smoother_params.obstacle_weight = self.obstacle_weight
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
         smoother_params.cost_check_radius = footprint_model["check_radius"]
         smoother_params.reference_path_weight = self.reference_path_weight
@@ -1647,7 +1647,7 @@ def _build_plan_response_payload(
     optimizer_config = {
         "optimizer_type": config.optimizer_type,
         "model_weight": round(config.model_weight, 3),
-        "costmap_weight": round(config.costmap_weight, 3),
+        "obstacle_weight": round(config.obstacle_weight, 3),
         "reference_path_weight": round(config.reference_path_weight, 3),
         "reference_point_max_deviation_m": round(config.reference_point_max_deviation_m, 3),
         "kinematic_curvature_weight": round(config.kinematic_curvature_weight, 3),
