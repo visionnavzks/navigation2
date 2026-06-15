@@ -562,7 +562,7 @@ private:
   /// 校验路径上每个状态的足迹采样点是否都满足最小 ESDF 净空。
   ///
   /// 这是一道「只在工程上需要时才执行」的检查：调用层通过
-  /// `params.obstacleTermsEnabled()`（`costmap_weight_sqrt > KinematicStateLayout::EnabledEpsilon`）
+  /// `params.obstacleTermsEnabled()`（`costmap_weight > KinematicStateLayout::EnabledEpsilon`）
   /// 显式声明要不要障碍物项；没声明就整段直接放行（返回 `true`），
   /// 不会污染纯几何调参场景。
   ///

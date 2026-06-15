@@ -200,15 +200,15 @@ public:
     ceres::Problem & problem) const
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
-    // 大多数权重以 sqrt 形式进入残差；fix_weight 是直接约束系数，不再额外开方。
-    const double model_weight = std::max(params.model_weight_sqrt, 0.0);
-    const double curvature_weight = std::max(params.kinematic_curvature_weight_sqrt, 0.0);
+    // 大多数权重由调用方传入平方后的值，代码内部自动开方；fix_weight 是直接约束系数，不再额外开方。
+    const double model_weight = std::sqrt(std::max(params.model_weight, 0.0));
+    const double curvature_weight = std::sqrt(std::max(params.kinematic_curvature_weight, 0.0));
     const double curvature_rate_weight =
-      std::max(params.kinematic_curvature_rate_weight_sqrt, 0.0);
-    const double spacing_weight = std::max(params.kinematic_spacing_weight_sqrt, 0.0);
-    const double length_weight = std::max(params.path_length_weight_sqrt, 0.0);
+      std::sqrt(std::max(params.kinematic_curvature_rate_weight, 0.0));
+    const double spacing_weight = std::sqrt(std::max(params.kinematic_spacing_weight, 0.0));
+    const double length_weight = std::sqrt(std::max(params.path_length_weight, 0.0));
     const double fix_weight = std::max(params.fix_weight, 0.0);
-    const double reference_weight = std::max(params.reference_path_weight_sqrt, 0.0);
+    const double reference_weight = std::sqrt(std::max(params.reference_path_weight, 0.0));
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
     // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与期望间距。
@@ -275,7 +275,7 @@ public:
 
     // 障碍物残差：所有状态使用统一的 ESDF 障碍物权重。
     if (has_obstacle_cost) {
-      const double obstacle_weight = std::max(params.costmap_weight_sqrt, 0.0);
+      const double obstacle_weight = std::sqrt(std::max(params.costmap_weight, 0.0));
       for (size_t index = 0; index < processed.state_count; ++index) {
         problem.AddResidualBlock(
           kinematic_smoother_detail::ObstacleCostFunctor::Create(

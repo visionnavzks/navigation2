@@ -241,17 +241,17 @@ class KinematicSmootherProblemBuilder:
         n = processed.state_count
         num_params = n * STATE_SIZE
 
-        # Pre-compute weights
-        model_weight = max(params.model_weight_sqrt, 0.0)
-        curvature_weight = max(params.kinematic_curvature_weight_sqrt, 0.0)
-        curvature_rate_weight = max(params.kinematic_curvature_rate_weight_sqrt, 0.0)
-        spacing_weight = max(params.kinematic_spacing_weight_sqrt, 0.0)
-        length_weight = max(params.path_length_weight_sqrt, 0.0)
+        # Pre-compute weights (caller passes squared weights; we sqrt internally)
+        model_weight = math.sqrt(max(params.model_weight, 0.0))
+        curvature_weight = math.sqrt(max(params.kinematic_curvature_weight, 0.0))
+        curvature_rate_weight = math.sqrt(max(params.kinematic_curvature_rate_weight, 0.0))
+        spacing_weight = math.sqrt(max(params.kinematic_spacing_weight, 0.0))
+        length_weight = math.sqrt(max(params.path_length_weight, 0.0))
         fix_weight = max(params.fix_weight, 0.0)
-        reference_weight = max(params.reference_path_weight_sqrt, 0.0)
+        reference_weight = math.sqrt(max(params.reference_path_weight, 0.0))
         has_obstacle_cost = params.obstacle_terms_enabled()
 
-        obstacle_weight = max(params.costmap_weight_sqrt, 0.0)
+        obstacle_weight = math.sqrt(max(params.costmap_weight, 0.0))
 
         # Pre-compute goal heading
         goal_position_theta = goal_position_frame_heading(

@@ -146,9 +146,9 @@ def test_costmap2d_set_cost():
 
 def test_smoother_params_defaults():
     params = SmootherParams()
-    assert params.model_weight_sqrt == 0.0
+    assert params.model_weight == 0.0
     assert params.fix_weight == 100.0
-    assert params.kinematic_spacing_weight_sqrt == 1.0
+    assert params.kinematic_spacing_weight == 1.0
     assert params.path_target_spacing == 0.0
     assert params.path_output_spacing == 0.0
     assert params.reversing_enabled is True
@@ -162,7 +162,7 @@ def test_obstacle_terms_disabled_by_default():
 
 
 def test_obstacle_terms_enabled():
-    params = SmootherParams(costmap_weight_sqrt=1.0)
+    params = SmootherParams(costmap_weight=1.0)
     assert params.obstacle_terms_enabled() is True
 
 
@@ -327,10 +327,10 @@ def test_kinematic_smoother_smooth_straight_path():
         path.append(np.array([x, y, 1.0]))
 
     params = SmootherParams()
-    params.model_weight_sqrt = math.sqrt(20.0)
-    params.reference_path_weight_sqrt = math.sqrt(1.0)
-    params.kinematic_curvature_weight_sqrt = math.sqrt(30.0)
-    params.kinematic_curvature_rate_weight_sqrt = math.sqrt(5.0)
+    params.model_weight = 20.0
+    params.reference_path_weight = 1.0
+    params.kinematic_curvature_weight = 30.0
+    params.kinematic_curvature_rate_weight = 5.0
     params.max_curvature = 1.0 / 0.4
     params.max_time = 1.0
     params.obstacle_safe_distance = 0.5

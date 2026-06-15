@@ -563,31 +563,31 @@ PYBIND11_MODULE(py_constrained_smoother, m)
   // --- SmootherParams ---
   py::class_<constrained_smoother::SmootherParams>(m, "SmootherParams")
     .def(py::init<>())
-    .def_readwrite("model_weight_sqrt", &constrained_smoother::SmootherParams::model_weight_sqrt)
+    .def_readwrite("model_weight", &constrained_smoother::SmootherParams::model_weight)
     .def_readwrite(
-    "costmap_weight_sqrt",
-    &constrained_smoother::SmootherParams::costmap_weight_sqrt)
+    "costmap_weight",
+    &constrained_smoother::SmootherParams::costmap_weight)
     .def_readwrite(
-    "reference_path_weight_sqrt",
-    &constrained_smoother::SmootherParams::reference_path_weight_sqrt)
+    "reference_path_weight",
+    &constrained_smoother::SmootherParams::reference_path_weight)
     .def_readwrite(
     "reference_point_max_deviation_m",
     &constrained_smoother::SmootherParams::reference_point_max_deviation_m)
     .def_readwrite(
-    "kinematic_curvature_weight_sqrt",
-    &constrained_smoother::SmootherParams::kinematic_curvature_weight_sqrt)
+    "kinematic_curvature_weight",
+    &constrained_smoother::SmootherParams::kinematic_curvature_weight)
     .def_readwrite(
-    "kinematic_curvature_rate_weight_sqrt",
-    &constrained_smoother::SmootherParams::kinematic_curvature_rate_weight_sqrt)
+    "kinematic_curvature_rate_weight",
+    &constrained_smoother::SmootherParams::kinematic_curvature_rate_weight)
     .def_readwrite(
-    "kinematic_spacing_weight_sqrt",
-    &constrained_smoother::SmootherParams::kinematic_spacing_weight_sqrt)
+    "kinematic_spacing_weight",
+    &constrained_smoother::SmootherParams::kinematic_spacing_weight)
     .def_readwrite(
     "kinematic_max_spacing",
     &constrained_smoother::SmootherParams::kinematic_max_spacing)
     .def_readwrite(
-    "path_length_weight_sqrt",
-    &constrained_smoother::SmootherParams::path_length_weight_sqrt)
+    "path_length_weight",
+    &constrained_smoother::SmootherParams::path_length_weight)
     .def_readwrite("fix_weight", &constrained_smoother::SmootherParams::fix_weight)
     .def_readwrite("max_curvature", &constrained_smoother::SmootherParams::max_curvature)
     .def_readwrite("max_time", &constrained_smoother::SmootherParams::max_time)

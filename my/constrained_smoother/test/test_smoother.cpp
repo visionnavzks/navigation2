@@ -211,11 +211,11 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryB
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(1.0);
-  params.costmap_weight_sqrt = 0.0;
-  params.reference_path_weight_sqrt = 0.0;
-  params.kinematic_curvature_weight_sqrt = 0.0;
-  params.kinematic_curvature_rate_weight_sqrt = 0.0;
+  params.model_weight = 1.0;
+  params.costmap_weight = 0.0;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 0.0;
+  params.kinematic_curvature_rate_weight = 0.0;
 
   std::vector<double> esdf_values;
   constrained_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
@@ -251,11 +251,11 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = 3.0;
-  params.costmap_weight_sqrt = 0.0;
-  params.reference_path_weight_sqrt = 0.0;
-  params.kinematic_curvature_weight_sqrt = 0.0;
-  params.kinematic_curvature_rate_weight_sqrt = 0.0;
+  params.model_weight = 3.0;
+  params.costmap_weight = 0.0;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 0.0;
+  params.kinematic_curvature_rate_weight = 0.0;
 
   std::vector<double> esdf_values;
   constrained_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
@@ -289,11 +289,11 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
 
   auto evaluate_cost = [&](double kinematic_curvature_weight) {
     constrained_smoother::SmootherParams params;
-    params.model_weight_sqrt = 0.0;
-    params.costmap_weight_sqrt = 0.0;
-    params.reference_path_weight_sqrt = 0.0;
-    params.kinematic_curvature_weight_sqrt = kinematic_curvature_weight;
-    params.kinematic_curvature_rate_weight_sqrt = 0.0;
+    params.model_weight = 0.0;
+    params.costmap_weight = 0.0;
+    params.reference_path_weight = 0.0;
+    params.kinematic_curvature_weight = kinematic_curvature_weight;
+    params.kinematic_curvature_rate_weight = 0.0;
     params.keep_start_orientation = false;
     params.keep_goal_orientation = false;
 
@@ -345,12 +345,12 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
 
   auto evaluate_cost = [&](double spacing_weight) {
     constrained_smoother::SmootherParams params;
-    params.model_weight_sqrt = 0.0;
-    params.costmap_weight_sqrt = 0.0;
-    params.reference_path_weight_sqrt = 0.0;
-    params.kinematic_curvature_weight_sqrt = 0.0;
-    params.kinematic_curvature_rate_weight_sqrt = 0.0;
-    params.kinematic_spacing_weight_sqrt = spacing_weight;
+    params.model_weight = 0.0;
+    params.costmap_weight = 0.0;
+    params.reference_path_weight = 0.0;
+    params.kinematic_curvature_weight = 0.0;
+    params.kinematic_curvature_rate_weight = 0.0;
+    params.kinematic_spacing_weight = spacing_weight;
     params.keep_start_orientation = false;
     params.keep_goal_orientation = false;
     params.goal_longitudinal_tolerance = 2.0;
@@ -552,11 +552,11 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   }
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = std::sqrt(0.5);
-  params.reference_path_weight_sqrt = std::sqrt(1.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 0.5;
+  params.reference_path_weight = 1.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.obstacle_safe_distance = 0.5;
@@ -596,12 +596,12 @@ TEST(KinematicSmootherTest, ReferencePointMaxDeviationDefaultsOffAndBoundsOptimi
       std::vector<Eigen::Vector3d> path = reference_path;
 
       constrained_smoother::SmootherParams params;
-      params.model_weight_sqrt = std::sqrt(20.0);
-      params.costmap_weight_sqrt = 0.0;
-      params.reference_path_weight_sqrt = 0.0;
-      params.kinematic_curvature_weight_sqrt = 0.0;
-      params.kinematic_curvature_rate_weight_sqrt = 0.0;
-      params.path_length_weight_sqrt = std::sqrt(5.0);
+      params.model_weight = 20.0;
+      params.costmap_weight = 0.0;
+      params.reference_path_weight = 0.0;
+      params.kinematic_curvature_weight = 0.0;
+      params.kinematic_curvature_rate_weight = 0.0;
+      params.path_length_weight = 5.0;
       params.max_curvature = 10.0;
       params.max_time = 1.0;
       params.keep_start_orientation = false;
@@ -643,11 +643,11 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   const auto input_size = path.size();
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 0.0;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 0.0;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 100.0;
   params.max_time = 1.0;
   params.keep_start_orientation = true;
@@ -704,7 +704,7 @@ TEST(KinematicSmootherTest, NullCostmapStillRejectedWhenObstacleTermsEnabled)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   constrained_smoother::SmootherParams params;
-  params.costmap_weight_sqrt = 1.0;
+  params.costmap_weight = 1.0;
   constrained_smoother::OptimizerParams opt_params;
   constrained_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);
@@ -732,11 +732,11 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = std::sqrt(1.0);
-  params.reference_path_weight_sqrt = std::sqrt(1.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(10.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1.0;
+  params.reference_path_weight = 1.0;
+  params.kinematic_curvature_weight = 10.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.obstacle_safe_distance = 0.35;
@@ -777,11 +777,11 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1e-4;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.keep_start_orientation = true;
@@ -995,11 +995,11 @@ TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThro
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1e-4;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.keep_start_orientation = true;
@@ -1042,11 +1042,11 @@ TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1e-4;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.cost_check_radius = 0.18;
@@ -1083,11 +1083,11 @@ TEST(KinematicSmootherTest, FootprintRadiusWithoutCheckpointsFailsPostValidation
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1e-4;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.cost_check_radius = 0.18;
@@ -1118,11 +1118,11 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
   };
 
   constrained_smoother::SmootherParams params;
-  params.model_weight_sqrt = std::sqrt(20.0);
-  params.costmap_weight_sqrt = 1e-4;
-  params.reference_path_weight_sqrt = std::sqrt(0.0);
-  params.kinematic_curvature_weight_sqrt = std::sqrt(30.0);
-  params.kinematic_curvature_rate_weight_sqrt = std::sqrt(5.0);
+  params.model_weight = 20.0;
+  params.costmap_weight = 1e-4;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 30.0;
+  params.kinematic_curvature_rate_weight = 5.0;
   params.max_curvature = 1.0 / 0.4;
   params.max_time = 1.0;
   params.cost_check_radius = 0.1;

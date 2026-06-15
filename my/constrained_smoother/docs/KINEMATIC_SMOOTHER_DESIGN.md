@@ -155,11 +155,11 @@
 
 | 残差 | 对应 `SmootherParams` 字段 |
 | --- | --- |
-| 模型约束 [0-2] | `model_weight_sqrt` |
-| 曲率 [3] | `kinematic_curvature_weight_sqrt` |
-| 曲率变化率 [4] | `kinematic_curvature_rate_weight_sqrt` |
-| 步长 [5] | `kinematic_spacing_weight_sqrt` |
-| 长度 [6] | `path_length_weight_sqrt` |
+| 模型约束 [0-2] | `model_weight` |
+| 曲率 [3] | `kinematic_curvature_weight` |
+| 曲率变化率 [4] | `kinematic_curvature_rate_weight` |
+| 步长 [5] | `kinematic_spacing_weight` |
+| 长度 [6] | `path_length_weight` |
 
 ### 2. 边界残差（BoundaryCostFunctor，3 个残差）
 
@@ -182,7 +182,7 @@
 
 这个残差只约束平面位置，不直接约束 `theta`、`kappa` 或 `ds`。
 
-权重由 `reference_path_weight_sqrt` 控制。此外，`reference_point_max_deviation_m` 可以为每个优化点设置最大偏移半径（通过显式参数边界实现），超过该半径的参考点吸引力不再有效——这是一种"硬空间约束"。
+权重由 `reference_path_weight` 控制。此外，`reference_point_max_deviation_m` 可以为每个优化点设置最大偏移半径（通过显式参数边界实现），超过该半径的参考点吸引力不再有效——这是一种"硬空间约束"。
 
 ### 4. 障碍物残差（ObstacleCostFunctor，动态残差）
 
@@ -190,7 +190,7 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 
 - 如果没有提供足迹采样点，就以状态中心为检查点，输出 1 个残差。
 - 如果提供了 `cost_check_points`，就把局部采样点旋转到世界坐标后逐点检查，每个三元组 `(x_local, y_local, weight)` 输出 1 个残差。
-- 所有状态使用统一的 `costmap_weight_sqrt` 障碍物权重。
+- 所有状态使用统一的 `costmap_weight` 障碍物权重。
 
 惩罚模型为二次惩罚：当到障碍物表面的距离低于 `obstacle_safe_distance` 时才生效，越近惩罚越大。
 
@@ -279,7 +279,7 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 - `max_curvature` 约束的是曲率（`1/m`），不是半径。
 - C++ 版成功返回前还有一步独立的后验校验。
 - `kinematic_max_spacing` 是 `ds` 的硬上界，不是软约束。
-- `path_length_weight_sqrt` 直接压缩每段 `ds`，不是约束总长度。
+- `path_length_weight` 直接压缩每段 `ds`，不是约束总长度。
 - `reference_point_max_deviation_m` 是显式参数边界，不是参考路径残差的一部分。
 
 ## 常见误改点

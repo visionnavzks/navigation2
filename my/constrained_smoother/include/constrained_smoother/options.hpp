@@ -29,8 +29,8 @@ namespace constrained_smoother
  * @brief 独立平滑器的运行时配置。
  *
  * 当前公开后端是 `KinematicSmoother`。
- * 大多数权重采用平方根形式，是因为它们会先直接乘到残差上，随后再由
- * Ceres 在目标函数中完成平方。
+ * 大多数权重由调用方传入平方后的值（即实际权重），代码内部自动开方后再
+ * 乘到残差上，随后由 Ceres 在目标函数中完成平方。
  *
  * 这组参数可以按四类来理解：
  * 1. 运动学和参考路径权重。
@@ -46,31 +46,31 @@ struct SmootherParams
   /// “必须提供地图才能继续”的两种情况。
   bool obstacleTermsEnabled() const
   {
-    return costmap_weight_sqrt > 1e-9;
+    return costmap_weight > 1e-9;
   }
 
   // --- Kinematic and reference-path weights ---
 
-  /// 运动学状态转移一致性残差的平方根权重。
-  double model_weight_sqrt{0.0};
-  /// 障碍物净空残差的基础平方根权重。
-  double costmap_weight_sqrt{0.0};
-  /// 约束优化后控制点贴近参考路径的平方根权重。
+  /// 运动学状态转移一致性残差的权重（传入的是平方后的值，内部自动开方）。
+  double model_weight{0.0};
+  /// 障碍物净空残差的基础权重（传入的是平方后的值，内部自动开方）。
+  double costmap_weight{0.0};
+  /// 约束优化后控制点贴近参考路径的权重（传入的是平方后的值，内部自动开方）。
   /// 设为 0 时，路径只受运动学与障碍物项驱动。
-  double reference_path_weight_sqrt{0.0};
+  double reference_path_weight{0.0};
   /// 每个优化点相对对应参考点的最大 x/y 偏移半径，单位米；<= 0 表示关闭。
   double reference_point_max_deviation_m{0.0};
-  /// 运动学版显式曲率状态 kappa 的平方根正则权重。
-  double kinematic_curvature_weight_sqrt{0.0};
-  /// 运动学版显式曲率变化率项的平方根权重。
-  double kinematic_curvature_rate_weight_sqrt{0.0};
-  /// 运动学版显式弧长步长 ds 贴近目标间距的平方根正则权重。
+  /// 运动学版显式曲率状态 kappa 的正则权重（传入的是平方后的值，内部自动开方）。
+  double kinematic_curvature_weight{0.0};
+  /// 运动学版显式曲率变化率项的权重（传入的是平方后的值，内部自动开方）。
+  double kinematic_curvature_rate_weight{0.0};
+  /// 运动学版显式弧长步长 ds 贴近目标间距的正则权重（传入的是平方后的值，内部自动开方）。
   /// 默认保留为 1.0，用于避免步长变量在无约束时完全漂移。
-  double kinematic_spacing_weight_sqrt{1.0};
+  double kinematic_spacing_weight{1.0};
   /// 运动学版显式弧长步长 ds 的上界，单位米；<= 0 表示不启用上界。
   double kinematic_max_spacing{0.0};
-  /// 总长度惩罚的平方根权重；值越大，越倾向于压缩整条路径的总弧长。
-  double path_length_weight_sqrt{0.0};
+  /// 总长度惩罚的权重（传入的是平方后的值，内部自动开方）；值越大，越倾向于压缩整条路径的总弧长。
+  double path_length_weight{0.0};
   /// cusp 保持段和起终点边界残差共用的直接约束权重。
   /// 与 `*_sqrt` 参数不同，这个值不会再开方，直接乘到残差上。
   double fix_weight{100.0};

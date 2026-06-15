@@ -70,31 +70,31 @@ smooth()
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `model_weight_sqrt` | `double` | `0.0` | 运动学状态转移一致性残差的平方根权重 |
-| `reference_path_weight_sqrt` | `double` | `0.0` | 控制点贴近参考路径的平方根权重；设为 0 时路径只受运动学与障碍物项驱动 |
+| `model_weight` | `double` | `0.0` | 运动学状态转移一致性残差的权重（传入平方后的值，内部自动开方） |
+| `reference_path_weight` | `double` | `0.0` | 控制点贴近参考路径的权重（传入平方后的值，内部自动开方）；设为 0 时路径只受运动学与障碍物项驱动 |
 | `reference_point_max_deviation_m` | `double` | `0.0` | 每个优化点相对对应参考点的最大 x/y 偏移半径（米）；<= 0 表示关闭 |
-| `kinematic_curvature_weight_sqrt` | `double` | `0.0` | 显式曲率状态 `kappa` 的平方根正则权重 |
-| `kinematic_curvature_rate_weight_sqrt` | `double` | `0.0` | 曲率变化率项的平方根权重 |
-| `kinematic_spacing_weight_sqrt` | `double` | `1.0` | 弧长步长 `ds` 贴近目标间距的平方根正则权重；避免步长变量在无约束时完全漂移 |
+| `kinematic_curvature_weight` | `double` | `0.0` | 显式曲率状态 `kappa` 的正则权重（传入平方后的值，内部自动开方） |
+| `kinematic_curvature_rate_weight` | `double` | `0.0` | 曲率变化率项的权重（传入平方后的值，内部自动开方） |
+| `kinematic_spacing_weight` | `double` | `1.0` | 弧长步长 `ds` 贴近目标间距的正则权重（传入平方后的值，内部自动开方）；避免步长变量在无约束时完全漂移 |
 | `kinematic_max_spacing` | `double` | `0.0` | 弧长步长 `ds` 的上界（米）；<= 0 表示不启用上界 |
-| `path_length_weight_sqrt` | `double` | `0.0` | 总路径长度惩罚的平方根权重；值越大越倾向于压缩总弧长 |
+| `path_length_weight` | `double` | `0.0` | 总路径长度惩罚的权重（传入平方后的值，内部自动开方）；值越大越倾向于压缩总弧长 |
 | `fix_weight` | `double` | `100.0` | cusp 保持段与起终点边界残差共用的直接约束权重；不会做 sqrt 变换 |
 | `max_curvature` | `double` | `0.0` | 最大曲率约束（`1/m`） |
 | `max_time` | `double` | `10.0` | 传给 Ceres 的最大墙钟时间（秒） |
 
-> 大多数权重采用平方根形式，是因为它们会先直接乘到残差上，随后由 Ceres 在目标函数中完成平方。
+> 大多数权重由调用方传入平方后的值（即实际权重），代码内部自动开方后再乘到残差上，随后由 Ceres 在目标函数中完成平方。
 
 #### 障碍物与足迹检查
 
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `costmap_weight_sqrt` | `double` | `0.0` | 障碍物净空残差的统一平方根权重 |
+| `costmap_weight` | `double` | `0.0` | 障碍物净空残差的统一权重（传入平方后的值，内部自动开方） |
 | `use_exact_esdf` | `bool` | `true` | 为 `true` 时使用精确有符号距离场后端 |
 | `obstacle_safe_distance` | `double` | `0.5` | 对障碍物距离场期望满足的最小有符号净空（米） |
 | `cost_check_radius` | `double` | `0.0` | 当 `cost_check_points` 为空时使用的圆形足迹采样半径（米） |
 | `cost_check_points` | `vector<double>` | `{}` | 障碍物足迹检查的局部坐标三元组 `(x, y, weight)`；为空时退回单圆模型 |
 
-辅助方法 `obstacleTermsEnabled()` 返回当前是否真的启用了任何障碍物残差（`costmap_weight_sqrt` 大于阈值）。
+辅助方法 `obstacleTermsEnabled()` 返回当前是否真的启用了任何障碍物残差（`costmap_weight` 大于阈值）。
 
 #### 路径重采样与方向语义
 

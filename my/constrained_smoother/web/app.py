@@ -1119,19 +1119,17 @@ class PlanRequestConfig:
     def build_smoother_params(self, footprint_model):
         """Translate request-level tuning knobs into native smoother params."""
         smoother_params = pcs.SmootherParams()
-        smoother_params.model_weight_sqrt = math.sqrt(self.model_weight)
-        smoother_params.costmap_weight_sqrt = math.sqrt(self.costmap_weight)
+        smoother_params.model_weight = self.model_weight
+        smoother_params.costmap_weight = self.costmap_weight
         smoother_params.obstacle_safe_distance = footprint_model["safe_distance"]
         smoother_params.cost_check_radius = footprint_model["check_radius"]
-        smoother_params.reference_path_weight_sqrt = math.sqrt(self.reference_path_weight)
+        smoother_params.reference_path_weight = self.reference_path_weight
         smoother_params.reference_point_max_deviation_m = self.reference_point_max_deviation_m
-        smoother_params.kinematic_curvature_weight_sqrt = math.sqrt(self.kinematic_curvature_weight)
-        smoother_params.kinematic_curvature_rate_weight_sqrt = math.sqrt(
-            self.kinematic_curvature_rate_weight
-        )
-        smoother_params.kinematic_spacing_weight_sqrt = math.sqrt(self.kinematic_spacing_weight)
+        smoother_params.kinematic_curvature_weight = self.kinematic_curvature_weight
+        smoother_params.kinematic_curvature_rate_weight = self.kinematic_curvature_rate_weight
+        smoother_params.kinematic_spacing_weight = self.kinematic_spacing_weight
         smoother_params.kinematic_max_spacing = self.kinematic_max_spacing_m
-        smoother_params.path_length_weight_sqrt = math.sqrt(self.path_length_weight)
+        smoother_params.path_length_weight = self.path_length_weight
         smoother_params.fix_weight = self.fix_weight
         smoother_params.max_curvature = self.max_curvature
         smoother_params.max_time = self.max_time

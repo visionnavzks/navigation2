@@ -387,7 +387,7 @@ function goal_position_frame_heading(reference_points, end_theta, keep_goal_orie
 | [0] | $w_r \cdot (x - x_{\text{ref}})$ |
 | [1] | $w_r \cdot (y - y_{\text{ref}})$ |
 
-权重 $w_r$ = `reference_path_weight_sqrt`。当 $w_r < 10^{-9}$ 时不添加此残差。
+权重 $w_r$ = `reference_path_weight`。当 $w_r < 10^{-9}$ 时不添加此残差。
 
 ### 8.5 障碍物残差（ObstacleCostFunctor）— 动态数量
 
@@ -432,7 +432,7 @@ for each (local_x, local_y, point_weight) in cost_check_points:
     residual = pose_weight * point_weight * obstacle_penalty(world_x, world_y)
 ```
 
-**障碍权重**：所有状态使用统一的 `costmap_weight_sqrt`，不为 cusp 单独配置障碍权重。
+**障碍权重**：所有状态使用统一的 `costmap_weight`，不为 cusp 单独配置障碍权重。
 
 ---
 
@@ -579,12 +579,12 @@ for each segment (i, i+1):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `model_weight_sqrt` | double | 0.0 | 运动学一致性残差权重（已取平方根） |
-| `kinematic_curvature_weight_sqrt` | double | 0.0 | 曲率大小惩罚权重 |
-| `kinematic_curvature_rate_weight_sqrt` | double | 0.0 | 曲率变化率惩罚权重 |
-| `kinematic_spacing_weight_sqrt` | double | 1.0 | 步长接近目标间距的正则权重 |
-| `path_length_weight_sqrt` | double | 0.0 | 总长度惩罚权重 |
-| `reference_path_weight_sqrt` | double | 0.0 | 参考路径吸附权重 |
+| `model_weight` | double | 0.0 | 运动学一致性残差权重（传入平方后的值，内部自动开方） |
+| `kinematic_curvature_weight` | double | 0.0 | 曲率大小惩罚权重 |
+| `kinematic_curvature_rate_weight` | double | 0.0 | 曲率变化率惩罚权重 |
+| `kinematic_spacing_weight` | double | 1.0 | 步长接近目标间距的正则权重 |
+| `path_length_weight` | double | 0.0 | 总长度惩罚权重 |
+| `reference_path_weight` | double | 0.0 | 参考路径吸附权重 |
 | `reference_point_max_deviation_m` | double | 0.0 | 每个优化点相对参考点的最大偏移（≤0 关闭） |
 | `fix_weight` | double | 100.0 | 起终点边界和 cusp 约束的直接权重（不取平方根） |
 | `max_curvature` | double | 0.0 | 最大曲率，单位 $1/m$ |
@@ -594,7 +594,7 @@ for each segment (i, i+1):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `costmap_weight_sqrt` | double | 0.0 | 统一障碍物权重 |
+| `costmap_weight` | double | 0.0 | 统一障碍物权重 |
 | `obstacle_safe_distance` | double | 0.5 | 最小安全净空（m） |
 | `cost_check_radius` | double | 0.0 | 机器人圆形足迹半径（m） |
 | `cost_check_points` | vector\<double\> | [] | 局部检测点 $[x, y, w, \ldots]$ |
@@ -804,7 +804,7 @@ make -j$(nproc)
 | `max_curvature` 约束半径 | 约束曲率（$1/m$），不是半径 |
 | 成功返回即可用 | 还需通过后验硬校验 |
 | `kinematic_max_spacing` 是软约束 | 是 `ds` 的显式硬上界 |
-| `path_length_weight_sqrt` 约束总长度 | 直接压缩每段 `ds` |
+| `path_length_weight` 约束总长度 | 直接压缩每段 `ds` |
 | 参考路径残差约束朝向 | 只约束 $(x, y)$ 位置 |
 
 ---

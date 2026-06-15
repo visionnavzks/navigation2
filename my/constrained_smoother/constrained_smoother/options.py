@@ -29,21 +29,22 @@ from enum import Enum
 class SmootherParams:
     """Runtime configuration for the kinematic smoother.
 
-    Most weights are in square-root form: they multiply the residual directly,
-    and Ceres squares them in the objective function.
+    Most weights are passed in as squared values (the actual weight); the code
+    internally takes the square root before multiplying residuals, and Ceres
+    squares them again in the objective function.
     """
 
     # --- Kinematic and reference-path weights ---
 
-    model_weight_sqrt: float = 0.0
-    costmap_weight_sqrt: float = 0.0
-    reference_path_weight_sqrt: float = 0.0
+    model_weight: float = 0.0
+    costmap_weight: float = 0.0
+    reference_path_weight: float = 0.0
     reference_point_max_deviation_m: float = 0.0
-    kinematic_curvature_weight_sqrt: float = 0.0
-    kinematic_curvature_rate_weight_sqrt: float = 0.0
-    kinematic_spacing_weight_sqrt: float = 1.0
+    kinematic_curvature_weight: float = 0.0
+    kinematic_curvature_rate_weight: float = 0.0
+    kinematic_spacing_weight: float = 1.0
     kinematic_max_spacing: float = 0.0
-    path_length_weight_sqrt: float = 0.0
+    path_length_weight: float = 0.0
     fix_weight: float = 100.0
     max_curvature: float = 0.0
     max_time: float = 10.0
@@ -73,7 +74,7 @@ class SmootherParams:
 
     def obstacle_terms_enabled(self) -> bool:
         """Return whether any obstacle residual is actually enabled."""
-        return self.costmap_weight_sqrt > 1e-9
+        return self.costmap_weight > 1e-9
 
 
 class LinearSolver(Enum):
