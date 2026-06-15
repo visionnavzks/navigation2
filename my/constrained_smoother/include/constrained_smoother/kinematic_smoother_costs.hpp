@@ -72,8 +72,10 @@ public:
    * @param curvature_rate_weight 曲率变化率惩罚权重（鼓励曲率连续平滑）
    * @param spacing_weight       步长误差惩罚权重
    * @param length_weight        总长度惩罚权重（直接压缩 ds）
-   * @param fix_weight           尖点段强固定约束权重
-   * @param target_spacing       期望的相邻点弧长步长（米）
+   * @param fix_weight           尖点段强固定约束权重 *
+ * @note 所有权重均为「代价权重的平方根」形式：Ceres 对残差 r 平方后
+ *       实际代价为 weight²·r²。调用方应在传入前对用户参数做 sqrt()。
+ *       fix_weight 是例外——它直接作为残差系数，不做开方。   * @param target_spacing       期望的相邻点弧长步长（米）
    */
   TransitionCostFunctor(
     double gear,
@@ -157,7 +159,7 @@ public:
       residual[0] = T(fix_weight_) * (next_x - x);                      // 强制 x 不变
       residual[1] = T(fix_weight_) * (next_y - y);                      // 强制 y 不变
       residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);      // 强制朝向不变
-      residual[5] = T(spacing_weight_) * T(10.0) * ds;                  // 强惩罚非零步长
+      residual[5] = T(spacing_weight_) * ds;     // 强惩罚非零步长
       residual[6] = T(length_weight_) * ds;                             // 直接压缩总长度
       return true;
     }
@@ -177,8 +179,11 @@ public:
     const T x_pred = x + direction * ds * cosValue(theta_mid);
     const T y_pred = y + direction * ds * sinValue(theta_mid);
 
-    // 曲率变化率归一化分母：以弧长平方根归一化，避免小步长时数值爆炸
-    const T denom = ds > T(1e-3) ? sqrtValue(ds) : T(0.03);
+    // 曲率变化率归一化分母：以弧长平方根归一化，避免小步长时数值爆炸。
+    // 将 ds 钳位于 1e-3，使 sqrt 在边界处连续（sqrt(1e-3)≈0.0316），
+    // 避免旧的 0.03 硬编码常数导致值与导数同时跳变。
+    const T ds_safe = ds > T(1e-3) ? ds : T(1e-3);
+    const T denom = sqrtValue(ds_safe);
 
     // 残差[0][1][2]：运动学模型约束——预测位置/朝向与实际下一点的偏差
     residual[0] = T(model_weight_) * (next_x - x_pred);
@@ -396,7 +401,7 @@ class ReferenceCostFunctor
 public:
   /**
    * @param reference_point   原始参考路径点的位置（世界坐标，单位：米）
-   * @param reference_weight  吸引权重（越大则平滑路径越靠近原始路径）
+   * @param reference_weight  吸引权重（代价权重的平方根形式，越大则平滑路径越靠近原始路径）
    */
   ReferenceCostFunctor(const Eigen::Vector2d & reference_point, double reference_weight)
   : reference_point_(reference_point), reference_weight_(reference_weight)
@@ -581,7 +586,7 @@ private:
       return T(1.0);
     }
 
-    // 通过双三次插值查询该格坐标处的 ESDF 距离值（单位：格）
+    // 通过双三次插值查询该格坐标处的 ESDF 距离值（单位：米）
     // 注意：插值器的坐标约定为 (row, col)，且原点偏移 0.5 格
     T distance = T(0.0);
     esdf_interpolator_->Evaluate(grid_y - T(0.5), grid_x - T(0.5), &distance);
