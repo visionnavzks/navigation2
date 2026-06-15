@@ -108,6 +108,37 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathInsertsCuspState)
   EXPECT_EQ(processed.initial_variables.size(), processed.state_count * 5);
 }
 
+TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathTreatsDuplicateGearChangeAsCusp)
+{
+  kinematic_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+    {1.0, 0.0, -1.0},
+    {0.5, 0.0, -1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  const auto processed = kinematic_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(1.0, 0.0),
+    params,
+    &costmap);
+
+  EXPECT_EQ(processed.state_count, 4u);
+  ASSERT_EQ(processed.gears.size(), 3u);
+  ASSERT_EQ(processed.is_cusp_segment.size(), 3u);
+  EXPECT_DOUBLE_EQ(processed.gears[0], 1.0);
+  EXPECT_DOUBLE_EQ(processed.gears[1], 0.0);
+  EXPECT_DOUBLE_EQ(processed.gears[2], -1.0);
+  EXPECT_FALSE(processed.is_cusp_segment[0]);
+  EXPECT_TRUE(processed.is_cusp_segment[1]);
+  EXPECT_FALSE(processed.is_cusp_segment[2]);
+  EXPECT_NEAR(processed.reference_points[1].x(), 1.0, 1e-9);
+  EXPECT_NEAR(processed.reference_points[2].x(), 1.0, 1e-9);
+}
+
 TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathHonorsDisabledReversing)
 {
   kinematic_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
@@ -216,6 +247,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemAddsTransitionAndBoundaryB
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 0.0;
   params.kinematic_curvature_rate_weight = 0.0;
+  params.path_length_weight = 0.0;
 
   std::vector<double> esdf_values;
   kinematic_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
@@ -256,6 +288,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 0.0;
   params.kinematic_curvature_rate_weight = 0.0;
+  params.path_length_weight = 0.0;
 
   std::vector<double> esdf_values;
   kinematic_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
@@ -276,7 +309,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedModelWeight)
   ceres::Problem::EvaluateOptions options;
   double cost = 0.0;
   EXPECT_TRUE(problem.Evaluate(options, &cost, nullptr, nullptr, nullptr));
-  EXPECT_NEAR(cost, 0.09, 1e-6);
+  EXPECT_NEAR(cost, 0.03, 1e-6);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurvatureWeight)
@@ -294,6 +327,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
     params.reference_path_weight = 0.0;
     params.kinematic_curvature_weight = kinematic_curvature_weight;
     params.kinematic_curvature_rate_weight = 0.0;
+    params.path_length_weight = 0.0;
     params.keep_start_orientation = false;
     params.keep_goal_orientation = false;
 
@@ -351,6 +385,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
     params.kinematic_curvature_weight = 0.0;
     params.kinematic_curvature_rate_weight = 0.0;
     params.kinematic_spacing_weight = spacing_weight;
+    params.path_length_weight = 0.0;
     params.keep_start_orientation = false;
     params.keep_goal_orientation = false;
     params.goal_longitudinal_tolerance = 2.0;
@@ -384,7 +419,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   };
 
   EXPECT_NEAR(evaluate_cost(0.0), 0.0, 1e-9);
-  EXPECT_NEAR(evaluate_cost(3.0), 4.5, 1e-9);
+  EXPECT_NEAR(evaluate_cost(3.0), 1.5, 1e-9);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, UpsamplePathKinematicDistributesClosureError)
@@ -728,6 +763,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   for (double x = 1.0; x <= 6.0 + 1e-9; x += spacing) {
     path.emplace_back(x, 2.0, 1.0);
   }
+  path.emplace_back(6.0, 2.0, -1.0);
   for (double x = 6.0 - spacing; x >= 1.4 - 1e-9; x -= spacing) {
     path.emplace_back(x, 2.0, -1.0);
   }
@@ -739,6 +775,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   params.reference_path_weight = 0.0;
   params.kinematic_curvature_weight = 30.0;
   params.kinematic_curvature_rate_weight = 5.0;
+  params.path_length_weight = 0.0;
   params.max_curvature = 100.0;
   params.max_time = 1.0;
   params.keep_start_orientation = true;
@@ -759,7 +796,7 @@ TEST(KinematicSmootherTest, SmoothCuspPath)
   EXPECT_TRUE(result.success);
   EXPECT_GE(result.smoothed_path.size(), 2u);
   expectPathsNear(path, input_path);
-  EXPECT_GT(result.optimized_knot_count, input_size);
+  EXPECT_GE(result.optimized_knot_count, input_size);
 }
 
 TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
@@ -773,6 +810,7 @@ TEST(KinematicSmootherTest, NullCostmapAllowedWhenObstacleTermsDisabled)
   const Eigen::Vector2d end_dir(1.0, 0.0);
 
   kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 0.0;
   kinematic_smoother::OptimizerParams opt_params;
   kinematic_smoother::KinematicSmoother smoother;
   smoother.initialize(opt_params);

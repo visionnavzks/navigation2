@@ -507,6 +507,8 @@ py::dict invoke_try_smooth(Fn && fn)
     result["candidate_path"] = py::none();
     result["optimized_knot_count"] = py::int_(0);
     result["target_spacing_m"] = py::float_(0.0);
+    result["smoothed_curvatures"] = py::none();
+    result["smoothed_curvature_rates"] = py::none();
     result["error_code"] = py::none();
     result["error_message"] = py::str(error.what());
     result["error_reason"] = py::none();

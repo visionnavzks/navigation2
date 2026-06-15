@@ -376,9 +376,10 @@ private:
         message,
         static_cast<int>(request.state_count - 1));
     }
+    const double goal_angle_tol = std::max(request.params.goal_orientation_tolerance, angle_tol);
     if (request.params.keep_goal_orientation &&
       std::abs(angleDifference(goal_state[KinematicStateLayout::Theta], request.end_theta)) >
-      std::max(request.params.goal_orientation_tolerance, angle_tol))
+      goal_angle_tol)
     {
       return throwOrStoreSmoothingFailure(
         failure,
@@ -387,7 +388,7 @@ private:
           "Kinematic smoother violated the fixed goal orientation constraint",
           goal_state[KinematicStateLayout::Theta],
           request.end_theta,
-          angle_tol),
+          goal_angle_tol),
         static_cast<int>(request.state_count - 1));
     }
 

@@ -131,15 +131,28 @@ public:
     for (size_t index = 0; index + 1 < sampled_path.size(); ++index) {
       const double current_gear = gear_directions[index];
       const double next_gear = index + 1 < gear_directions.size() ? gear_directions[index + 1] : current_gear;
+      const Eigen::Vector2d current_point(sampled_path[index].x(), sampled_path[index].y());
+      const Eigen::Vector2d next_point(sampled_path[index + 1].x(), sampled_path[index + 1].y());
+
+      if (
+        index + 2 < sampled_path.size() &&
+        current_gear != next_gear &&
+        (next_point - current_point).norm() <= KinematicStateLayout::PointEpsilon)
+      {
+        processed.gears.push_back(0.0);
+        processed.is_cusp_segment.push_back(true);
+        processed.reference_points.push_back(next_point);
+        continue;
+      }
 
       processed.gears.push_back(current_gear);
       processed.is_cusp_segment.push_back(false);
-      processed.reference_points.emplace_back(sampled_path[index + 1].x(), sampled_path[index + 1].y());
+      processed.reference_points.push_back(next_point);
 
       if (index + 2 < sampled_path.size() && current_gear != next_gear) {
         processed.gears.push_back(0.0);
         processed.is_cusp_segment.push_back(true);
-        processed.reference_points.emplace_back(sampled_path[index + 1].x(), sampled_path[index + 1].y());
+        processed.reference_points.push_back(next_point);
       }
     }
 

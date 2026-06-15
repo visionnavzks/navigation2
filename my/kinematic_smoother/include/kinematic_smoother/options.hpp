@@ -65,7 +65,7 @@ struct SmootherParams
   /// 运动学版显式曲率变化率项的权重（传入的是平方后的值，内部自动开方）。
   double kinematic_curvature_rate_weight{1.0};
   /// 运动学版显式弧长步长 ds 贴近目标间距的正则权重（传入的是平方后的值，内部自动开方）。
-  /// 默认保留为 1.0，用于避免步长变量在无约束时完全漂移。
+  /// 默认关闭；需要近似等间距 knot 时由调用方显式启用。
   double kinematic_spacing_weight{0.0};
   /// 运动学版显式弧长步长 ds 的上界，单位米；<= 0 表示不启用上界。
   double kinematic_max_spacing{0.0};
