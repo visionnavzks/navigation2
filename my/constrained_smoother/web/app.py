@@ -1440,6 +1440,8 @@ def _run_smoother_stage(
     smooth_message = ""
     smooth_error = None
     candidate_smoothed = None
+    smoothed_curvatures = None
+    smoothed_curvature_rates = None
     optimized_knot_count = 0
     target_spacing_m = 0.0
 
@@ -1467,6 +1469,8 @@ def _run_smoother_stage(
         candidate_path = smooth_result.get("candidate_path")
         if bool(smooth_result["ok"]):
             candidate_smoothed = smoothed_path
+            smoothed_curvatures = smooth_result.get("smoothed_curvatures")
+            smoothed_curvature_rates = smooth_result.get("smoothed_curvature_rates")
         elif _failure_has_displayable_candidate_path(smooth_result):
             candidate_smoothed = candidate_path
 
@@ -1517,6 +1521,8 @@ def _run_smoother_stage(
         "smooth_message": smooth_message,
         "smooth_error": smooth_error,
         "candidate_smoothed": candidate_smoothed,
+        "smoothed_curvatures": smoothed_curvatures,
+        "smoothed_curvature_rates": smoothed_curvature_rates,
         "smoother_stage": smoother_stage,
         "optimized_knot_count": optimized_knot_count,
         "target_spacing_m": target_spacing_m,
@@ -1639,6 +1645,8 @@ def _build_plan_response_payload(
     smooth_success,
     smooth_message,
     smooth_error,
+    smoothed_curvatures,
+    smoothed_curvature_rates,
     candidate_rectangle_validation,
     goal_orientation_diagnostics,
     final_rectangle_validation,
@@ -1673,6 +1681,13 @@ def _build_plan_response_payload(
     ref_x = [point[0] for point in sparse_path]
     ref_y = [point[1] for point in sparse_path]
     opt_x, opt_y, opt_theta = _split_path_xyz(smoothed)
+    has_optimizer_profile = (
+        smooth_success
+        and isinstance(smoothed_curvatures, list)
+        and isinstance(smoothed_curvature_rates, list)
+        and len(smoothed_curvatures) == len(opt_x)
+        and len(smoothed_curvature_rates) == len(opt_x)
+    )
     raw_length = _path_length(raw_path)
     ref_length = _path_length(sparse_path)
     opt_length = _path_length(smoothed)
@@ -1698,6 +1713,8 @@ def _build_plan_response_payload(
         "opt_x": opt_x,
         "opt_y": opt_y,
         "opt_theta": opt_theta,
+        "opt_kappa": smoothed_curvatures if has_optimizer_profile else None,
+        "opt_dkds": smoothed_curvature_rates if has_optimizer_profile else None,
 
         # Path cardinality and length metrics.
         "num_astar_pts": len(raw_path),
@@ -1878,6 +1895,8 @@ def plan_and_smooth():
             smooth_success,
             smooth_message,
             smooth_error,
+            smoother_stage["smoothed_curvatures"],
+            smoother_stage["smoothed_curvature_rates"],
             candidate_rectangle_validation,
             goal_orientation_diagnostics,
             final_rectangle_validation,

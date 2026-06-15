@@ -454,6 +454,95 @@ TEST(KinematicSmootherProblemBuilderTest, OutputSpacingUpsamplesByMetricDistance
   }
 }
 
+TEST(KinematicSmootherProblemBuilderTest, OutputProfileUpsamplesStraightCurvature)
+{
+  constrained_smoother::KinematicProcessedPath processed;
+  processed.state_count = 2;
+  processed.gears = {1.0};
+  processed.is_cusp_segment = {false};
+
+  std::vector<double> variables = {
+    0.0, 0.0, 0.0, 0.0, 1.0,
+    1.0, 0.0, 0.0, 0.0, 0.0,
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.path_output_spacing = 0.25;
+
+  const auto profile =
+    constrained_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
+    variables,
+    processed,
+    params);
+
+  ASSERT_EQ(profile.path.size(), 5u);
+  ASSERT_EQ(profile.curvatures.size(), profile.path.size());
+  ASSERT_EQ(profile.curvature_rates.size(), profile.path.size());
+  for (size_t index = 0; index < profile.path.size(); ++index) {
+    EXPECT_NEAR(profile.curvatures[index], 0.0, 1e-12);
+    EXPECT_NEAR(profile.curvature_rates[index], 0.0, 1e-12);
+  }
+}
+
+TEST(KinematicSmootherProblemBuilderTest, OutputProfileSamplesLinearCurvature)
+{
+  constrained_smoother::KinematicProcessedPath processed;
+  processed.state_count = 2;
+  processed.gears = {1.0};
+  processed.is_cusp_segment = {false};
+
+  std::vector<double> variables = {
+    0.0, 0.0, 0.0, 0.0, 1.0,
+    1.0, 0.0, 0.1, 0.2, 0.0,
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.path_output_spacing = 0.25;
+
+  const auto profile =
+    constrained_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
+    variables,
+    processed,
+    params);
+
+  ASSERT_EQ(profile.path.size(), 5u);
+  ASSERT_EQ(profile.curvatures.size(), profile.path.size());
+  ASSERT_EQ(profile.curvature_rates.size(), profile.path.size());
+
+  const std::vector<double> expected_curvatures = {0.0, 0.05, 0.10, 0.15, 0.20};
+  for (size_t index = 0; index < profile.path.size(); ++index) {
+    EXPECT_NEAR(profile.curvatures[index], expected_curvatures[index], 1e-12);
+    EXPECT_NEAR(profile.curvature_rates[index], 0.2, 1e-12);
+  }
+}
+
+TEST(KinematicSmootherProblemBuilderTest, OutputProfileLeavesCuspRateUndefined)
+{
+  constrained_smoother::KinematicProcessedPath processed;
+  processed.state_count = 2;
+  processed.gears = {0.0};
+  processed.is_cusp_segment = {true};
+
+  std::vector<double> variables = {
+    0.0, 0.0, 0.0, 1.0, 0.0,
+    0.0, 0.0, 0.0, 2.0, 0.0,
+  };
+
+  constrained_smoother::SmootherParams params;
+  params.path_output_spacing = 0.25;
+
+  const auto profile =
+    constrained_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
+    variables,
+    processed,
+    params);
+
+  ASSERT_EQ(profile.path.size(), 2u);
+  ASSERT_EQ(profile.curvature_rates.size(), profile.path.size());
+  EXPECT_FALSE(std::isfinite(profile.curvature_rates[0]));
+  EXPECT_FALSE(std::isfinite(profile.curvature_rates[1]));
+}
+
 TEST(KinematicSmootherProblemBuilderTest, PathTargetSpacingResamplesByMetricDistance)
 {
   const std::vector<Eigen::Vector3d> path = {
@@ -576,6 +665,8 @@ TEST(KinematicSmootherTest, SmoothStraightPath)
   EXPECT_TRUE(result.success);
   EXPECT_FALSE(result.candidate_path.empty());
   EXPECT_GE(result.smoothed_path.size(), 2u);
+  EXPECT_EQ(result.smoothed_curvatures.size(), result.smoothed_path.size());
+  EXPECT_EQ(result.smoothed_curvature_rates.size(), result.smoothed_path.size());
   EXPECT_GT(result.optimized_knot_count, 0u);
   EXPECT_GT(result.target_spacing, 0.0);
   expectPathsNear(path, input_path);

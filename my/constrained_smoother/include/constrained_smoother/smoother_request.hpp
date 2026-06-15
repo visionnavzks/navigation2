@@ -39,6 +39,10 @@ struct SmootherResult
   std::vector<Eigen::Vector3d> candidate_path;
   /// 通过后验校验后按运动学模型上采样的最终输出路径。
   std::vector<Eigen::Vector3d> smoothed_path;
+  /// 与 smoothed_path 等长的输出采样点曲率 kappa。
+  std::vector<double> smoothed_curvatures;
+  /// 与 smoothed_path 等长的输出采样点曲率变化率 dk/ds。
+  std::vector<double> smoothed_curvature_rates;
   /// 本次参与优化的状态点数量。
   std::size_t optimized_knot_count{0};
   /// 本次优化使用的目标 knot 间距（米）。

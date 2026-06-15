@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -48,6 +49,14 @@ struct KinematicProcessedPath
   double start_theta{0.0};
   double end_theta{0.0};
   double target_spacing{0.2};
+};
+
+/// 运动学输出上采样结果及其同源曲率诊断 profile。
+struct KinematicUpsampledPathProfile
+{
+  std::vector<Eigen::Vector3d> path{};
+  std::vector<double> curvatures{};
+  std::vector<double> curvature_rates{};
 };
 
 /// 运动学版 smoother 的问题构建器。
@@ -356,18 +365,62 @@ public:
     const KinematicProcessedPath & processed,
     const SmootherParams & params)
   {
+    return upsamplePathKinematicProfile(variables, processed, params).path;
+  }
+
+  static KinematicUpsampledPathProfile upsamplePathKinematicProfile(
+    const std::vector<double> & variables,
+    const KinematicProcessedPath & processed,
+    const SmootherParams & params)
+  {
     std::vector<Eigen::Vector3d> path = unpackPath(variables, processed.state_count);
+    KinematicUpsampledPathProfile profile;
+    if (processed.state_count == 0) {
+      return profile;
+    }
+
+    const double undefined_rate = std::numeric_limits<double>::quiet_NaN();
+    auto segment_curvature_rate = [&](size_t index) {
+        if (index + 1 >= processed.state_count) {
+          return undefined_rate;
+        }
+        const bool is_cusp_segment =
+          index < processed.is_cusp_segment.size() && processed.is_cusp_segment[index];
+        const double gear = index < processed.gears.size() ? processed.gears[index] : 1.0;
+        const double * state = KinematicStateLayout::data(variables, index);
+        const double * next_state = KinematicStateLayout::data(variables, index + 1);
+        const double ds = std::max(state[KinematicStateLayout::Ds], 0.0);
+        if (
+          is_cusp_segment ||
+          std::abs(gear) < KinematicStateLayout::EnabledEpsilon ||
+          ds <= KinematicStateLayout::GeometryEpsilon)
+        {
+          return undefined_rate;
+        }
+        return (next_state[KinematicStateLayout::Kappa] - state[KinematicStateLayout::Kappa]) / ds;
+      };
+
+    auto append_sample = [&](const Eigen::Vector3d & pose, double curvature, double rate) {
+        profile.path.push_back(pose);
+        profile.curvatures.push_back(curvature);
+        profile.curvature_rates.push_back(rate);
+      };
+
+    const double first_curvature =
+      KinematicStateLayout::data(variables, 0)[KinematicStateLayout::Kappa];
+    append_sample(path.front(), first_curvature, segment_curvature_rate(0));
+
     const bool use_output_spacing =
       params.path_output_spacing > KinematicStateLayout::EnabledEpsilon;
     const int fallback_upsample_factor = std::max(params.path_upsampling_factor, 1);
-    if ((!use_output_spacing && fallback_upsample_factor <= 1) || processed.state_count < 2) {
-      return path;
+    if (processed.state_count < 2) {
+      return profile;
     }
 
-    std::vector<Eigen::Vector3d> upsampled;
-    upsampled.reserve(
+    profile.path.reserve(
       static_cast<size_t>(fallback_upsample_factor) * (processed.state_count - 1) + 1);
-    upsampled.push_back(path.front());
+    profile.curvatures.reserve(profile.path.capacity());
+    profile.curvature_rates.reserve(profile.path.capacity());
 
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
       const bool is_cusp_segment =
@@ -382,6 +435,7 @@ public:
       const double kappa = state[KinematicStateLayout::Kappa];
       const double ds = std::max(state[KinematicStateLayout::Ds], 0.0);
       const double next_kappa = next_state[KinematicStateLayout::Kappa];
+      const double curvature_rate = segment_curvature_rate(index);
 
       const Eigen::Vector3d & next_pose = path[index + 1];
 
@@ -390,14 +444,14 @@ public:
         std::abs(gear) < KinematicStateLayout::EnabledEpsilon ||
         ds <= KinematicStateLayout::GeometryEpsilon)
       {
-        upsampled.push_back(next_pose);
+        append_sample(next_pose, next_kappa, undefined_rate);
         continue;
       }
 
       const int segment_step_count = segmentStepCount(
         ds, params.path_output_spacing, fallback_upsample_factor, use_output_spacing);
       if (segment_step_count <= 1) {
-        upsampled.push_back(next_pose);
+        append_sample(next_pose, next_kappa, curvature_rate);
         continue;
       }
 
@@ -443,16 +497,19 @@ public:
       for (int step_index = 1; step_index < segment_step_count; ++step_index) {
         const double t = static_cast<double>(step_index) / static_cast<double>(segment_step_count);
         const Eigen::Vector3d & sample = segment_samples[static_cast<size_t>(step_index - 1)];
-        upsampled.emplace_back(
-          sample.x() + t * closure_x,
-          sample.y() + t * closure_y,
-          normalizeAngle(sample.z() + t * closure_theta));
+        append_sample(
+          Eigen::Vector3d(
+            sample.x() + t * closure_x,
+            sample.y() + t * closure_y,
+            normalizeAngle(sample.z() + t * closure_theta)),
+          kappa + (next_kappa - kappa) * t,
+          curvature_rate);
       }
 
-      upsampled.push_back(next_pose);
+      append_sample(next_pose, next_kappa, curvature_rate);
     }
 
-    return upsampled;
+    return profile;
   }
 
 private:

@@ -128,6 +128,19 @@ py::dict make_ok_result(const constrained_smoother::SmootherResult & result);
 template<typename Fn>
 py::dict invoke_try_smooth(Fn && fn);
 
+py::list make_optional_float_list(const std::vector<double> & values)
+{
+  py::list result;
+  for (const double value : values) {
+    if (std::isfinite(value)) {
+      result.append(py::float_(value));
+    } else {
+      result.append(py::none());
+    }
+  }
+  return result;
+}
+
 SmoothBindingInput parse_smooth_input(
   const py::handle & path_handle,
   const py::handle & start_dir_handle,
@@ -222,6 +235,8 @@ py::dict make_error_result_base(const ErrorT & error)
   result["candidate_path"] = py::none();
   result["optimized_knot_count"] = py::int_(0);
   result["target_spacing_m"] = py::float_(0.0);
+  result["smoothed_curvatures"] = py::none();
+  result["smoothed_curvature_rates"] = py::none();
   result["error_code"] = py::str(error.codeString());
   result["error_message"] = py::str(error.what());
   result["error_reason"] = py::none();
@@ -243,6 +258,15 @@ void fill_result_payload(
   result_dict["candidate_path"] = candidate_path;
   result_dict["optimized_knot_count"] = py::int_(smooth_result.optimized_knot_count);
   result_dict["target_spacing_m"] = py::float_(smooth_result.target_spacing);
+  if (smooth_result.success) {
+    result_dict["smoothed_curvatures"] =
+      make_optional_float_list(smooth_result.smoothed_curvatures);
+    result_dict["smoothed_curvature_rates"] =
+      make_optional_float_list(smooth_result.smoothed_curvature_rates);
+  } else {
+    result_dict["smoothed_curvatures"] = py::none();
+    result_dict["smoothed_curvature_rates"] = py::none();
+  }
 }
 
 template<typename ErrorT>
@@ -270,6 +294,8 @@ py::dict make_error_result(const constrained_smoother::InvalidCostmap & error)
   result["candidate_path"] = py::none();
   result["optimized_knot_count"] = py::int_(0);
   result["target_spacing_m"] = py::float_(0.0);
+  result["smoothed_curvatures"] = py::none();
+  result["smoothed_curvature_rates"] = py::none();
   result["error_code"] = py::str(
     constrained_smoother::toErrorCodeString(constrained_smoother::ErrorCode::InvalidCostmap));
   result["error_message"] = py::str(error.what());
@@ -288,6 +314,8 @@ py::dict make_error_result(
   result["candidate_path"] = py::none();
   result["optimized_knot_count"] = py::int_(0);
   result["target_spacing_m"] = py::float_(0.0);
+  result["smoothed_curvatures"] = py::none();
+  result["smoothed_curvature_rates"] = py::none();
   result["error_code"] = py::str(
     constrained_smoother::toErrorCodeString(
       constrained_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
@@ -524,6 +552,12 @@ PYBIND11_MODULE(py_constrained_smoother, m)
     .def_readonly("success", &constrained_smoother::SmootherResult::success)
     .def_readonly("candidate_path", &constrained_smoother::SmootherResult::candidate_path)
     .def_readonly("smoothed_path", &constrained_smoother::SmootherResult::smoothed_path)
+    .def_readonly(
+      "smoothed_curvatures",
+      &constrained_smoother::SmootherResult::smoothed_curvatures)
+    .def_readonly(
+      "smoothed_curvature_rates",
+      &constrained_smoother::SmootherResult::smoothed_curvature_rates)
     .def_readonly(
       "optimized_knot_count",
       &constrained_smoother::SmootherResult::optimized_knot_count)

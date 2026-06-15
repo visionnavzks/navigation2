@@ -151,11 +151,14 @@ public:
       return result;
     }
 
-    // 7) 校验通过后按运动学状态做段内插值，让 path_upsampling_factor 真正生效。
-    result.smoothed_path = KinematicSmootherProblemBuilder::upsamplePathKinematic(
+    // 7) 校验通过后按运动学状态做段内插值，并同步生成同源曲率诊断 profile。
+    const auto output_profile = KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
       variables,
       processed,
       request.params);
+    result.smoothed_path = output_profile.path;
+    result.smoothed_curvatures = output_profile.curvatures;
+    result.smoothed_curvature_rates = output_profile.curvature_rates;
     result.success = true;
     return result;
   }

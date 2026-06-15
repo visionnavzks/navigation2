@@ -2413,6 +2413,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const cuspPointIndices = new Set();
     const cuspLeftCurvature = new Array(pointCount).fill(null);
     const cuspRightCurvature = new Array(pointCount).fill(null);
+    const profileValue = value => {
+      if (value === null || value === undefined) {
+        return null;
+      }
+      const numberValue = Number(value);
+      return Number.isFinite(numberValue) ? numberValue : null;
+    };
+    const hasOptimizerProfile = Array.isArray(pathData.opt_kappa) &&
+      Array.isArray(pathData.opt_dkds) &&
+      pathData.opt_kappa.length >= pointCount &&
+      pathData.opt_dkds.length >= pointCount;
 
     for (let idx = 1; idx < pointCount; idx += 1) {
       const segmentLength = Math.hypot(xs[idx] - xs[idx - 1], ys[idx] - ys[idx - 1]);
@@ -2482,6 +2493,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    if (hasOptimizerProfile) {
+      for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+        curvatures[pointIndex] = profileValue(pathData.opt_kappa[pointIndex]);
+        dkDs[pointIndex] = profileValue(pathData.opt_dkds[pointIndex]);
+      }
+    }
+
     const findPrevValidSegment = pointIndex => {
       for (let segmentIndex = pointIndex - 1; segmentIndex >= 0; segmentIndex -= 1) {
         if (
@@ -2506,50 +2524,52 @@ document.addEventListener('DOMContentLoaded', () => {
       return null;
     };
 
-    for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
-      if (cuspPointIndices.has(pointIndex)) {
-        continue;
-      }
-
-      const leftSegmentIndex = findPrevValidSegment(pointIndex);
-      const rightSegmentIndex = findNextValidSegment(pointIndex);
-
-      const leftCurvature = leftSegmentIndex === null ? null : segmentCurvatures[leftSegmentIndex];
-      const rightCurvature = rightSegmentIndex === null ? null : segmentCurvatures[rightSegmentIndex];
-
-      if (Number.isFinite(leftCurvature) && Number.isFinite(rightCurvature)) {
-        const leftSign = segmentMotionSigns[leftSegmentIndex];
-        const rightSign = segmentMotionSigns[rightSegmentIndex];
-        if (leftSign === rightSign) {
-          curvatures[pointIndex] = leftSegmentIndex === rightSegmentIndex
-            ? leftCurvature
-            : 0.5 * (leftCurvature + rightCurvature);
+    if (!hasOptimizerProfile) {
+      for (let pointIndex = 0; pointIndex < pointCount; pointIndex += 1) {
+        if (cuspPointIndices.has(pointIndex)) {
+          continue;
         }
-      } else if (Number.isFinite(leftCurvature)) {
-        curvatures[pointIndex] = leftCurvature;
-      } else if (Number.isFinite(rightCurvature)) {
-        curvatures[pointIndex] = rightCurvature;
-      }
-    }
 
-    for (let idx = 0; idx < pointCount; idx += 1) {
-      const prevIndex = Math.max(0, idx - 1);
-      const nextIndex = Math.min(pointCount - 1, idx + 1);
-      const deltaS = arcLengths[nextIndex] - arcLengths[prevIndex];
-      const prevCurvature = curvatures[prevIndex];
-      const nextCurvature = curvatures[nextIndex];
-      if (
-        nextIndex === prevIndex ||
-        deltaS <= 1e-6 ||
-        !Number.isFinite(prevCurvature) ||
-        !Number.isFinite(nextCurvature) ||
-        cuspPointIndices.has(prevIndex) ||
-        cuspPointIndices.has(nextIndex) ||
-        cuspPointIndices.has(idx)
-      ) {
-        continue;
+        const leftSegmentIndex = findPrevValidSegment(pointIndex);
+        const rightSegmentIndex = findNextValidSegment(pointIndex);
+
+        const leftCurvature = leftSegmentIndex === null ? null : segmentCurvatures[leftSegmentIndex];
+        const rightCurvature = rightSegmentIndex === null ? null : segmentCurvatures[rightSegmentIndex];
+
+        if (Number.isFinite(leftCurvature) && Number.isFinite(rightCurvature)) {
+          const leftSign = segmentMotionSigns[leftSegmentIndex];
+          const rightSign = segmentMotionSigns[rightSegmentIndex];
+          if (leftSign === rightSign) {
+            curvatures[pointIndex] = leftSegmentIndex === rightSegmentIndex
+              ? leftCurvature
+              : 0.5 * (leftCurvature + rightCurvature);
+          }
+        } else if (Number.isFinite(leftCurvature)) {
+          curvatures[pointIndex] = leftCurvature;
+        } else if (Number.isFinite(rightCurvature)) {
+          curvatures[pointIndex] = rightCurvature;
+        }
       }
-      dkDs[idx] = (nextCurvature - prevCurvature) / deltaS;
+
+      for (let idx = 0; idx < pointCount; idx += 1) {
+        const prevIndex = Math.max(0, idx - 1);
+        const nextIndex = Math.min(pointCount - 1, idx + 1);
+        const deltaS = arcLengths[nextIndex] - arcLengths[prevIndex];
+        const prevCurvature = curvatures[prevIndex];
+        const nextCurvature = curvatures[nextIndex];
+        if (
+          nextIndex === prevIndex ||
+          deltaS <= 1e-6 ||
+          !Number.isFinite(prevCurvature) ||
+          !Number.isFinite(nextCurvature) ||
+          cuspPointIndices.has(prevIndex) ||
+          cuspPointIndices.has(nextIndex) ||
+          cuspPointIndices.has(idx)
+        ) {
+          continue;
+        }
+        dkDs[idx] = (nextCurvature - prevCurvature) / deltaS;
+      }
     }
 
     const computeSignedStats = values => {
@@ -2628,6 +2648,7 @@ document.addEventListener('DOMContentLoaded', () => {
       dkDsStats,
       dsStats,
       totalLength: arcLengths[arcLengths.length - 1],
+      profileSource: hasOptimizerProfile ? 'optimizer' : 'geometry',
     };
   }
 
@@ -2877,11 +2898,22 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('curvature-mean', formatCurvature(profile.curvatureStats.meanAbs));
     setText('curvature-min', formatCurvature(profile.curvatureStats.signedMin));
     setText('curvature-max', formatCurvature(profile.curvatureStats.signedMax));
+    const profileDescription = profile.profileSource === 'optimizer'
+      ? (
+          currentLanguage === 'zh'
+            ? '曲率 k(s) 和曲率变化率 dk/ds 来自优化器内部 kappa 状态，并按返回路径采样点同步插值。'
+            : 'Curvature k(s) and curvature rate dk/ds come from the optimizer kappa state and are sampled with the returned path.'
+        )
+      : (
+          currentLanguage === 'zh'
+            ? '曲率 k(s) 和曲率变化率 dk/ds 是由连续优化路径采样点估算得到。'
+            : 'Curvature k(s) and curvature rate dk/ds are estimated from consecutive optimized path samples.'
+        );
     setText(
       'curvature-note',
       currentLanguage === 'zh'
-        ? `曲率 k(s)、返回点间距 ds 和曲率变化率 dk/ds 都是由连续优化路径采样点估算得到。琥珀色虚线表示当前最大曲率限制（${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}）。平均 ds：${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}，峰值 |dk/ds|：${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}。`
-        : `Curvature k(s), returned-point spacing ds, and curvature rate dk/ds are estimated from consecutive optimized path samples. Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}). Mean ds: ${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}, peak |dk/ds|: ${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}.`
+        ? `${profileDescription} 琥珀色虚线表示当前最大曲率限制（${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}）。平均 ds：${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}，峰值 |dk/ds|：${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}。`
+        : `${profileDescription} Dashed amber lines mark the current Max Curvature limit (${maxCurvatureLimit.toFixed(2)} ${t('unit.curvature')}). Mean ds: ${profile.dsStats.mean.toFixed(3)} ${t('unit.meter')}, peak |dk/ds|: ${profile.dkDsStats.peakAbs.toFixed(3)} ${t('unit.curvatureRate')}.`
     );
   }
 
