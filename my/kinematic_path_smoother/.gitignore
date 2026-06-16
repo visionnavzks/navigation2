@@ -1,5 +1,0 @@
-build/
-build-*/
-*.so
-__pycache__/
-*.pyc
