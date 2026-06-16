@@ -245,6 +245,7 @@ public:
           spacing_weight,
           length_weight,
           fix_weight,
+          params.max_curvature,
           processed.target_spacing),
         nullptr,
         stateData(variables, index),

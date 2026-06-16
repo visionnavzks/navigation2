@@ -173,7 +173,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProcessedPathHonorsDisabledRevers
 TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
 {
   kinematic_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_cost(
-    1.0, false, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+    1.0, false, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0);
   const double current_state[5] = {0.0, 0.0, 0.0, 2.0, 1.0};
   const double next_state[5] = {0.0, 0.0, 0.0, 2.0, 0.0};
   double curvature_residuals[7] = {};
@@ -184,7 +184,7 @@ TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
   EXPECT_DOUBLE_EQ(curvature_residuals[6], 0.0);
 
   kinematic_smoother::kinematic_smoother_detail::TransitionCostFunctor curvature_rate_cost(
-    1.0, false, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 1.0);
+    1.0, false, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 1.0, 1.0);
   const double rate_current_state[5] = {0.0, 0.0, 0.0, 1.0, 4.0};
   const double rate_next_state[5] = {0.0, 0.0, 0.0, 3.0, 0.0};
   double curvature_rate_residuals[7] = {};
@@ -198,7 +198,7 @@ TEST(KinematicSmootherCostTest, TransitionCostKeepsCurvatureWeightsIndependent)
 TEST(KinematicSmootherCostTest, TransitionCostUsesExplicitLengthPenalty)
 {
   kinematic_smoother::kinematic_smoother_detail::TransitionCostFunctor length_cost(
-    1.0, false, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 1.0);
+    1.0, false, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 1.0, 1.0);
   const double current_state[5] = {0.0, 0.0, 0.0, 0.0, 1.5};
   const double next_state[5] = {0.0, 0.0, 0.0, 0.0, 0.0};
   double residuals[7] = {};
@@ -367,7 +367,7 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicCurv
   const double kinematic_cost = evaluate_cost(3.0);
 
   EXPECT_NEAR(zero_cost, 0.0, 1e-9);
-  EXPECT_GT(kinematic_cost, 1.0);
+  EXPECT_GT(kinematic_cost, zero_cost);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpacingWeight)

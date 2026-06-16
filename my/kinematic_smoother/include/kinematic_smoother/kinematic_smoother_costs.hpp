@@ -72,10 +72,12 @@ public:
    * @param curvature_rate_weight 曲率变化率惩罚权重（鼓励曲率连续平滑）
    * @param spacing_weight       步长误差惩罚权重
    * @param length_weight        总长度惩罚权重（直接压缩 ds）
-   * @param fix_weight           尖点段强固定约束权重 *
+   * @param fix_weight           尖点段强固定约束权重
+ * @param max_curvature        允许的最大曲率（1/m），用于归一化残差[3]
  * @note 所有权重均为「代价权重的平方根」形式：Ceres 对残差 r 平方后
  *       实际代价为 weight²·r²。调用方应在传入前对用户参数做 sqrt()。
- *       fix_weight 是例外——它直接作为残差系数，不做开方。   * @param target_spacing       期望的相邻点弧长步长（米）
+ *       fix_weight 是例外——它直接作为残差系数，不做开方。
+ * @param target_spacing       期望的相邻点弧长步长（米）
    */
   TransitionCostFunctor(
     double gear,
@@ -84,8 +86,9 @@ public:
     double curvature_weight,
     double curvature_rate_weight,
     double spacing_weight,
-      double length_weight,
+    double length_weight,
     double fix_weight,
+    double max_curvature,
     double target_spacing)
   : gear_(gear),
     is_cusp_segment_(is_cusp_segment),
@@ -95,6 +98,7 @@ public:
     spacing_weight_(spacing_weight),
     length_weight_(length_weight),
     fix_weight_(fix_weight),
+    max_curvature_(std::max(max_curvature, 1e-6)),
     target_spacing_(target_spacing)
   {
   }
@@ -112,6 +116,7 @@ public:
     double spacing_weight,
     double length_weight,
     double fix_weight,
+    double max_curvature,
     double target_spacing)
   {
     return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(
@@ -124,6 +129,7 @@ public:
         spacing_weight,
         length_weight,
         fix_weight,
+        max_curvature,
         target_spacing));
   }
 
@@ -190,8 +196,8 @@ public:
     residual[1] = T(model_weight_) * (next_y - y_pred);
     residual[2] = T(model_weight_) * angleDiff(next_theta, theta_pred);
 
-    // 残差[3]：平均曲率惩罚——使路径尽量趋向直行（曲率趋零）
-    residual[3] = T(curvature_weight_) * (kappa + next_kappa) * T(0.5);
+    // 残差[3]：平均曲率惩罚——除以 max_curvature 归一化为无量纲比例
+    residual[3] = T(curvature_weight_) * (kappa + next_kappa) * T(0.5) / T(max_curvature_);
 
     // 残差[4]：曲率变化率惩罚——使曲率沿弧长平滑变化（避免急剧转向）
     residual[4] = T(curvature_rate_weight_) * (next_kappa - kappa) / denom;
@@ -260,6 +266,7 @@ private:
   double spacing_weight_;        ///< 步长误差惩罚权重
   double length_weight_;         ///< 总长度惩罚权重
   double fix_weight_;            ///< 尖点段固定约束权重
+  double max_curvature_;         ///< 最大曲率（1/m），用于归一化曲率残差
   double target_spacing_;        ///< 期望相邻点弧长（米）
 };
 
