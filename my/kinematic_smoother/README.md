@@ -8,6 +8,7 @@ The current standalone package keeps one smoothing backend only: `KinematicSmoot
 
 - A C++ kinematic path smoother built on Ceres and Eigen.
 - A lightweight C++ A* planner plus ESDF utilities.
+- A C++ `FootprintModel` module that builds the discrete `(radius, check_points)` footprint shared by the smoother, validator, and A* planner.
 - A Flask-based Web Lab for interactive planning, smoothing, and validation inspection.
 
 ## Current Behavior Contracts

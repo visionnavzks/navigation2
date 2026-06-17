@@ -4,6 +4,7 @@
 
 - C++ `KinematicSmoother`
 - C++ A* + ESDF 工具
+- C++ `FootprintModel`（几何足迹采样，smoother / validator / A* 共用原料）
 - Flask Web Lab
 
 ## 核心 API 约定
@@ -13,6 +14,20 @@
 3. `cost_check_points` 直接按 `(x_local, y_local, weight)` 三元组使用。
 4. `reversing_enabled=false` 会把整条路径按前进段处理。
 5. `max_curvature` 的单位是 `1/m`（曲率，不是半径）。
+
+## 足迹采样（`footprint.hpp`）
+
+> 新增的 C++ 模块。`cost_check_points` 的几何采样逻辑被集中到这里，
+> 而不是散落在 Python 调用层。
+
+- `FootprintMode`：点 / 胶囊两种高层形态。
+- `CapsuleMode`：保守（中心点跨到端点外）/ 精确（不超过端点）两种覆盖策略。
+- `FootprintSpec`：调用方传入的物理参数（长 / 宽 / 点半径 / 采样容差 / 最小分辨率）。
+- `FootprintModel`：离散结果（`check_radius` + `check_points` 三元组列表）。
+- `buildFootprintModel(spec)`：纯几何预计算，不读 costmap / ESDF。
+
+Capsule 模式下的腰部采样容差 `sampling_tolerance_m` 决定两两圆心之间的
+最大凹陷；算法和原先 Python 版 `_build_capsule_center_offsets` 一致。
 
 ## 使用入口
 

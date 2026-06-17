@@ -22,6 +22,7 @@
 #include "kinematic_smoother/kinematic_smoother_problem_builder.hpp"
 #include "kinematic_smoother/kinematic_smoother.hpp"
 #include "kinematic_smoother/smoother_validator.hpp"
+#include "kinematic_smoother/footprint.hpp"
 #include "gtest/gtest.h"
 
 namespace
@@ -1629,6 +1630,76 @@ TEST(KinematicSmootherTest, PathOutOfBoundsFailsPostValidation)
     [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
   EXPECT_NE(error_message.find("path_out_of_bounds@"), std::string::npos);
+}
+
+// ---- FootprintModel (footprint.hpp) ----
+
+TEST(FootprintTest, PointModeYieldsSingleCheckPoint)
+{
+  kinematic_smoother::FootprintSpec spec;
+  spec.mode = kinematic_smoother::FootprintMode::Point;
+  spec.point_radius_m = 0.4;
+  spec.min_resolution_m = 0.1;
+
+  const auto model = kinematic_smoother::buildFootprintModel(spec);
+  EXPECT_DOUBLE_EQ(model.check_radius, 0.4);
+  ASSERT_EQ(model.check_points.size(), 3u);
+  EXPECT_DOUBLE_EQ(model.check_points[0], 0.0);
+  EXPECT_DOUBLE_EQ(model.check_points[1], 0.0);
+  EXPECT_DOUBLE_EQ(model.check_points[2], 1.0);
+}
+
+TEST(FootprintTest, PointModeClampsRadiusToResolutionFloor)
+{
+  kinematic_smoother::FootprintSpec spec;
+  spec.mode = kinematic_smoother::FootprintMode::Point;
+  spec.point_radius_m = 0.0;   // 0 should fall back to the resolution floor
+  spec.min_resolution_m = 0.1;
+
+  const auto model = kinematic_smoother::buildFootprintModel(spec);
+  EXPECT_DOUBLE_EQ(model.check_radius, 0.05);
+}
+
+TEST(FootprintTest, CapsuleConservativeSpansFullHalfLength)
+{
+  kinematic_smoother::FootprintSpec spec;
+  spec.mode = kinematic_smoother::FootprintMode::Capsule;
+  spec.capsule_mode = kinematic_smoother::CapsuleMode::Conservative;
+  spec.length_m = 0.8;
+  spec.width_m = 0.5;
+  spec.sampling_tolerance_m = 0.035;
+  spec.min_resolution_m = 0.1;
+
+  const auto model = kinematic_smoother::buildFootprintModel(spec);
+  EXPECT_DOUBLE_EQ(model.check_radius, 0.25);
+  const auto count = model.check_points.size() / 3;
+  // The endpoints should sit at ±L/2 under conservative mode.
+  EXPECT_GE(count, 3u);
+  EXPECT_NEAR(model.check_points.front(), -0.4, 1e-9);
+  EXPECT_NEAR(model.check_points[static_cast<size_t>(count - 1) * 3u + 0u], 0.4, 1e-9);
+  // Every weight slot must be 1.0.
+  for (size_t offset = 2; offset < model.check_points.size(); offset += 3) {
+    EXPECT_DOUBLE_EQ(model.check_points[offset], 1.0);
+  }
+}
+
+TEST(FootprintTest, CapsuleExactShrinksToHalfLengthMinusRadius)
+{
+  kinematic_smoother::FootprintSpec spec;
+  spec.mode = kinematic_smoother::FootprintMode::Capsule;
+  spec.capsule_mode = kinematic_smoother::CapsuleMode::Exact;
+  spec.length_m = 0.8;        // L/2 = 0.4
+  spec.width_m = 0.5;         // r   = 0.25
+  spec.sampling_tolerance_m = 0.035;
+  spec.min_resolution_m = 0.1;
+
+  const auto model = kinematic_smoother::buildFootprintModel(spec);
+  EXPECT_DOUBLE_EQ(model.check_radius, 0.25);
+  // Endpoints should be at ±(L/2 - r) = ±0.15, never beyond.
+  const auto count = model.check_points.size() / 3;
+  ASSERT_GE(count, 1u);
+  EXPECT_NEAR(model.check_points.front(), -0.15, 1e-9);
+  EXPECT_NEAR(model.check_points[static_cast<size_t>(count - 1) * 3u + 0u], 0.15, 1e-9);
 }
 
 // ---- Basic costmap sanity test ----

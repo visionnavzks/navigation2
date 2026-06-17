@@ -881,23 +881,24 @@ def _build_validation_error_payload(validation):
     }
 
 
-def _build_capsule_center_offsets(limit_x, radius, tolerance):
-    """Distribute circle centers so the union approximates a continuous capsule band."""
-    if limit_x <= 1e-6:
-        return [0.0]
-
-    max_gap_depth = min(max(tolerance, 1e-3), max(radius * 0.5, 1e-3))
-    min_val = radius * radius - max(radius - max_gap_depth, 0.0) ** 2
-    max_spacing = 2.0 * math.sqrt(max(min_val, 1e-9))
-    max_spacing = max(max_spacing, DEFAULT_RESOLUTION * 0.5)
-    interval_count = max(1, int(math.ceil((2.0 * limit_x) / max_spacing)))
-    return np.linspace(-limit_x, limit_x, interval_count + 1).tolist()
+_FOOTPRINT_MODE_BY_NAME = {
+    "point": pks.FootprintMode.POINT,
+    "capsule": pks.FootprintMode.CAPSULE,
+}
+_CAPSULE_MODE_BY_NAME = {
+    "conservative": pks.CapsuleMode.CONSERVATIVE,
+    "exact": pks.CapsuleMode.EXACT,
+}
 
 
-def _resolve_capsule_center_limit(half_length, radius, capsule_mode):
-    if _normalize_capsule_mode(capsule_mode) == "exact":
-        return max(half_length - radius, 0.0)
-    return half_length
+def _coerce_footprint_mode(value):
+    """Map a frontend string ('point' | 'capsule') to pks.FootprintMode."""
+    return _FOOTPRINT_MODE_BY_NAME.get(str(value or "").strip().lower(), pks.FootprintMode.CAPSULE)
+
+
+def _coerce_capsule_mode(value):
+    """Map a frontend string ('conservative' | 'exact') to pks.CapsuleMode."""
+    return _CAPSULE_MODE_BY_NAME.get(_normalize_capsule_mode(value), pks.CapsuleMode.CONSERVATIVE)
 
 
 def _build_robot_footprint_model(
@@ -909,52 +910,55 @@ def _build_robot_footprint_model(
     robot_width_m,
     capsule_sampling_tolerance_m=None,
 ):
-    """Build the unified checkpoint + radius geometry used by planning and smoothing."""
-    mode = footprint_mode if footprint_mode in {"point", "capsule"} else "capsule"
-    normalized_capsule_mode = _normalize_capsule_mode(capsule_mode)
+    """Build the unified checkpoint + radius geometry used by planning and smoothing.
+
+    The actual capsule sampling lives in C++ (`pks.build_footprint_model`);
+    this wrapper just normalizes inputs and reshapes the result into the
+    dict shape the rest of the web layer expects.
+    """
     sampling_tolerance = max(
         0.0,
         DEFAULT_CAPSULE_SAMPLING_TOLERANCE_M
         if capsule_sampling_tolerance_m is None else float(capsule_sampling_tolerance_m),
     )
-    half_length = max(robot_length_m * 0.5, DEFAULT_RESOLUTION * 0.5)
-    half_width = max(robot_width_m * 0.5, DEFAULT_RESOLUTION * 0.5)
+    normalized_capsule_mode = _normalize_capsule_mode(capsule_mode)
+    mode_enum = _coerce_footprint_mode(footprint_mode)
 
-    if mode == "point":
-        check_radius = max(point_robot_radius_m, DEFAULT_RESOLUTION * 0.5)
-        local_points = [(0.0, 0.0)]
-    else:
-        check_radius = half_width
-        center_limit = _resolve_capsule_center_limit(half_length, check_radius, normalized_capsule_mode)
-        local_points = [(offset_x, 0.0) for offset_x in _build_capsule_center_offsets(
-            center_limit,
-            check_radius,
-            sampling_tolerance,
-        )]
+    spec = pks.FootprintSpec()
+    spec.mode = mode_enum
+    spec.capsule_mode = _coerce_capsule_mode(normalized_capsule_mode)
+    spec.length_m = float(robot_length_m)
+    spec.width_m = float(robot_width_m)
+    spec.point_radius_m = float(point_robot_radius_m)
+    spec.sampling_tolerance_m = sampling_tolerance
+    spec.min_resolution_m = DEFAULT_RESOLUTION
+
+    native_model = pks.build_footprint_model(spec)
+    check_points = [float(v) for v in native_model.check_points]
 
     planner_points = []
-    smoother_points = []
+    smoother_points = check_points
     serialized_points = []
-    for point_x, point_y in local_points:
-        planner_points.extend((float(point_x), float(point_y)))
-        smoother_points.extend((float(point_x), float(point_y), 1.0))
+    for offset in range(0, len(check_points), 3):
+        local_x = check_points[offset + 0]
+        local_y = check_points[offset + 1]
+        planner_points.extend((local_x, local_y))
         serialized_points.append({
-            "x": round(float(point_x), 4),
-            "y": round(float(point_y), 4),
+            "x": round(local_x, 4),
+            "y": round(local_y, 4),
         })
 
-    safe_distance = surface_clearance_margin_m
     return {
-        "mode": mode,
-        "capsule_mode": normalized_capsule_mode if mode == "capsule" else None,
+        "mode": "point" if mode_enum == pks.FootprintMode.POINT else "capsule",
+        "capsule_mode": normalized_capsule_mode if mode_enum == pks.FootprintMode.CAPSULE else None,
         "capsule_sampling_tolerance_m": sampling_tolerance,
-        "safe_distance": safe_distance,
-        "check_radius": check_radius,
+        "safe_distance": surface_clearance_margin_m,
+        "check_radius": float(native_model.check_radius),
         "planner_points": planner_points,
         "smoother_points": smoother_points,
         "serialized_points": serialized_points,
-        "robot_length_m": robot_length_m,
-        "robot_width_m": robot_width_m,
+        "robot_length_m": float(robot_length_m),
+        "robot_width_m": float(robot_width_m),
     }
 
 

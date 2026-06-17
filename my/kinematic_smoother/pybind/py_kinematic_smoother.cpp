@@ -7,6 +7,7 @@
 
 #include "kinematic_smoother/astar_esdf.hpp"
 #include "kinematic_smoother/costmap2d.hpp"
+#include "kinematic_smoother/footprint.hpp"
 #include "kinematic_smoother/kinematic_smoother.hpp"
 #include "kinematic_smoother/options.hpp"
 #include "kinematic_smoother/exceptions.hpp"
@@ -549,6 +550,44 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
   m.attr("ERROR_PRECOMPUTED_ESDF_SIZE_MISMATCH") = py::str(
     kinematic_smoother::toErrorCodeString(
       kinematic_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
+
+  // ---- Footprint model (geometric precomputation) ----
+  // shared by smoother / validator / A*. Pure geometry, no costmap/ESDF read.
+
+  py::enum_<kinematic_smoother::FootprintMode>(m, "FootprintMode")
+    .value("POINT", kinematic_smoother::FootprintMode::Point)
+    .value("CAPSULE", kinematic_smoother::FootprintMode::Capsule);
+
+  py::enum_<kinematic_smoother::CapsuleMode>(m, "CapsuleMode")
+    .value("CONSERVATIVE", kinematic_smoother::CapsuleMode::Conservative)
+    .value("EXACT", kinematic_smoother::CapsuleMode::Exact);
+
+  py::class_<kinematic_smoother::FootprintSpec>(m, "FootprintSpec")
+    .def(py::init<>())
+    .def_readwrite("mode", &kinematic_smoother::FootprintSpec::mode)
+    .def_readwrite("capsule_mode", &kinematic_smoother::FootprintSpec::capsule_mode)
+    .def_readwrite("length_m", &kinematic_smoother::FootprintSpec::length_m)
+    .def_readwrite("width_m", &kinematic_smoother::FootprintSpec::width_m)
+    .def_readwrite(
+    "point_radius_m", &kinematic_smoother::FootprintSpec::point_radius_m)
+    .def_readwrite(
+    "sampling_tolerance_m", &kinematic_smoother::FootprintSpec::sampling_tolerance_m)
+    .def_readwrite(
+    "min_resolution_m", &kinematic_smoother::FootprintSpec::min_resolution_m);
+
+  py::class_<kinematic_smoother::FootprintModel>(m, "FootprintModel")
+    .def(py::init<>())
+    .def_readwrite(
+    "check_radius", &kinematic_smoother::FootprintModel::check_radius)
+    .def_readwrite(
+    "check_points", &kinematic_smoother::FootprintModel::check_points);
+
+  m.def(
+    "build_footprint_model",
+    &kinematic_smoother::buildFootprintModel,
+    py::arg("spec"),
+    "Build a discrete (radius, check_points) footprint model from a FootprintSpec. "
+    "Pure geometric precomputation; does not read costmap/ESDF.");
 
   py::class_<kinematic_smoother::SmootherResult>(m, "SmootherResult")
     .def_readonly("success", &kinematic_smoother::SmootherResult::success)
