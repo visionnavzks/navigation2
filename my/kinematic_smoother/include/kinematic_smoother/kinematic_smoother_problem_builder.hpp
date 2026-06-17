@@ -347,13 +347,21 @@ public:
       problem.SetParameterUpperBound(state, KinematicStateLayout::Kappa, clamped_max_curvature);
       const bool ds_is_used = index + 1 < state_count;
       const bool is_cusp_ds = index < is_cusp_segment.size() && is_cusp_segment[index];
-      problem.SetParameterLowerBound(
-        state,
-        KinematicStateLayout::Ds,
-        ds_is_used && !is_cusp_ds ? KinematicStateLayout::GeometryEpsilon : 0.0);
+      const double ds_lower =
+        ds_is_used && !is_cusp_ds ? KinematicStateLayout::GeometryEpsilon : 0.0;
+      problem.SetParameterLowerBound(state, KinematicStateLayout::Ds, ds_lower);
+      double ds_upper = std::numeric_limits<double>::infinity();
       if (ds_is_used && !is_cusp_ds && max_spacing > KinematicStateLayout::EnabledEpsilon) {
-        problem.SetParameterUpperBound(state, KinematicStateLayout::Ds, max_spacing);
+        // 上界绝不能低于下界（例如 max_spacing 配成亚微米级），否则可行域为空，
+        // Ceres 会直接把问题判为 infeasible。
+        ds_upper = std::max(max_spacing, ds_lower);
+        problem.SetParameterUpperBound(state, KinematicStateLayout::Ds, ds_upper);
       }
+      // 近零长度的非 cusp 段初值 ds 为 0，会落在刚设置的下界 (GeometryEpsilon) 之外。
+      // 把初值夹回 [ds_lower, ds_upper]，否则 Ceres 以 "infeasible initial point"
+      // 直接拒绝整次求解（重复/近重合的输入路点即可触发）。
+      double & ds_value = state[KinematicStateLayout::Ds];
+      ds_value = std::min(std::max(ds_value, ds_lower), ds_upper);
     }
   }
 
@@ -426,7 +434,10 @@ public:
 
     const bool use_output_spacing =
       params.path_output_spacing > KinematicStateLayout::EnabledEpsilon;
-    const int fallback_upsample_factor = std::max(params.path_upsampling_factor, 1);
+    // 上采样倍率未做范围校验；夹到一个合理上限，避免巨大取值在下面的
+    // reserve()（factor * (state_count-1)）里整型溢出或触发 OOM。
+    const int fallback_upsample_factor =
+      std::min(std::max(params.path_upsampling_factor, 1), kMaxStepsPerSegment);
     if (processed.state_count < 2) {
       return profile;
     }
@@ -665,6 +676,10 @@ private:
     return point.z() < 0.0 ? -1.0 : 1.0;
   }
 
+  // 单段上采样步数上限：防止极端的 path_output_spacing / path_upsampling_factor
+  // 配置导致 ceil(ds/spacing) 超过 INT_MAX（整型溢出 UB）或天量内存分配。
+  static constexpr int kMaxStepsPerSegment = 100000;
+
   static int segmentStepCount(
     double ds,
     double output_spacing,
@@ -672,9 +687,16 @@ private:
     bool use_output_spacing)
   {
     if (!use_output_spacing) {
-      return fallback_upsample_factor;
+      return std::min(std::max(fallback_upsample_factor, 1), kMaxStepsPerSegment);
     }
-    return std::max(1, static_cast<int>(std::ceil(ds / output_spacing)));
+    const double steps = std::ceil(ds / output_spacing);
+    if (!(steps > 1.0)) {
+      return 1;
+    }
+    if (steps >= static_cast<double>(kMaxStepsPerSegment)) {
+      return kMaxStepsPerSegment;
+    }
+    return static_cast<int>(steps);
   }
 
   std::vector<double> & esdf_values_;

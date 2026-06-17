@@ -25,6 +25,36 @@ namespace kinematic_smoother
 {
 
 /**
+ * @struct kinematic_smoother::ValidationTolerances
+ * @brief 求解后「硬验收」使用的容差表（一张集中的参数表，避免散落在校验器各处的魔法数字）。
+ *
+ * 这些容差与优化阶段的软约束（各类权重、goal_*_tolerance 容差盒）是**两件事**：
+ * 软约束塑造代价函数、决定解往哪里收敛；这里的容差只决定「数值收敛后的解在
+ * 工程上是否可交付」。软约束本质上是带噪声的非线性最小二乘，终点姿态总会有
+ * ~1e-4 ~ 1e-3 rad / 米的残差，因此严格的 0 容差不可达；用这张表给出可接受的
+ * 工程余量即可。所有字段都可由调用方按场景覆盖。
+ */
+struct ValidationTolerances
+{
+  /// 起点位置最大可接受偏差，单位米。
+  double start_position_m{0.01};
+  /// 终点位置最大可接受偏差，单位米；与 goal_longitudinal/lateral_tolerance 取较大值。
+  double goal_position_m{0.01};
+  /// cusp 保持段允许的最大位移（理论上原地换向，位置应不变），单位米。
+  double cusp_position_m{0.01};
+  /// 非 cusp 段的最小位移，低于此值判定为被求解器压扁（CollapsedSegment），单位米。
+  double min_segment_displacement_m{1e-3};
+  /// 起点朝向最大可接受偏差，单位弧度（默认约 1°）。
+  double start_orientation_rad{0.017};
+  /// 终点朝向最大可接受偏差，单位弧度（默认 0.5°）；与 goal_orientation_tolerance 取较大值。
+  double goal_orientation_rad{0.008726646259971648};
+  /// cusp 保持段允许的最大朝向变化，单位弧度（默认约 1°）。
+  double cusp_orientation_rad{0.017};
+  /// 曲率上限校验的数值容差（吸收求解末次迭代舍入噪声），单位 1/m。
+  double curvature_tolerance{1e-4};
+};
+
+/**
  * @struct kinematic_smoother::SmootherParams
  * @brief 独立平滑器的运行时配置。
  *
@@ -124,6 +154,12 @@ struct SmootherParams
   bool keep_goal_orientation{true};
   /// 通过锚定第二个点来固定起点切向方向。
   bool keep_start_orientation{true};
+
+  // --- Post-validation acceptance tolerances ---
+
+  /// 求解后硬验收所用的容差表（见 ValidationTolerances）。
+  /// 默认接受起终点 1cm 位置偏差、0.5° 终点朝向偏差。
+  ValidationTolerances validation{};
 };
 
 /**

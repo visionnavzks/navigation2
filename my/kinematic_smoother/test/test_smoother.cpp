@@ -1417,7 +1417,10 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceRejectsOutsideGoalBand
   EXPECT_NEAR(failure.goal_lateral_tolerance, 0.1, 1e-9);
 }
 
-TEST(KinematicSmootherTest, MotionDirectionViolationStoresFailureInfoWithoutThrowing)
+// 注意：本用例 keep_goal_orientation=true 且 end_dir 与路径朝向相反，终点朝向校验
+// 会先于运动方向校验失败，因此实际触发的是 GoalOrientationConstraint。
+// MotionDirectionConstraint 目前仍缺少专门覆盖。
+TEST(KinematicSmootherTest, GoalOrientationViolationStoresFailureInfoWithoutThrowing)
 {
   kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
 

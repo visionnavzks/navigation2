@@ -686,9 +686,11 @@ def _build_goal_orientation_diagnostics(path, goal_yaw_rad, tolerance_rad):
 
 
 def _world_to_costmap_cell(world_x, world_y):
+    # 用 floor（向下取整）而非 int（向零取整）保持与 C++ 端（std::floor）以及本文件
+    # 其它换算（math.floor）一致；否则负的相对坐标会落到错误的栅格。
     return (
-        int((world_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION),
-        int((world_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION),
+        int(math.floor((world_x - DEFAULT_ORIGIN_X) / DEFAULT_RESOLUTION)),
+        int(math.floor((world_y - DEFAULT_ORIGIN_Y) / DEFAULT_RESOLUTION)),
     )
 
 

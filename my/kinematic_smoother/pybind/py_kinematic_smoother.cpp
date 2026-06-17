@@ -596,6 +596,35 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
     &kinematic_smoother::Costmap2D::INSCRIBED_INFLATED_OBSTACLE)
     .def_readonly_static("FREE_SPACE", &kinematic_smoother::Costmap2D::FREE_SPACE);
 
+  // --- ValidationTolerances ---
+  // 求解后硬验收的容差表；默认接受起终点 1cm 位置偏差、0.5° 终点朝向偏差。
+  py::class_<kinematic_smoother::ValidationTolerances>(m, "ValidationTolerances")
+    .def(py::init<>())
+    .def_readwrite(
+    "start_position_m",
+    &kinematic_smoother::ValidationTolerances::start_position_m)
+    .def_readwrite(
+    "goal_position_m",
+    &kinematic_smoother::ValidationTolerances::goal_position_m)
+    .def_readwrite(
+    "cusp_position_m",
+    &kinematic_smoother::ValidationTolerances::cusp_position_m)
+    .def_readwrite(
+    "min_segment_displacement_m",
+    &kinematic_smoother::ValidationTolerances::min_segment_displacement_m)
+    .def_readwrite(
+    "start_orientation_rad",
+    &kinematic_smoother::ValidationTolerances::start_orientation_rad)
+    .def_readwrite(
+    "goal_orientation_rad",
+    &kinematic_smoother::ValidationTolerances::goal_orientation_rad)
+    .def_readwrite(
+    "cusp_orientation_rad",
+    &kinematic_smoother::ValidationTolerances::cusp_orientation_rad)
+    .def_readwrite(
+    "curvature_tolerance",
+    &kinematic_smoother::ValidationTolerances::curvature_tolerance);
+
   // --- SmootherParams ---
   py::class_<kinematic_smoother::SmootherParams>(m, "SmootherParams")
     .def(py::init<>())
@@ -664,7 +693,8 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
     &kinematic_smoother::SmootherParams::keep_start_orientation)
     .def_readwrite(
     "cost_check_points",
-    &kinematic_smoother::SmootherParams::cost_check_points);
+    &kinematic_smoother::SmootherParams::cost_check_points)
+    .def_readwrite("validation", &kinematic_smoother::SmootherParams::validation);
 
   // --- OptimizerParams ---
   py::class_<kinematic_smoother::OptimizerParams>(m, "OptimizerParams")
@@ -759,8 +789,11 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
           nullptr);
       },
       py::return_value_policy::take_ownership,
+      // costmap 必须在必填的 params 之前给出实参；保留默认值会让 params 沦为
+      // “可选实参后的必填实参”，positional 调用 smooth(path, sd, ed, params) 会把
+      // params 误绑到 costmap 槽位。不需要 costmap 时显式传 None。
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-      py::arg("costmap") = py::none(), py::arg("params"),
+      py::arg("costmap"), py::arg("params"),
       // 异常式接口：失败时抛 Python 异常，成功时返回显式结果对象。
       "Smooth a path using the kinematic backend. Input path z must encode direction sign (+1/-1); the returned result carries both candidate/final paths and optimization diagnostics.")
     .def(
@@ -781,8 +814,11 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
           params,
           nullptr);
       },
+      // costmap 必须在必填的 params 之前给出实参；保留默认值会让 params 沦为
+      // “可选实参后的必填实参”，positional 调用 smooth(path, sd, ed, params) 会把
+      // params 误绑到 costmap 槽位。不需要 costmap 时显式传 None。
       py::arg("path"), py::arg("start_dir"), py::arg("end_dir"),
-      py::arg("costmap") = py::none(), py::arg("params"),
+      py::arg("costmap"), py::arg("params"),
       // 结构化接口：把运动学后端失败统一折叠成 ok/error_* 字段。
       "Try to smooth a path with the kinematic backend and return a structured result.")
     .def(

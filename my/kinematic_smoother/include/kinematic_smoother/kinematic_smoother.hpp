@@ -220,6 +220,13 @@ private:
                   ": SmootherParams." + field_name + " must be finite");
         }
       };
+    auto require_positive = [&](double value, const char * field_name) {
+        if (!std::isfinite(value) || value <= 0.0) {
+          throw std::invalid_argument(
+                  std::string(smoother_name) +
+                  ": SmootherParams." + field_name + " must be finite and positive");
+        }
+      };
 
     require_finite(params.model_weight, "model_weight");
     require_finite(params.obstacle_weight, "obstacle_weight");
@@ -231,8 +238,11 @@ private:
     require_finite(params.kinematic_max_spacing, "kinematic_max_spacing");
     require_finite(params.path_length_weight, "path_length_weight");
     require_finite(params.fix_weight, "fix_weight");
-    require_finite(params.max_curvature, "max_curvature");
-    require_finite(params.max_time, "max_time");
+    // max_curvature<=0 会被 functor/边界/校验统一夹到 1e-6，把路径钉成近似直线，
+    // 表现为一个含糊的曲率/求解失败；max_time<=0 会让 Ceres 立刻超时返回未优化的
+    // 初值。两者都应在入口处直接拒绝，而不是放行后产生误导性结果。
+    require_positive(params.max_curvature, "max_curvature");
+    require_positive(params.max_time, "max_time");
     require_finite(params.obstacle_safe_distance, "obstacle_safe_distance");
     require_finite(params.cost_check_radius, "cost_check_radius");
     require_finite(params.path_target_spacing, "path_target_spacing");
@@ -240,6 +250,18 @@ private:
     require_finite(params.goal_longitudinal_tolerance, "goal_longitudinal_tolerance");
     require_finite(params.goal_lateral_tolerance, "goal_lateral_tolerance");
     require_finite(params.goal_orientation_tolerance, "goal_orientation_tolerance");
+
+    // 后验验收容差表（ValidationTolerances）：非有限值会让 ">" 比较恒为 false，
+    // 把校验静默旁路，因此同样要求有限。
+    require_finite(params.validation.start_position_m, "validation.start_position_m");
+    require_finite(params.validation.goal_position_m, "validation.goal_position_m");
+    require_finite(params.validation.cusp_position_m, "validation.cusp_position_m");
+    require_finite(
+      params.validation.min_segment_displacement_m, "validation.min_segment_displacement_m");
+    require_finite(params.validation.start_orientation_rad, "validation.start_orientation_rad");
+    require_finite(params.validation.goal_orientation_rad, "validation.goal_orientation_rad");
+    require_finite(params.validation.cusp_orientation_rad, "validation.cusp_orientation_rad");
+    require_finite(params.validation.curvature_tolerance, "validation.curvature_tolerance");
 
     if (!params.cost_check_points.empty() && params.cost_check_points.size() % 3 != 0) {
       throw std::invalid_argument(

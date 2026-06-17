@@ -132,16 +132,6 @@ private:
     return normalizeAngle(a - b);
   }
 
-  static double positionTolerance(const Costmap2D * costmap)
-  {
-    return costmap != nullptr ? std::max(costmap->getResolution() * 0.5, 1e-3) : 1e-3;
-  }
-
-  static double orientationTolerance()
-  {
-    return 0.1;
-  }
-
   static double radiansToDegrees(double radians)
   {
     return radians * 180.0 / PI;
@@ -194,11 +184,6 @@ private:
            << " (tol " << goal_lon_tol << " m), lat error " << goal_lat << " m"
            << " (tol " << goal_lat_tol << " m)";
     return stream.str();
-  }
-
-  static double displacementTolerance(const Costmap2D * costmap)
-  {
-    return costmap != nullptr ? std::max(costmap->getResolution() * 0.25, 1e-4) : 1e-4;
   }
 
   static std::pair<int, int> worldToGrid(const Costmap2D * costmap, double wx, double wy)
@@ -304,15 +289,14 @@ private:
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
   {
-    const double position_tol = positionTolerance(request.costmap);
-    const double angle_tol = orientationTolerance();
+    const ValidationTolerances & tol = request.params.validation;
 
     const double * start_state = KinematicStateLayout::data(request.variables, 0);
     const double start_dx =
       start_state[KinematicStateLayout::X] - request.reference_points.front().x();
     const double start_dy =
       start_state[KinematicStateLayout::Y] - request.reference_points.front().y();
-    if (std::hypot(start_dx, start_dy) > position_tol) {
+    if (std::hypot(start_dx, start_dy) > tol.start_position_m) {
       return throwOrStoreSmoothingFailure(
         failure,
         SmoothingFailureReason::StartPositionConstraint,
@@ -321,7 +305,7 @@ private:
     }
     if (request.params.keep_start_orientation &&
       std::abs(angleDifference(start_state[KinematicStateLayout::Theta], request.start_theta)) >
-      angle_tol)
+      tol.start_orientation_rad)
     {
       return throwOrStoreSmoothingFailure(
         failure,
@@ -344,11 +328,10 @@ private:
     const double sin_goal = std::sin(goal_position_theta);
     const double goal_lon = cos_goal * goal_dx + sin_goal * goal_dy;
     const double goal_lat = -sin_goal * goal_dx + cos_goal * goal_dy;
-    const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, position_tol);
-    const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, position_tol);
-    constexpr double convergence_epsilon = 5e-4;
-    if (std::abs(goal_lon) > goal_lon_tol + convergence_epsilon ||
-        std::abs(goal_lat) > goal_lat_tol + convergence_epsilon) {
+    const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, tol.goal_position_m);
+    const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, tol.goal_position_m);
+    if (std::abs(goal_lon) > goal_lon_tol ||
+        std::abs(goal_lat) > goal_lat_tol) {
       const bool uses_goal_box =
         request.params.goal_longitudinal_tolerance > KinematicStateLayout::EnabledEpsilon ||
         request.params.goal_lateral_tolerance > KinematicStateLayout::EnabledEpsilon;
@@ -376,9 +359,10 @@ private:
         message,
         static_cast<int>(request.state_count - 1));
     }
-    constexpr double orientation_convergence_epsilon = 1e-4;
+    // 终点朝向验收容差：取「优化阶段声明的容差」与「验收表 floor（默认 0.5°）」的较大者。
+    // 软 hinge 约束的终点姿态总有 ~1e-4 rad 量级残差，floor 用来吸收这类正常噪声。
     const double goal_angle_tol =
-      std::max(request.params.goal_orientation_tolerance, 0.0) + orientation_convergence_epsilon;
+      std::max(request.params.goal_orientation_tolerance, tol.goal_orientation_rad);
     if (request.params.keep_goal_orientation &&
       std::abs(angleDifference(goal_state[KinematicStateLayout::Theta], request.end_theta)) >
       goal_angle_tol)
@@ -421,9 +405,7 @@ private:
     const KinematicRequest & request,
     SmoothingFailureInfo * failure) const
   {
-    const double position_tol = positionTolerance(request.costmap);
-    const double displacement_tol = displacementTolerance(request.costmap);
-    const double angle_tol = orientationTolerance();
+    const ValidationTolerances & tol = request.params.validation;
 
     for (size_t index = 0; index + 1 < request.state_count; ++index) {
       const double * current = KinematicStateLayout::data(request.variables, index);
@@ -434,10 +416,10 @@ private:
 
       if (request.is_cusp_segment[index]) {
         if (
-          displacement > position_tol ||
+          displacement > tol.cusp_position_m ||
           std::abs(angleDifference(
             next[KinematicStateLayout::Theta],
-            current[KinematicStateLayout::Theta])) > angle_tol)
+            current[KinematicStateLayout::Theta])) > tol.cusp_orientation_rad)
         {
           return throwOrStoreSmoothingFailure(
             failure,
@@ -448,7 +430,7 @@ private:
         continue;
       }
 
-      if (displacement <= displacement_tol) {
+      if (displacement <= tol.min_segment_displacement_m) {
         return throwOrStoreSmoothingFailure(
           failure,
           SmoothingFailureReason::CollapsedSegment,
@@ -499,7 +481,7 @@ private:
   {
     const double max_curvature =
       std::max(request.params.max_curvature, KinematicStateLayout::GeometryEpsilon);
-    constexpr double curvature_tolerance = 1e-4;
+    const double curvature_tolerance = request.params.validation.curvature_tolerance;
 
     auto report_curvature_violation =
       [&](size_t index, double actual_curvature) {
@@ -537,7 +519,7 @@ private:
     }
 
     // 2) 再检查由相邻姿态形成的几何曲率，覆盖“kappa 合法但输出轨迹几何超限”的情形。
-    const double displacement_tol = displacementTolerance(request.costmap);
+    const double displacement_tol = request.params.validation.min_segment_displacement_m;
     for (size_t index = 0; index + 1 < request.state_count; ++index) {
       if (request.is_cusp_segment[index]) {
         continue;
