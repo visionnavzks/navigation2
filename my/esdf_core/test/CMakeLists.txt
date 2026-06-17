@@ -1,4 +1,5 @@
 add_executable(test_esdf test_esdf.cpp)
+target_compile_options(test_esdf PRIVATE -Wall -Wextra)
 target_link_libraries(test_esdf PRIVATE
   esdf_core
   GTest::gtest

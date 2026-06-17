@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <queue>
 #include <thread>
@@ -44,6 +45,9 @@ enum class ESDFAlgorithm
  * where each entry is the signed distance to the nearest obstacle boundary, in meters:
  *   - positive values: outside obstacles, distance to the nearest obstacle cell
  *   - negative values: inside obstacles, distance to the nearest free cell
+ *
+ * Magnitudes are clamped to the grid diagonal: a map with no obstacle (or no
+ * free) cell at all reports that maximum instead of an unbounded sentinel.
  *
  * Two algorithms are provided:
  *   - Exact: uses Felipe Barriga's 2D L2 distance transform (multi-threaded)
@@ -159,10 +163,16 @@ private:
 
     std::vector<double> esdf(size_x * size_y);
     const double resolution = costmap->getResolution();
+    const double max_distance = MaxRepresentableDistance(costmap);
 
     for (size_t my = 0; my < size_y; ++my) {
       for (size_t mx = 0; mx < size_x; ++mx) {
-        esdf[toIndex(mx, my, size_x)] = f[my][mx] * resolution;
+        // Cells with no reachable seed come back as ~sqrt(FLT_MAX) from the
+        // distance transform; clamp to the grid diagonal so callers never see a
+        // meaningless ~1e19 value. Real distances are always <= the diagonal, so
+        // this never affects a cell that has a reachable seed.
+        esdf[toIndex(mx, my, size_x)] =
+          std::min(static_cast<double>(f[my][mx]) * resolution, max_distance);
       }
     }
 
@@ -223,6 +233,14 @@ private:
       }
     }
 
+    // Cells unreachable from any seed (only when the map has no seed of this
+    // type) stay at infinity; clamp to the grid diagonal to match the exact path
+    // and keep the field finite.
+    const double max_distance = MaxRepresentableDistance(costmap);
+    for (double & value : esdf) {
+      value = std::min(value, max_distance);
+    }
+
     return esdf;
   }
 
@@ -242,6 +260,15 @@ private:
   static size_t toIndex(size_t mx, size_t my, size_t size_x)
   {
     return my * size_x + mx;
+  }
+
+  // Upper bound on any real distance in the map: the grid diagonal, in meters.
+  // Used to clamp the "no reachable seed" sentinel to a finite, meaningful value.
+  static double MaxRepresentableDistance(const Costmap2D * costmap)
+  {
+    const double size_x = static_cast<double>(costmap->getSizeInCellsX());
+    const double size_y = static_cast<double>(costmap->getSizeInCellsY());
+    return std::hypot(size_x, size_y) * costmap->getResolution();
   }
 };
 

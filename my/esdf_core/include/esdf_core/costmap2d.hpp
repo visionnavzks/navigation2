@@ -15,8 +15,8 @@
 #ifndef ESDF_CORE__COSTMAP2D_HPP_
 #define ESDF_CORE__COSTMAP2D_HPP_
 
-#include <cstring>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace esdf_core
@@ -34,7 +34,8 @@ class Costmap2D
 {
 public:
   Costmap2D()
-  : size_x_(0), size_y_(0), resolution_(1.0), origin_x_(0.0), origin_y_(0.0), data_(nullptr)
+  : size_x_(0), size_y_(0), resolution_(1.0), origin_x_(0.0), origin_y_(0.0),
+    data_(nullptr), owns_data_(true)
   {
   }
 
@@ -45,10 +46,10 @@ public:
     unsigned int size_x, unsigned int size_y, double resolution,
     double origin_x, double origin_y)
   : size_x_(size_x), size_y_(size_y), resolution_(resolution),
-    origin_x_(origin_x), origin_y_(origin_y)
+    origin_x_(origin_x), origin_y_(origin_y), data_(nullptr), owns_data_(true)
   {
-    data_storage_.resize(size_x_ * size_y_, 0);
-    data_ = data_storage_.data();
+    data_storage_.resize(static_cast<size_t>(size_x_) * size_y_, 0);
+    data_ = data_storage_.empty() ? nullptr : data_storage_.data();
   }
 
   /**
@@ -59,7 +60,7 @@ public:
     double origin_x, double origin_y,
     unsigned char * data)
   : size_x_(size_x), size_y_(size_y), resolution_(resolution),
-    origin_x_(origin_x), origin_y_(origin_y), data_(data)
+    origin_x_(origin_x), origin_y_(origin_y), data_(data), owns_data_(false)
   {
   }
 
@@ -67,13 +68,9 @@ public:
   : size_x_(other.size_x_), size_y_(other.size_y_),
     resolution_(other.resolution_),
     origin_x_(other.origin_x_), origin_y_(other.origin_y_),
-    data_storage_(other.data_storage_), data_(nullptr)
+    data_storage_(other.data_storage_), data_(nullptr), owns_data_(other.owns_data_)
   {
-    if (other.data_ != nullptr) {
-      // Owning costmap: point at our own copy of the storage.
-      // Non-owning costmap (external buffer): keep sharing the external buffer.
-      data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
-    }
+    rebindDataPointer(other.data_);
   }
 
   Costmap2D & operator=(const Costmap2D & other)
@@ -85,10 +82,8 @@ public:
       origin_x_ = other.origin_x_;
       origin_y_ = other.origin_y_;
       data_storage_ = other.data_storage_;
-      data_ = nullptr;
-      if (other.data_ != nullptr) {
-        data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
-      }
+      owns_data_ = other.owns_data_;
+      rebindDataPointer(other.data_);
     }
     return *this;
   }
@@ -97,14 +92,16 @@ public:
   : size_x_(other.size_x_), size_y_(other.size_y_),
     resolution_(other.resolution_),
     origin_x_(other.origin_x_), origin_y_(other.origin_y_),
-    data_storage_(std::move(other.data_storage_))
+    data_storage_(std::move(other.data_storage_)),
+    data_(nullptr), owns_data_(other.owns_data_)
   {
     // Owning: vector move preserves the buffer address. Non-owning: take over
     // the external pointer instead of dropping it.
-    data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
+    rebindDataPointer(other.data_);
     other.size_x_ = 0;
     other.size_y_ = 0;
     other.data_ = nullptr;
+    other.owns_data_ = false;
   }
 
   Costmap2D & operator=(Costmap2D && other) noexcept
@@ -116,10 +113,12 @@ public:
       origin_x_ = other.origin_x_;
       origin_y_ = other.origin_y_;
       data_storage_ = std::move(other.data_storage_);
-      data_ = !data_storage_.empty() ? data_storage_.data() : other.data_;
+      owns_data_ = other.owns_data_;
+      rebindDataPointer(other.data_);
       other.size_x_ = 0;
       other.size_y_ = 0;
       other.data_ = nullptr;
+      other.owns_data_ = false;
     }
     return *this;
   }
@@ -129,7 +128,8 @@ public:
   double getResolution() const {return resolution_;}
   double getOriginX() const {return origin_x_;}
   double getOriginY() const {return origin_y_;}
-  unsigned char * getCharMap() const {return data_;}
+  const unsigned char * getCharMap() const {return data_;}
+  unsigned char * getCharMap() {return data_;}
 
   unsigned char getCost(unsigned int mx, unsigned int my) const
   {
@@ -153,13 +153,26 @@ public:
   static constexpr unsigned char FREE_SPACE = 0;
 
 private:
+  // Resolve data_ after data_storage_ has been copied/moved from another map:
+  // an owning map points into its own storage (null when empty); a non-owning
+  // map keeps sharing the external buffer.
+  void rebindDataPointer(unsigned char * external)
+  {
+    if (owns_data_) {
+      data_ = data_storage_.empty() ? nullptr : data_storage_.data();
+    } else {
+      data_ = external;
+    }
+  }
+
   unsigned int size_x_;
   unsigned int size_y_;
   double resolution_;
   double origin_x_;
   double origin_y_;
-  std::vector<unsigned char> data_storage_;  // owned storage (when applicable)
+  std::vector<unsigned char> data_storage_;  // owned storage (when owns_data_)
   unsigned char * data_;
+  bool owns_data_;  // true: data_ points into data_storage_; false: external buffer
 };
 
 }  // namespace esdf_core
