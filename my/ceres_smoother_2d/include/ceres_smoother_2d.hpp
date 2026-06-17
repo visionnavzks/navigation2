@@ -26,88 +26,10 @@
 #include "ceres/ceres.h"
 
 #include "esdf_map.hpp"
+#include "smoother_params.hpp"
 
 namespace ceres_smoother_2d
 {
-
-// ========================================================================
-// Smoother Parameters
-// ========================================================================
-struct SmootherParams
-{
-  int max_iterations{100};
-  double max_time_seconds{0.5};
-  bool verbose{false};
-
-  // Smoothness: penalizes second-order difference
-  double w_smooth{10.0};
-
-  // Max-curvature: soft constraint on maximum curvature
-  double w_max_curvature{1000.0};
-  double min_turning_radius{0.2};  // meters
-
-  // Reference tracking: penalty for deviating from the A* reference path.
-  // Prevents the optimizer from pulling the path too far from the original
-  // route when obstacle/length weights are strong. A nonzero default keeps
-  // the path anchored near the planner's intent.
-  double w_reference{5.0};
-
-  // Elastic-band length: weight on minimizing Σ‖p_next - p_curr‖² (sum of
-  // squared inter-point distances). Combined with smoothness + obstacle +
-  // reference, this acts as a uniform-spacing force without the nonlinearity
-  // or rest-length conflicts of a target_spacing spring.
-  // Lowered from 10.0 to avoid over-shrinking the path and overpowering
-  // obstacle avoidance — reference + smoothness now carry the shape.
-  double w_length{2.0};
-  // Desired inter-point spacing in meters — used ONLY by the resample
-  // stages (resample_before_smooth / resample_after_smooth), not by the
-  // optimization loop. Default 0.3 m gives ~34 points on a 10 m path.
-  double target_spacing{0.3};
-
-  // Obstacle (ESDF): two separate terms so the optimizer can trade off
-  // "stay out of the safety zone" (soft hinge) vs. "absolutely don't be
-  // inside a wall" (deeper penalty that grows monotonically as the point
-  // penetrates further). The first term alone (a symmetric hinge around
-  // the safety boundary) has a flat plateau on the obstacle side: if the
-  // optimizer ends up at any point with dist < 0, the gradient magnitude
-  // is constant and the smoother may stall in a wall. w_penetration fixes
-  // that by adding a quadratic in -dist that grows the deeper you go.
-  double w_obstacle{10.0};
-  // Weight on the inside-obstacle penalty. The hinge term alone (w_obstacle)
-  // has a flat plateau inside the obstacle where the gradient is constant but
-  // small; a point stuck deep inside may never escape. The penetration term
-  // adds a cost that grows with depth (-dist), pulling the optimizer out.
-  // Nonzero by default so this defense is always active.
-  double w_penetration{1000.0};
-  double safety_margin{1.0};       // meters, desired minimum clearance (from robot edge)
-  double robot_radius{0.5};        // meters, robot inscribed radius; effective clearance
-                                  // threshold = safety_margin + robot_radius
-
-  // Post-processing: resample the smoothed path along its arc length so
-  // adjacent output points are ~target_spacing meters apart. OFF by default:
-  // the returned path then matches the exact discrete points optimized by
-  // Ceres, which keeps solver cost diagnostics easier to interpret.
-  bool resample_after_smooth{false};
-
-  // Pre-processing: resample the *input* reference path to uniform spacing
-  // before optimization. ON by default: when the upstream path (e.g. A*)
-  // has uneven point density — dense clusters near walls and sparse points
-  // in open space — the optimizer's parameter blocks would otherwise
-  // inherit that unevenness and w_length can only push existing points
-  // apart, never insert new ones.
-  bool resample_before_smooth{true};
-
-  double maxCurvature() const
-  {
-    return min_turning_radius > 0 ? 1.0 / min_turning_radius : std::numeric_limits<double>::infinity();
-  }
-
-  double obstacleCostDistance() const
-  {
-    return safety_margin + robot_radius;
-  }
-
-};
 
 // NOTE on constructor conventions:
 // All cost structs accept a pre-computed sqrt_w in their constructor
@@ -379,13 +301,13 @@ inline void resamplePathByArcLength(
   xs_out[M - 1] = xs_in.back();
   ys_out[M - 1] = ys_in.back();
 
-  // For each intermediate output, walk cum[] to find the enclosing segment
-  // and linearly interpolate by the local arc-length fraction.
+  // For each intermediate output, walk cum[] once to find the enclosing
+  // segment. Output arc lengths are monotonic, so the segment index only
+  // moves forward: O(N + M) instead of restarting the search for every point.
+  int i = 1;
   for (int j = 1; j < M - 1; ++j) {
     const double s = static_cast<double>(j) * total / static_cast<double>(M - 1);
-    int i = 1;
-    while (i < N && cum[i] < s) {++i;}
-    if (i >= N) {i = N - 1;}
+    while (i < N - 1 && cum[i] < s) {++i;}
     const double seg_len = cum[i] - cum[i - 1];
     const double t = (seg_len > 1e-12) ? (s - cum[i - 1]) / seg_len : 0.0;
     xs_out[j] = xs_in[i - 1] + t * (xs_in[i] - xs_in[i - 1]);
@@ -447,10 +369,12 @@ public:
       path_optim[i] = {xs[i], ys[i]};
     }
 
-    const double sqrt_w_ref = std::sqrt(params_.w_reference);
-    const double sqrt_w_smooth = std::sqrt(params_.w_smooth);
-    const double sqrt_w_curv = std::sqrt(params_.w_max_curvature);
-    const double sqrt_w_length = std::sqrt(params_.w_length);
+    auto sqrt_weight = [](double w) {return std::sqrt(std::max(0.0, w));};
+
+    const double sqrt_w_ref = sqrt_weight(params_.w_reference);
+    const double sqrt_w_smooth = sqrt_weight(params_.w_smooth);
+    const double sqrt_w_curv = sqrt_weight(params_.w_max_curvature);
+    const double sqrt_w_length = sqrt_weight(params_.w_length);
     const double max_kappa = params_.maxCurvature();
 
     std::vector<double> obstacle_weight_stages;
@@ -482,7 +406,7 @@ public:
         problem.SetParameterBlockConstant(path_optim[0].data());
         problem.SetParameterBlockConstant(path_optim[N - 1].data());
 
-        const double sqrt_w_obs = std::sqrt(obstacle_weight);
+        const double sqrt_w_obs = sqrt_weight(obstacle_weight);
         // Penetration cost uses its own (decoupled) sqrt weight so the user
         // can tune "soft obstacle" vs. "hard wall" independently. We do
         // NOT scale it across obstacle_weight_stages — the goal of the
@@ -490,7 +414,7 @@ public:
         // (with a low w_obstacle), then progressively tighten. The
         // penetration term should always be on at full strength: even at
         // stage 0, we don't want the optimizer sitting inside a wall.
-        const double sqrt_w_pen = std::sqrt(params_.w_penetration);
+        const double sqrt_w_pen = sqrt_weight(params_.w_penetration);
         // Obstacle cost uses the ESDFMap's Jet-aware bilinear lookup directly
         // (see ObstacleCostCeres comment for why bilinear instead of BiCubic).
         for (int i = 0; i < N; ++i) {

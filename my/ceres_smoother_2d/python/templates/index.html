@@ -105,7 +105,7 @@ details.category .field:last-child{margin-bottom:6px}
         <input id="show-esdf" type="checkbox"><label for="show-esdf">显示 ESDF 热力图</label>
       </div>
       <div class="field">
-        <label>ESDF color schema</label>
+        <label>ESDF 配色</label>
         <select id="esdf-scheme"></select>
       </div>
       <div class="field-row">
@@ -188,7 +188,7 @@ details.category .field:last-child{margin-bottom:6px}
           <span class="legend-item"><i class="leg-swatch" style="background:#fff;border:1px solid #ccc"></i>自由空间</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#000"></i>障碍物</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#808080"></i>Unknown</span>
-          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch" style="background:linear-gradient(to right,#7f1d1d,#ef4444,#fef08a,#86efac,#166534)"></i><span id="lg-esdf-label">ESDF</span></span>
+          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch" style="background:linear-gradient(to right,#4c0519,#b91c1c,#f97316,#fde68a,#67e8f9,#1d4ed8)"></i><span id="lg-esdf-label">ESDF</span></span>
         </div>
       </div>
       <div class="legend-section">
@@ -398,7 +398,7 @@ function getEsdfScheme(){
   const schemes=costmapMeta?.esdf_schemes||[];
   const selected=document.getElementById('esdf-scheme')?.value;
   return schemes.find(s=>s.key===selected)||schemes[0]||{
-    key:'default',label:'ESDF',swatch:'linear-gradient(to right,#7f1d1d,#fef08a,#166534)',
+    key:'default',label:'ESDF',swatch:'linear-gradient(to right,#4c0519,#b91c1c,#f97316,#fde68a,#67e8f9,#1d4ed8)',
     png:costmapMeta?.esdf_png||''
   };
 }
