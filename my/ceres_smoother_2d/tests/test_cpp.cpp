@@ -306,7 +306,7 @@ static void test_smoother_params_custom()
   p.min_turning_radius = 2.0;
   p.safety_margin = 0.25;
   EXPECT_NEAR(p.maxCurvature(), 0.5, 1e-9, "custom radius curvature");
-  EXPECT_NEAR(p.obstacleCostDistance(), 0.25, 1e-9, "obstacle cost distance = safety_margin + robot_radius");
+  EXPECT_NEAR(p.obstacleCostDistance(), 0.75, 1e-9, "obstacle cost distance = safety_margin + robot_radius");
 }
 
 // ========================================================================

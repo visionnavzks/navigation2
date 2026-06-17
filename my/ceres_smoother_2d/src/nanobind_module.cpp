@@ -102,18 +102,17 @@ NB_MODULE(ceres_smoother_2d, m)
       "ESDF obstacle avoidance weight (soft hinge outside obstacles).")
     .def_rw("w_penetration", &SmootherParams::w_penetration,
       "ESDF penetration weight: penalizes points that are *inside* an "
-      "obstacle (dist < 0). Default 0 (disabled) reproduces the old "
-      "single-hinge behavior. Set > 0 to make wall-interior states "
-      "strictly suboptimal and prevent the optimizer from stalling "
-      "inside a wall.")
+      "obstacle (dist < 0). Nonzero by default to make wall-interior "
+      "states strictly suboptimal and prevent the optimizer from stalling "
+      "inside a wall. Set to 0 to reproduce the old single-hinge behavior.")
     .def_rw("safety_margin", &SmootherParams::safety_margin,
       "Minimum clearance from robot edge to obstacles in meters.")
     .def_rw("robot_radius", &SmootherParams::robot_radius,
       "Robot inscribed radius in meters. Effective clearance threshold = "
       "safety_margin + robot_radius.")
     .def_rw("target_spacing", &SmootherParams::target_spacing,
-      "Desired inter-point spacing in meters (used by w_length and the "
-      "optional post-processing resample).")
+      "Desired inter-point spacing in meters, used by the optional input "
+      "and output resampling stages.")
     .def_rw("resample_after_smooth", &SmootherParams::resample_after_smooth,
       "If true, uniformly resample the smoothed path along arc length "
       "so adjacent output points are ~target_spacing meters apart.")

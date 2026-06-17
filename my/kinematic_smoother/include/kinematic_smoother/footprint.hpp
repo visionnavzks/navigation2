@@ -86,6 +86,13 @@ struct FootprintModel
 namespace footprint_detail
 {
 
+struct CapsuleSampling
+{
+  int interval_count{1};
+  int total{1};
+  double step{0.0};
+};
+
 /// Capsule 中心点沿车长方向的最大偏移（绝对值，米）。
 inline double resolveCapsuleCenterLimit(
   double half_length, double radius, CapsuleMode capsule_mode)
@@ -94,6 +101,28 @@ inline double resolveCapsuleCenterLimit(
     return std::max(half_length - radius, 0.0);
   }
   return half_length;
+}
+
+inline CapsuleSampling resolveCapsuleSampling(
+  double limit_x, double radius, double max_gap_depth, double min_resolution)
+{
+  if (limit_x <= 1e-6) {
+    return {};
+  }
+
+  const double clamped_depth = std::clamp(
+    max_gap_depth, min_resolution, std::max(radius * 0.5, min_resolution));
+  const double min_val = radius * radius -
+    std::pow(std::max(radius - clamped_depth, 0.0), 2);
+  double max_spacing = 2.0 * std::sqrt(std::max(min_val, 1e-9));
+  max_spacing = std::max(max_spacing, min_resolution * 0.5);
+
+  const int interval_count = std::max(
+    1, static_cast<int>(std::ceil((2.0 * limit_x) / max_spacing)));
+  return {
+    interval_count,
+    interval_count + 1,
+    (2.0 * limit_x) / static_cast<double>(interval_count)};
 }
 
 /// 计算 capsule 圆心序列——参考 Python 版 `_build_capsule_center_offsets`。
@@ -109,27 +138,13 @@ inline double resolveCapsuleCenterLimit(
 inline std::vector<double> buildCapsuleCenterOffsets(
   double limit_x, double radius, double max_gap_depth, double min_resolution)
 {
-  std::vector<double> offsets;
-  if (limit_x <= 1e-6) {
-    offsets.push_back(0.0);
-    return offsets;
-  }
+  const CapsuleSampling sampling = resolveCapsuleSampling(
+    limit_x, radius, max_gap_depth, min_resolution);
+  std::vector<double> offsets(static_cast<std::size_t>(sampling.total));
 
-  const double clamped_depth = std::clamp(
-    max_gap_depth, min_resolution, std::max(radius * 0.5, min_resolution));
-  const double min_val = radius * radius -
-    std::pow(std::max(radius - clamped_depth, 0.0), 2);
-  double max_spacing = 2.0 * std::sqrt(std::max(min_val, 1e-9));
-  max_spacing = std::max(max_spacing, min_resolution * 0.5);
-
-  const int interval_count = std::max(
-    1, static_cast<int>(std::ceil((2.0 * limit_x) / max_spacing)));
-  const int total = interval_count + 1;
-  offsets.reserve(static_cast<std::size_t>(total));
-
-  const double step = (2.0 * limit_x) / static_cast<double>(interval_count);
-  for (int index = 0; index < total; ++index) {
-    offsets.push_back(-limit_x + static_cast<double>(index) * step);
+  for (int index = 0; index < sampling.total; ++index) {
+    offsets[static_cast<std::size_t>(index)] =
+      sampling.total == 1 ? 0.0 : -limit_x + static_cast<double>(index) * sampling.step;
   }
   return offsets;
 }
@@ -204,15 +219,17 @@ inline FootprintModel buildFootprintModel(const FootprintSpec & spec)
     ? spec.sampling_tolerance_m
     : min_res;
 
-  const std::vector<double> offsets = footprint_detail::buildCapsuleCenterOffsets(
+  const footprint_detail::CapsuleSampling sampling = footprint_detail::resolveCapsuleSampling(
     center_limit, model.check_radius, requested_tolerance, min_res);
 
   // 归一化权重 1/sqrt(N)：Ceres 平方后总代价 ≈ pose_weight² · mean(hinge_i²)，
   // 与采样密度 N 解耦。
-  const double weight = 1.0 / std::sqrt(static_cast<double>(offsets.size()));
+  const double weight = 1.0 / std::sqrt(static_cast<double>(sampling.total));
 
-  model.check_points.reserve(offsets.size() * 3);
-  for (double offset_x : offsets) {
+  model.check_points.reserve(static_cast<std::size_t>(sampling.total) * 3u);
+  for (int index = 0; index < sampling.total; ++index) {
+    const double offset_x = sampling.total == 1 ?
+      0.0 : -center_limit + static_cast<double>(index) * sampling.step;
     model.check_points.push_back(offset_x);
     model.check_points.push_back(0.0);
     model.check_points.push_back(weight);

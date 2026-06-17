@@ -237,11 +237,11 @@ def compute_path_cost_breakdown(xs, ys, pm, map_obj):
         norm_v1 = math.sqrt(v1x * v1x + v1y * v1y + 1e-12)
         norm_v2 = math.sqrt(v2x * v2x + v2y * v2y + 1e-12)
         current_ds = 0.5 * (norm_v1 + norm_v2)
-        max_theta = min(math.pi, max_kappa * current_ds)
-        target_dot = norm_v1 * norm_v2 * math.cos(max_theta)
-        deficit = target_dot - dot
-        if deficit > 0.0:
-            terms["curvature"] += 0.5 * pm.w_max_curvature * deficit * deficit
+        theta = math.atan2(abs(v1x * v2y - v1y * v2x), dot)
+        theta_limit = max_kappa * current_ds
+        violation = theta - theta_limit
+        if violation > 0.0:
+            terms["curvature"] += 0.5 * pm.w_max_curvature * violation * violation
 
     terms["total"] = (
         terms["length"] + terms["smooth"] + terms["curvature"] +

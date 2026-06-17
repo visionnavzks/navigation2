@@ -799,8 +799,8 @@ class TestElasticBandLengthCost:
 
 # ---------------------------------------------------------------------------
 # Penetration cost (w_penetration): penalizes points that are *inside* an
-# obstacle. The default w_penetration=0 reproduces the old behavior; setting
-# it > 0 makes inside-obstacle states strictly suboptimal.
+# obstacle. It is nonzero by default so inside-obstacle states are strictly
+# suboptimal; setting it to 0 reproduces the old single-hinge behavior.
 # ---------------------------------------------------------------------------
 class TestPenetrationCost:
     def _make_walled_map(self, w=10, h=10, res=1.0, cells=()):
@@ -809,11 +809,11 @@ class TestPenetrationCost:
             occ[r, c] = 1
         return cs2d.ESDFMap(occ.flatten().tolist(), w, h, res, 0.0, 0.0)
 
-    def test_default_penetration_weight_is_zero(self):
-        # Backward compat: default w_penetration=0 disables the second
-        # residual. The smoother must produce identical output regardless.
+    def test_default_penetration_weight_is_enabled(self):
+        # Default w_penetration keeps the second residual active so points
+        # inside obstacles pay a cost that grows with penetration depth.
         p = cs2d.SmootherParams()
-        assert p.w_penetration == 0.0
+        assert p.w_penetration > 0.0
 
     def test_penetration_off_keeps_path_through_wall_saddle(self):
         # 2x2 wall at (4,4)-(5,5). Path's middle point at (4.5, 4.5) is
@@ -912,7 +912,7 @@ class TestSmootherResampleAfterSmooth:
         params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
-        # Explicit: both flags off (defaults are now both true).
+        # Explicit: both flags off (input resampling defaults on).
         params.resample_after_smooth = False
         params.resample_before_smooth = False
         sm = cs2d.PathSmoother2D(params)
@@ -962,7 +962,7 @@ class TestSmootherResampleAfterSmooth:
         params.w_max_curvature = 0.0
         params.w_reference = 0.0
         params.w_length = 0.0
-        # Explicit: both flags off (defaults are now both true).
+        # Explicit: both flags off (input resampling defaults on).
         params.resample_after_smooth = False
         params.resample_before_smooth = False
         sm = cs2d.PathSmoother2D(params)
