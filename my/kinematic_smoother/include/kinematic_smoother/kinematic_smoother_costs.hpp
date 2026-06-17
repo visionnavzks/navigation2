@@ -34,6 +34,54 @@ namespace kinematic_smoother
 namespace kinematic_smoother_detail
 {
 
+// ---- 共享数学辅助函数 ----
+// 这些封装通过 `using std::xxx;` 触发 ADL，使同一套实现既适用于普通 double，
+// 也适用于 Ceres 自动微分的 Jet 类型；集中放在此处避免各 functor 重复定义。
+
+/**
+ * @brief 将角度归一化到 (-pi, pi] 区间
+ *        使用 atan2(sin, cos) 实现，保证可微性（适用于自动微分）
+ */
+template<typename T>
+inline T normalizeAngle(T angle)
+{
+  using std::atan2;
+  using std::cos;
+  using std::sin;
+  return atan2(sin(angle), cos(angle));
+}
+
+/**
+ * @brief 计算两角度之差并归一化到 (-pi, pi]
+ * @return a - b 的归一化角度差
+ */
+template<typename T>
+inline T angleDiff(T a, T b)
+{
+  return normalizeAngle(a - b);
+}
+
+template<typename T>
+inline T sinValue(T value)
+{
+  using std::sin;
+  return sin(value);
+}
+
+template<typename T>
+inline T cosValue(T value)
+{
+  using std::cos;
+  return cos(value);
+}
+
+template<typename T>
+inline T sqrtValue(T value)
+{
+  using std::sqrt;
+  return sqrt(value);
+}
+
 /**
  * @brief 相邻路径点之间的运动学过渡代价函数
  *
@@ -73,11 +121,11 @@ public:
    * @param spacing_weight       步长误差惩罚权重
    * @param length_weight        总长度惩罚权重（直接压缩 ds）
    * @param fix_weight           尖点段强固定约束权重
- * @param max_curvature        允许的最大曲率（1/m），用于归一化残差[3]
- * @note 所有权重均为「代价权重的平方根」形式：Ceres 对残差 r 平方后
- *       实际代价为 weight²·r²。调用方应在传入前对用户参数做 sqrt()。
- *       fix_weight 是例外——它直接作为残差系数，不做开方。
- * @param target_spacing       期望的相邻点弧长步长（米）
+   * @param max_curvature        允许的最大曲率（1/m），用于归一化残差[3]
+   * @param target_spacing       期望的相邻点弧长步长（米）
+   * @note 所有权重均为「代价权重的平方根」形式：Ceres 对残差 r 平方后
+   *       实际代价为 weight²·r²。调用方应在传入前对用户参数做 sqrt()。
+   *       fix_weight 是例外——它直接作为残差系数，不做开方。
    */
   TransitionCostFunctor(
     double gear,
@@ -215,51 +263,6 @@ public:
   }
 
 private:
-  /**
-   * @brief 将角度归一化到 (-pi, pi] 区间
-   *        使用 atan2(sin, cos) 实现，保证可微性（适用于自动微分）
-   */
-  template<typename T>
-  static T normalizeAngle(T angle)
-  {
-    using std::atan2;
-    using std::cos;
-    using std::sin;
-    return atan2(sin(angle), cos(angle));
-  }
-
-  /**
-   * @brief 计算两角度之差并归一化到 (-pi, pi]
-   * @return a - b 的归一化角度差
-   */
-  template<typename T>
-  static T angleDiff(T a, T b)
-  {
-    return normalizeAngle(a - b);
-  }
-
-  // 以下三个辅助函数封装 std 数学函数，确保模板 T 可正确推导
-  template<typename T>
-  static T sinValue(T value)
-  {
-    using std::sin;
-    return sin(value);
-  }
-
-  template<typename T>
-  static T cosValue(T value)
-  {
-    using std::cos;
-    return cos(value);
-  }
-
-  template<typename T>
-  static T sqrtValue(T value)
-  {
-    using std::sqrt;
-    return sqrt(value);
-  }
-
   double gear_;                  ///< 档位（前进/倒退）
   bool is_cusp_segment_;         ///< 是否为前进/倒退切换的尖点段
   double model_weight_;          ///< 运动学模型约束权重
@@ -369,23 +372,6 @@ public:
   }
 
 private:
-  /// @brief 将角度归一化到 (-pi, pi]
-  template<typename T>
-  static T normalizeAngle(T angle)
-  {
-    using std::atan2;
-    using std::cos;
-    using std::sin;
-    return atan2(sin(angle), cos(angle));
-  }
-
-  /// @brief 计算两角度之差并归一化到 (-pi, pi]
-  template<typename T>
-  static T angleDiff(T a, T b)
-  {
-    return normalizeAngle(a - b);
-  }
-
   Eigen::Vector2d reference_point_; ///< 参考位置（世界坐标）
   double target_theta_;             ///< 参考朝向角（弧度）
   bool keep_orientation_;           ///< 是否约束朝向角
@@ -610,21 +596,6 @@ private:
 
     // 一次 hinge residual；Ceres 平方 residual 后得到二次净空代价。
     return (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
-  }
-
-  // 以下两个辅助函数封装 std 数学函数，确保模板 T 可正确推导
-  template<typename T>
-  static T sinValue(T value)
-  {
-    using std::sin;
-    return sin(value);
-  }
-
-  template<typename T>
-  static T cosValue(T value)
-  {
-    using std::cos;
-    return cos(value);
   }
 
   Eigen::Vector2d costmap_origin_;   ///< 代价地图原点（世界坐标，米）
