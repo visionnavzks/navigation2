@@ -53,7 +53,8 @@ struct FootprintSpec
   double point_radius_m{0.0};
   /// Capsule 模式下两圆之间腰部允许的最大凹陷（米）。
   /// `0` 表示用 `min_resolution_m` 兜底，避免 1mm 超密采样。实际值
-  /// 会被夹到 `[min_resolution_m, radius / 2]` 区间。
+  /// 会被夹到 `[min_resolution_m, max(radius / 2, min_resolution_m)]` 区间
+  /// （当 `min_resolution_m > radius / 2` 时上界退化为 `min_resolution_m`）。
   double sampling_tolerance_m{0.0};
 
   /// 防止尺寸 / 间距退化的最小分辨率下界（米）。通常等于调用方的
@@ -102,8 +103,9 @@ inline double resolveCapsuleCenterLimit(
 /// `max_spacing = 2 * sqrt(radius² − (radius − d)²)`，再等距分布
 /// `2 * limit / max_spacing + 1` 个点。
 ///
-/// `max_gap_depth` 会被夹到 `[min_resolution, radius/2]` 区间，防止
-/// 凹陷过深导致圆心过密、退化。
+/// `max_gap_depth` 会被夹到 `[min_resolution, max(radius/2, min_resolution)]`
+/// 区间（当 `min_resolution > radius/2` 时上界退化为 `min_resolution`），
+/// 防止凹陷过深导致圆心过密、退化。
 inline std::vector<double> buildCapsuleCenterOffsets(
   double limit_x, double radius, double max_gap_depth, double min_resolution)
 {
@@ -150,14 +152,16 @@ inline std::vector<double> buildCapsuleCenterOffsets(
 inline FootprintModel buildFootprintModel(const FootprintSpec & spec)
 {
   // ---- 基础校验 ----
-  if (!(spec.min_resolution_m > 0.0)) {
-    throw std::invalid_argument("FootprintSpec.min_resolution_m must be > 0");
-  }
+  // 先查非有限值（NaN / Inf），否则 `NaN > 0.0 == false` 会让下面的
+  // `> 0` 校验抢先抛出误导性的 "must be > 0"。
   if (!std::isfinite(spec.min_resolution_m) ||
     !std::isfinite(spec.length_m) || !std::isfinite(spec.width_m) ||
     !std::isfinite(spec.point_radius_m) || !std::isfinite(spec.sampling_tolerance_m))
   {
     throw std::invalid_argument("FootprintSpec contains non-finite numeric values");
+  }
+  if (!(spec.min_resolution_m > 0.0)) {
+    throw std::invalid_argument("FootprintSpec.min_resolution_m must be > 0");
   }
   if (spec.mode == FootprintMode::Capsule) {
     if (!(spec.length_m > 0.0)) {
