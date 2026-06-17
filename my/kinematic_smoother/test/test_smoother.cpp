@@ -1677,9 +1677,11 @@ TEST(FootprintTest, CapsuleConservativeSpansFullHalfLength)
   EXPECT_GE(count, 3u);
   EXPECT_NEAR(model.check_points.front(), -0.4, 1e-9);
   EXPECT_NEAR(model.check_points[static_cast<size_t>(count - 1) * 3u + 0u], 0.4, 1e-9);
-  // Every weight slot must be 1.0.
+  // weight is 1/sqrt(N): the per-point residual weight that keeps the smoother's
+  // total cost independent of sampling density.
+  const double expected_weight = 1.0 / std::sqrt(static_cast<double>(count));
   for (size_t offset = 2; offset < model.check_points.size(); offset += 3) {
-    EXPECT_DOUBLE_EQ(model.check_points[offset], 1.0);
+    EXPECT_NEAR(model.check_points[offset], expected_weight, 1e-12);
   }
 }
 
@@ -1700,6 +1702,106 @@ TEST(FootprintTest, CapsuleExactShrinksToHalfLengthMinusRadius)
   ASSERT_GE(count, 1u);
   EXPECT_NEAR(model.check_points.front(), -0.15, 1e-9);
   EXPECT_NEAR(model.check_points[static_cast<size_t>(count - 1) * 3u + 0u], 0.15, 1e-9);
+}
+
+TEST(FootprintTest, ZeroSamplingToleranceFallsBackToMinResolution)
+{
+  // sampling_tolerance_m = 0 should NOT trigger the 1mm oversampling path;
+  // it should fall back to min_resolution instead.
+  kinematic_smoother::FootprintSpec zero_tol;
+  zero_tol.mode = kinematic_smoother::FootprintMode::Capsule;
+  zero_tol.capsule_mode = kinematic_smoother::CapsuleMode::Conservative;
+  zero_tol.length_m = 0.8;
+  zero_tol.width_m = 0.5;
+  zero_tol.sampling_tolerance_m = 0.0;
+  zero_tol.min_resolution_m = 0.05;
+  const auto model_zero = kinematic_smoother::buildFootprintModel(zero_tol);
+
+  kinematic_smoother::FootprintSpec explicit_tol = zero_tol;
+  explicit_tol.sampling_tolerance_m = 0.05;
+  const auto model_explicit = kinematic_smoother::buildFootprintModel(explicit_tol);
+
+  // Same number of points when fallback == explicit value.
+  EXPECT_EQ(model_zero.check_points.size(), model_explicit.check_points.size());
+  // And the point layout should be identical.
+  for (size_t i = 0; i < model_zero.check_points.size(); ++i) {
+    EXPECT_NEAR(model_zero.check_points[i], model_explicit.check_points[i], 1e-12);
+  }
+}
+
+TEST(FootprintTest, InvalidSpecsThrow)
+{
+  // min_resolution_m must be > 0
+  kinematic_smoother::FootprintSpec bad_res;
+  bad_res.mode = kinematic_smoother::FootprintMode::Point;
+  bad_res.min_resolution_m = 0.0;
+  EXPECT_THROW(kinematic_smoother::buildFootprintModel(bad_res), std::invalid_argument);
+
+  // Capsule length must be > 0
+  kinematic_smoother::FootprintSpec bad_length;
+  bad_length.length_m = 0.0;
+  bad_length.width_m = 0.5;
+  EXPECT_THROW(kinematic_smoother::buildFootprintModel(bad_length), std::invalid_argument);
+
+  // Exact capsule with length < width is physically meaningless
+  kinematic_smoother::FootprintSpec too_short;
+  too_short.mode = kinematic_smoother::FootprintMode::Capsule;
+  too_short.capsule_mode = kinematic_smoother::CapsuleMode::Exact;
+  too_short.length_m = 0.4;
+  too_short.width_m = 0.6;
+  too_short.min_resolution_m = 0.1;
+  EXPECT_THROW(kinematic_smoother::buildFootprintModel(too_short), std::invalid_argument);
+
+  // Negative point radius
+  kinematic_smoother::FootprintSpec neg_point;
+  neg_point.mode = kinematic_smoother::FootprintMode::Point;
+  neg_point.point_radius_m = -0.1;
+  neg_point.min_resolution_m = 0.1;
+  EXPECT_THROW(kinematic_smoother::buildFootprintModel(neg_point), std::invalid_argument);
+
+  // NaN input
+  kinematic_smoother::FootprintSpec nan_input;
+  nan_input.mode = kinematic_smoother::FootprintMode::Point;
+  nan_input.point_radius_m = std::nan("");
+  nan_input.min_resolution_m = 0.1;
+  EXPECT_THROW(kinematic_smoother::buildFootprintModel(nan_input), std::invalid_argument);
+}
+
+TEST(FootprintTest, WeightIsNormalizedBySqrtN)
+{
+  // Doubling the sampling density (smaller tolerance) should NOT change
+  // the *sum* of squared weights — that's the whole point of the normalization.
+  kinematic_smoother::FootprintSpec sparse;
+  sparse.mode = kinematic_smoother::FootprintMode::Capsule;
+  sparse.length_m = 0.8;
+  sparse.width_m = 0.5;
+  sparse.sampling_tolerance_m = 0.20;   // few points
+  sparse.min_resolution_m = 0.05;
+  const auto model_sparse = kinematic_smoother::buildFootprintModel(sparse);
+
+  kinematic_smoother::FootprintSpec dense = sparse;
+  dense.sampling_tolerance_m = 0.01;
+  const auto model_dense = kinematic_smoother::buildFootprintModel(dense);
+
+  // Both should have at least 1 point
+  const auto n_sparse = model_sparse.check_points.size() / 3;
+  const auto n_dense = model_dense.check_points.size() / 3;
+  ASSERT_GE(n_sparse, 1u);
+  ASSERT_GE(n_dense, 1u);
+  EXPECT_LT(n_sparse, n_dense);
+
+  // Σ weight_i² should be ~1.0 in both cases (since each weight = 1/sqrt(N),
+  // N weights ⇒ sum of squares = N · (1/N) = 1).
+  auto sum_of_squared_weights = [](const kinematic_smoother::FootprintModel & m) {
+    double sum = 0.0;
+    for (size_t offset = 2; offset < m.check_points.size(); offset += 3) {
+      const double w = m.check_points[offset];
+      sum += w * w;
+    }
+    return sum;
+  };
+  EXPECT_NEAR(sum_of_squared_weights(model_sparse), 1.0, 1e-9);
+  EXPECT_NEAR(sum_of_squared_weights(model_dense), 1.0, 1e-9);
 }
 
 // ---- Basic costmap sanity test ----
