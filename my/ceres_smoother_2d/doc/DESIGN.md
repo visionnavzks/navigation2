@@ -309,9 +309,10 @@ grid_to_world:  wx = (cell_x + 0.5) * resolution + origin_x
    out[j] = in[i-1] + t * (in[i] - in[i-1])
 ```
 
-两个开关：
+重采样参数：
 - `resample_before_smooth`（默认 true）：优化前重采样输入路径
 - `resample_after_smooth`（默认 false）：优化后重采样输出路径
+- `resample_spacing`（默认 0.3m）：启用重采样阶段使用的统一点间距
 
 ---
 
@@ -352,15 +353,15 @@ SmootherParams defaults = {
   .w_smooth            = 10.0,
   .w_max_curvature     = 1000.0,
   .min_turning_radius  = 0.2,     // meters
-  .w_reference         = 5.0,
-  .w_length            = 2.0,
-  .target_spacing      = 0.3,     // meters (resample only)
-  .w_obstacle          = 10.0,
+  .w_reference         = 0.0,
+  .w_length            = 1.0,
+  .w_obstacle          = 1.0,
   .w_penetration       = 1000.0,
   .safety_margin       = 1.0,     // meters
   .robot_radius        = 0.5,     // meters
-  .resample_after_smooth  = false,
   .resample_before_smooth = true,
+  .resample_after_smooth  = false,
+  .resample_spacing      = 0.3,     // meters
 };
 ```
 

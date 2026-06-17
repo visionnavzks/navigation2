@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Run the full test suite for ceres_smoother_2d.
-# Usage:  ./run_tests.sh          # build C++, run C++, Python, and (if up) Web API tests
-#         ./run_tests.sh --no-cpp # skip C++ build & tests (e.g. when nothing changed)
-#         ./run_tests.sh --web URL   # explicitly set the web URL for Web API tests
+# 运行 ceres_smoother_2d 的完整测试套件。
+# 用法：./run_tests.sh          # 构建 C++，运行 C++、Python 和（若已启动）Web API 测试
+#      ./run_tests.sh --no-cpp # 跳过 C++ 构建和测试（例如未改 C++ 时）
+#      ./run_tests.sh --web URL # 显式指定 Web API 测试使用的 URL
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
 
-# Resolve repo root (parent of this script). The map lives at <repo>/maps/occupancy_map.png.
+# 解析仓库根目录（该脚本的父目录）。地图位于 <repo>/maps/occupancy_map.png。
 REPO_ROOT="$(cd "$HERE/.." && pwd)"
 export MAP_PATH="${MAP_PATH:-$REPO_ROOT/maps/occupancy_map.png}"
 
@@ -54,7 +54,7 @@ run_python() {
 run_web() {
   echo
   echo "================  Web API tests  ================"
-  # Probe for a running server unless user supplied one.
+  # 若用户未指定 URL，则探测本机是否已有运行中的服务。
   if [ -z "$WEB_URL" ]; then
     if curl -fsS --max-time 1 http://127.0.0.1:5000/api/costmap >/dev/null 2>&1; then
       WEB_URL="http://127.0.0.1:5000"

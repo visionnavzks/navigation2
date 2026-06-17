@@ -6,22 +6,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Aggressive optimization for real-time path planning
+# 面向实时路径规划的激进优化
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
 
-# Dependencies
+# 依赖项
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 find_package(Ceres REQUIRED COMPONENTS SuiteSparse)
 
-# stb_image (header-only, bundled)
+# stb_image（头文件库，随项目提供）
 set(STB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/stb")
 
-# stb_image implementation (separate TU, needs fPIC for shared libs)
+# stb_image 实现（单独翻译单元；用于共享库时需要 fPIC）
 add_library(stb_image_impl STATIC src/stb_image_impl.cpp)
 target_include_directories(stb_image_impl PRIVATE ${STB_INCLUDE_DIR})
 set_target_properties(stb_image_impl PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# Main library (header-only)
+# 主库（头文件实现）
 add_library(ceres_smoother_2d_headers INTERFACE)
 target_include_directories(ceres_smoother_2d_headers INTERFACE
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -32,15 +32,15 @@ target_link_libraries(ceres_smoother_2d_headers INTERFACE
   Eigen3::Eigen
 )
 
-# Demo executable
+# Demo 可执行文件
 add_executable(ceres_smoother_2d_demo src/main.cpp)
 target_link_libraries(ceres_smoother_2d_demo PRIVATE ceres_smoother_2d_headers stb_image_impl)
 
-# nanobind Python module
+# nanobind Python 模块
 set(Python_EXECUTABLE "/home/zks/.venv/bin/python3")
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 
-# Find nanobind from the venv installation
+# 从 venv 安装路径查找 nanobind
 execute_process(
   COMMAND ${Python_EXECUTABLE} -c "import nanobind; import os; print(os.path.dirname(nanobind.__file__))"
   OUTPUT_VARIABLE NANOBIND_DIR_RAW
@@ -53,16 +53,16 @@ nanobind_add_module(ceres_smoother_2d src/nanobind_module.cpp)
 target_link_libraries(ceres_smoother_2d PRIVATE ceres_smoother_2d_headers stb_image_impl)
 target_include_directories(ceres_smoother_2d PRIVATE ${STB_INCLUDE_DIR})
 
-# Install
+# 安装
 install(TARGETS ceres_smoother_2d_demo DESTINATION bin)
 install(TARGETS ceres_smoother_2d LIBRARY DESTINATION .)
 
 # ========================================================================
-# Tests
+# 测试
 # ========================================================================
 enable_testing()
 
-# C++ unit tests (header-only library, so just compile + link)
+# C++ 单元测试（库为头文件实现，因此只需编译并链接）
 add_executable(ceres_smoother_2d_tests tests/test_cpp.cpp)
 target_link_libraries(ceres_smoother_2d_tests PRIVATE ceres_smoother_2d_headers stb_image_impl)
 target_include_directories(ceres_smoother_2d_tests PRIVATE

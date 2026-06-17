@@ -1,10 +1,10 @@
-"""Integration tests for the Flask web service.
+"""Flask Web 服务集成测试。
 
-These tests hit a *running* server (default: http://127.0.0.1:5000).
-If no server is reachable, the tests are skipped — run `./run_web.sh` first
-or set `WEB_BASE_URL` to the right address.
+这些测试会访问一个正在运行的服务（默认：http://127.0.0.1:5000）。
+如果无法连接服务，则跳过测试；请先运行 `./run_web.sh`，或将
+`WEB_BASE_URL` 设置为正确地址。
 
-Run:
+运行：
     WEB_BASE_URL=http://127.0.0.1:5000 python -m pytest tests/test_web_api.py -v
 """
 import json
@@ -39,7 +39,7 @@ def base_url():
 
 @pytest.fixture(scope="module")
 def costmap(base_url):
-    """Load the costmap meta once per module — saves a round-trip per test."""
+    """每个模块只加载一次 costmap 元数据，减少每个测试的往返请求。"""
     r = requests.get(urljoin(base_url, "/api/costmap"), timeout=5)
     r.raise_for_status()
     return r.json()
@@ -82,7 +82,7 @@ class TestCostmapEndpoint:
         import base64
         for k in ("png", "esdf_png"):
             raw = base64.b64decode(costmap[k])
-            # PNG magic bytes
+            # PNG 魔数。
             assert raw[:8] == b"\x89PNG\r\n\x1a\n", f"{k} is not a PNG"
 
 
@@ -95,7 +95,7 @@ class TestPlanInputValidation:
 
     def test_missing_start_or_goal(self, base_url):
         r = _post_plan(base_url, 1, 1, 50, 50)
-        # Bypass: only one of start/goal
+        # 旁路测试：只提供 start/goal 中的一个。
         r2 = requests.post(
             urljoin(base_url, "/api/plan"),
             data=json.dumps({"start": [1, 1]}),
@@ -122,8 +122,8 @@ class TestPlanInputValidation:
 
 class TestPlanFreePath:
     def test_straight_line_in_open_corridor(self, base_url):
-        # y=28.65m is the widest free corridor in occupancy_map.png (x=6..71)
-        r = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=3)
+        # y=23.3m 处两端 ESDF 净空都 > 1m，默认 robot_radius=0.5 可通。
+        r = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=3)
         assert r.status_code == 200, r.text
         d = r.json()
         assert d["found"] is True, d.get("reason")
@@ -140,20 +140,20 @@ class TestPlanFreePath:
 
     def test_vertical_path(self, base_url):
         # (35.2, 14.5) -> (35.2, 38.75) along x=35.2 (tallest free column, 24.8m)
-        # robot_radius=0: this narrow column doesn't allow robot inflation.
+        # robot_radius=0：这条窄列不允许机器人半径膨胀。
         r = _post_plan(base_url, 35.2, 14.5, 35.2, 38.75, downsample=3, robot_radius=0)
         d = r.json()
         assert d["found"] is True, d.get("reason")
         assert d["smooth_points"] >= 2
 
     def test_smooth_length_near_euclidean_for_straight(self, base_url):
-        # A* adds zig-zag so smoothed length is slightly longer than Euclidean
+        # A* 会产生锯齿，因此平滑长度略长于欧氏距离。
         sx, sy, gx, gy = 8, 28.65, 65, 28.65
         eucl = ((gx - sx) ** 2 + (gy - sy) ** 2) ** 0.5
         r = _post_plan(base_url, sx, sy, gx, gy, downsample=3, robot_radius=0)
         d = r.json()
         assert d["found"] is True
-        # Allow generous slack for A* zig-zag, but the path can't be more than ~2x Euclidean
+        # 给 A* 锯齿留较大余量，但路径不能超过欧氏距离约 2 倍。
         assert d["smooth_length"] < 2.0 * eucl
         assert d["smooth_length"] >= eucl * 0.99
 
@@ -168,7 +168,7 @@ class TestPlanFreePath:
 
 class TestPlanCollision:
     def test_start_in_obstacle(self, base_url):
-        # (60,10) is inside an obstacle region of the map (after the orientation fix)
+        # (60,10) 位于地图障碍区域内（方向修正后）。
         r = _post_plan(base_url, 60, 10, 8, 28.65, downsample=3)
         d = r.json()
         assert d["found"] is False
@@ -190,7 +190,7 @@ class TestPlanCollision:
         assert d["goal_ok"] is False
 
     def test_clearance_array_length_matches_smooth(self, base_url):
-        r = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=3)
+        r = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=3)
         d = r.json()
         if d["found"]:
             assert len(d["clearances"]) == d["smooth_points"]
@@ -200,22 +200,22 @@ class TestPlanCollision:
 
 class TestPlanParameters:
     def test_downsample_changes_ds_points(self, base_url):
-        d_small = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=10).json()
-        d_large = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=2).json()
+        d_small = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=10).json()
+        d_large = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=2).json()
         assert d_small["found"] and d_large["found"]
         assert d_small["ds_points"] < d_large["ds_points"]
 
     def test_higher_iterations_can_reduce_cost(self, base_url):
-        d1 = _post_plan(base_url, 8, 28.65, 65, 28.65,
+        d1 = _post_plan(base_url, 8, 23.3, 65, 23.3,
                         downsample=3, max_iterations=5).json()
-        d2 = _post_plan(base_url, 8, 28.65, 65, 28.65,
+        d2 = _post_plan(base_url, 8, 23.3, 65, 23.3,
                         downsample=3, max_iterations=200).json()
         assert d1["found"] and d2["found"]
-        # More iterations should not make cost worse
+        # 更多迭代不应让代价变差。
         assert d2["final_cost"] <= d1["final_cost"] * 1.01
 
     def test_invalid_downsample_clamped(self, base_url):
-        # Server treats downsample < 1 as 1; should not crash
+        # 服务端会将 downsample < 1 视为 1；不应崩溃。
         r = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=0)
         assert r.status_code == 200
 
@@ -225,15 +225,15 @@ class TestPlanParameters:
 class TestSmoke:
     def test_response_time_reasonable(self, base_url):
         t0 = time.perf_counter()
-        r = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=3)
+        r = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=3)
         wall = time.perf_counter() - t0
         assert wall < 10.0, f"plan took {wall:.2f}s wall time"
         assert r.status_code == 200
 
     def test_repeated_calls_idempotent(self, base_url):
-        a = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=3).json()
-        b = _post_plan(base_url, 8, 28.65, 65, 28.65, downsample=3).json()
-        # Paths should be the same length and same endpoints
+        a = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=3).json()
+        b = _post_plan(base_url, 8, 23.3, 65, 23.3, downsample=3).json()
+        # 路径长度和端点应保持一致。
         assert a["found"] and b["found"]
         assert a["smooth_length"] == pytest.approx(b["smooth_length"], abs=0.05)
         assert a["raw_x"][0] == pytest.approx(b["raw_x"][0], abs=1e-6)

@@ -1,12 +1,12 @@
 """
-Python demo for Ceres 2D Path Smoother with ESDF.
+Ceres 二维 ESDF 路径平滑器的 Python demo。
 
-Usage:
+用法：
     python demo.py [path_to_occupancy_map.png]
 
-Produces:
-    - smooth_result.png: matplotlib visualization with ESDF heatmap + paths
-    - smooth_result_interactive.png: interactive matplotlib plot (if display available)
+输出：
+    - smooth_result.png：包含 ESDF 热力图和路径的 matplotlib 可视化图
+    - smooth_result_interactive.png：交互式 matplotlib 图（若有显示环境）
 """
 
 import sys
@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import FancyArrowPatch
 
-# Add build directory to path for nanobind module
+# 将 build 目录加入路径，以加载 nanobind 模块。
 build_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build")
 sys.path.insert(0, build_dir)
 
@@ -24,11 +24,11 @@ import ceres_smoother_2d as cs2d
 
 
 def generate_test_path(esdf_map, n_points=50):
-    """Generate a test reference path that avoids obstacles."""
+    """生成一条避开障碍的测试参考路径。"""
     wx = esdf_map.world_width
     wy = esdf_map.world_height
 
-    # Find a good Y level in free space
+    # 在自由空间中寻找合适的 Y 层。
     best_y = wy * 0.5
     best_score = -1.0
     for row in range(0, esdf_map.height, 5):
@@ -47,7 +47,7 @@ def generate_test_path(esdf_map, n_points=50):
                 best_score = avg
                 best_y = y
 
-    # Generate sinusoidal path at this Y level
+    # 在该 Y 层生成正弦路径。
     xs, ys = [], []
     for i in range(n_points):
         t = i / (n_points - 1)
@@ -66,14 +66,14 @@ def generate_test_path(esdf_map, n_points=50):
 
 
 def visualize(esdf_map, ref_x, ref_y, res_x, res_y, output_path):
-    """Create a rich matplotlib visualization."""
-    # Extract ESDF grid for visualization
+    """创建信息较完整的 matplotlib 可视化。"""
+    # 提取 ESDF 栅格用于可视化。
     esdf_arr = np.array(esdf_map.get_esdf_array()).reshape(esdf_map.height, esdf_map.width)
     occ_arr = np.array(esdf_map.get_occupancy_array()).reshape(esdf_map.height, esdf_map.width)
 
     fig, axes = plt.subplots(1, 3, figsize=(20, 7))
 
-    # --- Panel 1: Occupancy + paths ---
+    # --- 面板 1：占据图 + 路径 ---
     ax = axes[0]
     ax.imshow(occ_arr, cmap='gray_r', origin='lower',
               extent=[esdf_map.origin_x, esdf_map.origin_x + esdf_map.world_width,
@@ -89,9 +89,9 @@ def visualize(esdf_map, ref_x, ref_y, res_x, res_y, output_path):
     ax.legend(loc='upper right')
     ax.set_aspect('equal')
 
-    # --- Panel 2: ESDF heatmap + smoothed path ---
+    # --- 面板 2：ESDF 热力图 + 平滑路径 ---
     ax = axes[1]
-    # Clip ESDF for better visualization
+    # 裁剪 ESDF 范围，改善可视化效果。
     esdf_vis = np.clip(esdf_arr, -2, 5)
     im = ax.imshow(esdf_vis, cmap='RdBu_r', origin='lower',
                    extent=[esdf_map.origin_x, esdf_map.origin_x + esdf_map.world_width,
@@ -107,7 +107,7 @@ def visualize(esdf_map, ref_x, ref_y, res_x, res_y, output_path):
     ax.legend(loc='upper right')
     ax.set_aspect('equal')
 
-    # --- Panel 3: Clearance profile ---
+    # --- 面板 3：间隙曲线 ---
     ax = axes[2]
     clearances = [esdf_map.get_distance(x, y) for x, y in zip(res_x, res_y)]
     ds = np.zeros(len(res_x))
@@ -138,17 +138,17 @@ def main():
     print("=== Ceres 2D Path Smoother — Python Demo ===")
     print(f"Map: {map_path}")
 
-    # Load map
+    # 加载地图。
     resolution = 0.05
     esdf_map = cs2d.ESDFMap(map_path, resolution, 0.0, 0.0, 127)
     print(f"Map: {esdf_map.width}x{esdf_map.height} "
           f"({esdf_map.world_width:.1f}x{esdf_map.world_height:.1f} m)")
 
-    # Generate path
+    # 生成路径。
     ref_x, ref_y = generate_test_path(esdf_map)
     print(f"Reference path: {len(ref_x)} points")
 
-    # Configure smoother
+    # 配置平滑器。
     params = cs2d.SmootherParams()
     params.max_iterations = 200
     params.w_smooth = 100.0
@@ -159,7 +159,7 @@ def main():
     params.safety_margin = 0.3
     params.verbose = False
 
-    # Smooth
+    # 执行平滑。
     smoother = cs2d.PathSmoother2D(params)
     result = smoother.smooth(ref_x.tolist(), ref_y.tolist(), esdf_map)
 
@@ -171,14 +171,14 @@ def main():
     res_x = np.array(result.x)
     res_y = np.array(result.y)
 
-    # Verify clearance
+    # 验证间隙。
     min_clearance = min(esdf_map.get_distance(x, y) for x, y in zip(res_x, res_y))
     max_deviation = max(np.sqrt((rx-nx)**2 + (ry-ny)**2)
                         for rx, ry, nx, ny in zip(res_x, res_y, ref_x, ref_y))
     print(f"  Min clearance: {min_clearance:.3f} m (safety_margin={params.safety_margin} m)")
     print(f"  Max deviation: {max_deviation:.3f} m")
 
-    # Visualize
+    # 可视化。
     output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build", "smooth_result.png")
     visualize(esdf_map, ref_x, ref_y, res_x, res_y, output_path)
 

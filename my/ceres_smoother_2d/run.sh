@@ -6,14 +6,14 @@ BUILD_DIR="$SCRIPT_DIR/build"
 
 echo "=== Ceres 2D Smoother — Build & Run ==="
 
-# Build
+# 构建
 echo "[1/3] Configuring..."
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
 
 echo "[2/3] Building..."
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 
-# Run C++ demo
+# 运行 C++ demo
 echo "[3/3] Running demo..."
 "$BUILD_DIR/ceres_smoother_2d_demo" "$@"
 

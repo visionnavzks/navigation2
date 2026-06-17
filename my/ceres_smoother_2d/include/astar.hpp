@@ -1,34 +1,32 @@
 #pragma once
 
 /**
- * A* shortest-path search on a 2D occupancy grid with robot-radius inflation.
+ * 在二维占据栅格上执行带机器人半径膨胀的 A* 最短路径搜索。
  *
- * Designed as a drop-in replacement for the slow Python A* in the web demo.
- * Typical speedup on the 1436x847 occupancy_map.png: 50-200x.
+ * 用作 Web demo 中较慢 Python A* 的直接替代实现。在 1436x847 的
+ * occupancy_map.png 上通常可提速 50-200 倍。
  *
- * Algorithm:
- *   - 8-connected grid, Euclidean step cost (1 cardinal, sqrt(2) diagonal)
- *   - Euclidean distance heuristic (admissible & consistent for 8-connected)
- *   - Binary heap + lazy deletion (no explicit decrease-key)
- *   - Flat arrays for g_score / came_from / closed (cache-friendly)
+ * 算法：
+ *   - 8 邻接栅格，欧氏步进代价（直连为 1，对角为 sqrt(2)）
+ *   - 欧氏距离启发式（对 8 邻接 admissible 且 consistent）
+ *   - 二叉堆 + 惰性删除（不显式 decrease-key）
+ *   - g_score / came_from / closed 使用扁平数组，便于缓存访问
  *
- * Obstacle inflation:
- *   When robot_radius > 0, the grid is preprocessed: any cell with
- *   ESDF distance < robot_radius is treated as an obstacle. The resulting
- *   path is feasible for a circular robot of that radius. This is the
- *   standard approach in TEB / navfn / ROS planners.
+ * 障碍物膨胀：
+ *   当 robot_radius > 0 时，会先预处理栅格：ESDF 距离 < robot_radius
+ *   的任意单元都视为障碍。得到的路径对该半径的圆形机器人可行。
+ *   这是 TEB / navfn / ROS 规划器中的常见做法。
  *
- * Inputs / outputs are in WORLD coordinates (meters). Internally, the
- * algorithm operates on grid cells; the conversion matches the Python
- * reference (int truncation toward zero).
+ * 输入/输出均使用世界坐标（米）。内部算法在栅格单元上运行；坐标转换
+ * 与 Python 参考实现一致（int 向 0 截断）。
  *
- * Edge cases:
- *   - Start or goal inside (inflated) obstacle → success=false, empty path
- *   - Start == goal → success=true, single point
- *   - No path exists → success=false, empty path
- *   - Bounds violation in either world coord → clamps to nearest cell
+ * 边界情况：
+ *   - 起点或终点位于（膨胀后）障碍内 → success=false，路径为空
+ *   - 起点 == 终点 → success=true，单点路径
+ *   - 不存在路径 → success=false，路径为空
+ *   - 世界坐标越界 → clamp 到最近的栅格单元
  *
- * No ROS dependency. Header-only, depends only on the C++ standard library.
+ * 无 ROS 依赖。头文件实现，仅依赖 C++ 标准库。
  */
 
 #include <algorithm>
@@ -47,17 +45,17 @@ namespace ceres_smoother_2d
 struct AStarResult
 {
   bool success{false};
-  std::vector<double> x;       // world x coords (meters)
-  std::vector<double> y;       // world y coords (meters)
-  int expansions{0};           // number of nodes popped + expanded
-  double time_ms{0.0};         // wall-clock search time
+  std::vector<double> x;       // 世界坐标 x（米）
+  std::vector<double> y;       // 世界坐标 y（米）
+  int expansions{0};           // 出队并展开的节点数
+  double time_ms{0.0};         // 搜索耗时（墙钟时间）
 };
 
-// 8-connected neighbor offsets and step costs.
+// 8 邻接偏移和步进代价。
 namespace astar_detail
 {
-// Cardinal = 1, diagonal = sqrt(2). Order: W, E, S, N, NW, NE, SW, SE
-// (order irrelevant, but grouped for cache-friendly inner loops).
+// 直连 = 1，对角 = sqrt(2)。顺序：W, E, S, N, NW, NE, SW, SE。
+// 顺序不影响结果，按类别分组是为了让内层循环更友好地访问缓存。
 constexpr int kNumDirs = 8;
 constexpr int kDx[kNumDirs] = {-1, 1, 0, 0, -1, 1, -1, 1};
 constexpr int kDy[kNumDirs] = { 0, 0,-1, 1, -1,-1,  1, 1};
@@ -111,9 +109,8 @@ inline double heuristic(const Cell & a, const Cell & b)
   const double dy = static_cast<double>(std::abs(a.y - b.y));
   const double mn = std::min(dx, dy);
   const double mx = std::max(dx, dy);
-  // Exact shortest-path distance on an empty 8-connected grid with
-  // cardinal cost 1 and diagonal cost sqrt(2). This is tighter than
-  // Euclidean while remaining admissible and consistent.
+  // 空 8 邻接栅格上的精确最短路距离，直连代价为 1，对角代价为 sqrt(2)。
+  // 它比欧氏距离更紧，同时仍保持 admissible 和 consistent。
   return (mx - mn) + kDiag * mn;
 }
 
@@ -122,8 +119,8 @@ inline Cell worldToCell(
   double wx,
   double wy)
 {
-  // Truncation toward zero intentionally matches the original Python
-  // `int((world - origin) / resolution)` behavior.
+  // 有意使用向 0 截断，以匹配原 Python 版
+  // `int((world - origin) / resolution)` 的行为。
   const int x = static_cast<int>((wx - map.originX()) / map.resolution());
   const int y = static_cast<int>((wy - map.originY()) / map.resolution());
   return {
@@ -222,26 +219,26 @@ inline AStarResult astarSolve(
   const int32_t start_idx = astar_detail::toIndex(start.x, start.y, W);
   const int32_t goal_idx = astar_detail::toIndex(goal.x, goal.y, W);
 
-  // Reject if start or goal is in an (inflated) obstacle.
+  // 起点或终点在（膨胀后）障碍内时直接拒绝。
   if (astar_detail::isBlocked(occ, start, W) ||
     astar_detail::isBlocked(occ, goal, W))
   {
     return res;  // success=false
   }
 
-  // Trivial case: start == goal.
+  // 平凡情况：起点即终点。
   if (start_idx == goal_idx) {
     res.success = true;
     astar_detail::appendPathPoint(map, start_idx, res);
     return res;
   }
 
-  // Flat arrays — cache-friendly and ~10x faster than unordered_map.
+  // 扁平数组更利于缓存，相比 unordered_map 通常快约 10 倍。
   std::vector<double> g_score(N, std::numeric_limits<double>::infinity());
-  std::vector<int32_t> came_from(N, -1);  // parent cell index, or -1
-  std::vector<uint8_t> closed(N, 0);     // 0/1 flag
+  std::vector<int32_t> came_from(N, -1);  // 父栅格索引，或 -1
+  std::vector<uint8_t> closed(N, 0);      // 0/1 标记
 
-  // Open set: min-heap on f-score. Lazy deletion via closed[] check on pop.
+  // open 集：按 f-score 排序的小根堆。弹出时通过 closed[] 做惰性删除。
   std::priority_queue<
     astar_detail::OpenNode,
     std::vector<astar_detail::OpenNode>,
@@ -257,14 +254,14 @@ inline AStarResult astarSolve(
     open.pop();
     const int32_t cur_idx = cur.idx;
 
-    // Skip stale entries (a better f-score was pushed later).
+    // 跳过过期项：之后已经压入过更好的 f-score。
     if (closed[cur_idx]) {continue;}
 
-    // Mark final — g_score is now optimal for this node.
+    // 标记为最终节点：此时该节点的 g_score 已经最优。
     closed[cur_idx] = 1;
     ++res.expansions;
 
-    // Stop expanding once we pop the goal (its g_score is optimal).
+    // 终点被弹出后停止展开，此时终点 g_score 已经最优。
     if (cur_idx == goal_idx) {break;}
 
     const astar_detail::Cell cur_cell = astar_detail::fromIndex(cur_idx, W);
@@ -290,7 +287,7 @@ inline AStarResult astarSolve(
   const auto t1 = std::chrono::steady_clock::now();
   res.time_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-  // Success iff the goal was finalized (g_score finite).
+  // 只有终点被最终确定（g_score 有限）才算成功。
   if (!std::isfinite(g_score[goal_idx])) {return res;}  // success=false
 
   astar_detail::reconstructPath(map, start_idx, goal_idx, came_from, res.expansions, res);

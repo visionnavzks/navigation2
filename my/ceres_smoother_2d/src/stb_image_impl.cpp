@@ -1,4 +1,4 @@
-// stb_image implementation (separate translation unit)
+// stb_image 实现（单独翻译单元）
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 

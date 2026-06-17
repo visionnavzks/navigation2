@@ -163,7 +163,7 @@ Ceres reports $0.5 \sum \|r_i\|^2$, so this contributes $0.5 \cdot w_{\text{leng
 - **No rest-length conflict** with fixed start/goal points
 - Encourages **uniform spacing** as a side effect
 
-> **Note**: `target_spacing` is used **only** by the optional resample stages, never by the optimization cost itself.
+> **Note**: `resample_spacing` is used **only** by the optional resample stages, never by the optimization cost itself.
 
 #### 5. Obstacle ($J_{\text{obstacle}}$)
 
@@ -411,9 +411,9 @@ params.verbose = False
 # Cost weights
 params.w_smooth = 100.0           # Smoothness (jerk penalty)
 params.w_max_curvature = 1000.0   # Curvature constraint
-params.w_reference = 5.0          # Reference path tracking
-params.w_length = 2.0             # Elastic-band length
-params.w_obstacle = 10.0          # Obstacle avoidance (hinge)
+params.w_reference = 0.0          # Reference path tracking
+params.w_length = 1.0             # Elastic-band length
+params.w_obstacle = 1.0           # Obstacle avoidance (hinge)
 params.w_penetration = 1000.0     # Inside-obstacle penalty
 
 # Geometric constraints
@@ -422,9 +422,9 @@ params.safety_margin = 1.0        # meters (clearance from robot edge)
 params.robot_radius = 0.5         # meters (inscribed radius)
 
 # Resampling
-params.target_spacing = 0.3       # meters (used by resample only)
 params.resample_before_smooth = True
 params.resample_after_smooth = False
+params.resample_spacing = 0.3
 ```
 
 ### PathSmoother2D
@@ -524,15 +524,15 @@ if result.success:
 | `w_smooth` | 10.0 | 0 – ∞ | Smoothness weight. Higher = smoother path (less jerk). |
 | `w_max_curvature` | 1000.0 | 0 – ∞ | Curvature constraint weight. Enforces turning radius ≥ `min_turning_radius`. |
 | `min_turning_radius` | 0.2 m | > 0 | Minimum turning radius for the robot. |
-| `w_reference` | 5.0 | 0 – ∞ | Reference tracking weight. Higher = path stays closer to A\* route. Set 0 to disable. |
-| `w_length` | 2.0 | 0 – ∞ | Elastic-band length weight. Minimizes Σ‖Δp‖² for uniform spacing. |
-| `w_obstacle` | 10.0 | 0 – ∞ | Obstacle avoidance weight (soft hinge outside safety boundary). |
+| `w_reference` | 0.0 | 0 – ∞ | Reference tracking weight. Higher = path stays closer to A\* route. Set 0 to disable. |
+| `w_length` | 1.0 | 0 – ∞ | Elastic-band length weight. Minimizes Σ‖Δp‖² for uniform spacing. |
+| `w_obstacle` | 1.0 | 0 – ∞ | Obstacle avoidance weight (soft hinge outside safety boundary). |
 | `w_penetration` | 1000.0 | 0 – ∞ | Inside-obstacle penalty. Prevents stalling in walls. Set 0 to disable. |
 | `safety_margin` | 1.0 m | ≥ 0 | Desired clearance from robot **edge** to nearest obstacle. |
 | `robot_radius` | 0.5 m | ≥ 0 | Robot inscribed radius. Effective clearance = `safety_margin + robot_radius`. |
-| `target_spacing` | 0.3 m | > 0 | Desired inter-point spacing for resampling (not used by optimization). |
 | `resample_before_smooth` | `true` | bool | Resample input path to uniform spacing before optimization. |
 | `resample_after_smooth` | `false` | bool | Resample output path to uniform spacing after optimization. |
+| `resample_spacing` | 0.3 m | > 0 | Desired inter-point spacing for enabled resampling stages (not used by optimization). |
 | `max_iterations` | 100 | ≥ 0 | Ceres solver max iterations per stage. |
 | `max_time_seconds` | 0.5 s | ≥ 0 | Ceres solver wall-clock time limit. |
 | `verbose` | `false` | bool | Print per-iteration Ceres output. |

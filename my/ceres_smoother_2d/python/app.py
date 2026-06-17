@@ -1,8 +1,8 @@
-"""Flask + Plotly Web demo for Ceres 2D Smoother with A* planning.
+"""Ceres 二维平滑器 + A* 规划的 Flask + Plotly Web demo。
 
-Run:
+运行：
     ./run_web.sh
-Then open http://127.0.0.1:5000/
+然后打开 http://127.0.0.1:5000/
 """
 
 import base64
@@ -41,62 +41,67 @@ UNKNOWN_RGB = np.array([128, 128, 128], dtype=np.uint8)
 
 ESDF_SCHEME_DEFS = [
     {
-        "key": "clearance",
-        "label": "Clearance: collision / margin / free",
-        "vmin": -1.0,
-        "vmax": 3.0,
-        "stops": [
-            (0.00, "#4c0519"),
-            (0.18, "#b91c1c"),
-            (0.25, "#f97316"),
-            (0.38, "#fde68a"),
-            (0.58, "#67e8f9"),
-            (1.00, "#1d4ed8"),
-        ],
-        "swatch": "linear-gradient(to right,#4c0519,#b91c1c,#f97316,#fde68a,#67e8f9,#1d4ed8)",
-    },
-    {
         "key": "signed",
-        "label": "Signed: obstacle red / free blue",
+        "label": "Signed: 负=障碍内 / 0=边界 / 正=自由区",
         "vmin": -2.0,
         "vmax": 2.0,
         "stops": [
-            (0.00, "#7f1d1d"),
-            (0.30, "#ef4444"),
+            (0.00, "#d7a0a0"),
+            (0.30, "#efd0d0"),
             (0.50, "#f8fafc"),
-            (0.68, "#38bdf8"),
-            (1.00, "#0f766e"),
+            (0.70, "#d6edf7"),
+            (1.00, "#9fc5dc"),
         ],
-        "swatch": "linear-gradient(to right,#7f1d1d,#ef4444,#f8fafc,#38bdf8,#0f766e)",
+        "swatch": "linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#d6edf7,#9fc5dc)",
+        "legend": "ESDF：负=障碍内，0=边界，正=自由区",
+    },
+    {
+        "key": "clearance",
+        "label": "Clearance: 负红 / 近障黄 / 正蓝",
+        "vmin": -1.0,
+        "vmax": 3.0,
+        "stops": [
+            (0.00, "#d7a0a0"),
+            (0.20, "#efd0d0"),
+            (0.25, "#f8fafc"),
+            (0.38, "#f3e6b8"),
+            (0.58, "#d8f0ee"),
+            (1.00, "#9fc5dc"),
+        ],
+        "swatch": "linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#f3e6b8,#d8f0ee,#9fc5dc)",
+        "legend": "ESDF：负=障碍内，0=边界，正=自由区",
     },
     {
         "key": "safety",
-        "label": "Safety bands: wall / low / clear",
+        "label": "Safety bands: 负红 / 低净空黄 / 安全绿",
         "vmin": -0.5,
         "vmax": 2.5,
         "stops": [
-            (0.00, "#991b1b"),
-            (0.16, "#ef4444"),
-            (0.26, "#f59e0b"),
-            (0.42, "#fef08a"),
-            (0.64, "#86efac"),
-            (1.00, "#0284c7"),
+            (0.00, "#d7a0a0"),
+            (0.14, "#efd0d0"),
+            (0.17, "#f8fafc"),
+            (0.28, "#ead4a6"),
+            (0.42, "#f2e9bd"),
+            (0.64, "#cfe7d0"),
+            (1.00, "#9fc5dc"),
         ],
-        "swatch": "linear-gradient(to right,#991b1b,#ef4444,#f59e0b,#fef08a,#86efac,#0284c7)",
+        "swatch": "linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#ead4a6,#f2e9bd,#cfe7d0,#9fc5dc)",
+        "legend": "ESDF：负=障碍内，0=边界，正=自由区",
     },
     {
         "key": "relief",
-        "label": "Relief: dark wall / bright clearance",
-        "vmin": -0.8,
-        "vmax": 2.0,
+        "label": "Diverging: 负紫 / 0白 / 正绿",
+        "vmin": -1.5,
+        "vmax": 1.5,
         "stops": [
-            (0.00, "#020617"),
-            (0.24, "#7f1d1d"),
-            (0.29, "#f97316"),
-            (0.48, "#cbd5e1"),
-            (1.00, "#ffffff"),
+            (0.00, "#c6b7d8"),
+            (0.30, "#e1d7ec"),
+            (0.50, "#f8fafc"),
+            (0.70, "#d8ead9"),
+            (1.00, "#a9c9a9"),
         ],
-        "swatch": "linear-gradient(to right,#020617,#7f1d1d,#f97316,#cbd5e1,#fff)",
+        "swatch": "linear-gradient(to right,#c6b7d8,#e1d7ec,#f8fafc,#d8ead9,#a9c9a9)",
+        "legend": "ESDF：负=障碍内，0=边界，正=自由区",
     },
 ]
 
@@ -135,10 +140,10 @@ def _source_map_masks(path):
     obstacle_mask = src_png <= 1
     free_mask = src_png > 127
     status = np.zeros_like(src_png, dtype=np.uint8)
-    status[free_mask] = 0          # 空白/Free
-    status[obstacle_mask] = 1       # 占用/Obstacle
-    status[unknown_mask] = 2        # 未知/Unknown
-    # ESDF uses row-flipped indexing so convert to same row orientation as world grid.
+    status[free_mask] = 0          # 空白/自由
+    status[obstacle_mask] = 1       # 占用/障碍
+    status[unknown_mask] = 2        # 未知
+    # ESDF 使用行翻转索引，因此转换为与世界栅格一致的行方向。
     return free_mask, obstacle_mask, unknown_mask, status[::-1, :]
 
 
@@ -160,6 +165,7 @@ def _build_esdf_schemes(esdf_png_rows, unknown_mask):
         schemes.append({
             "key": scheme["key"],
             "label": scheme["label"],
+            "legend": scheme["legend"],
             "swatch": scheme["swatch"],
             "png": _encode_png(rgb),
         })
@@ -177,8 +183,8 @@ def init_map():
 
     COSTMAP_B64 = _build_costmap_png(free_mask, obstacle_mask, unknown_mask)
 
-    # ESDFMap stores rows flipped (row r = PNG row H-1-r). Flip back before
-    # creating display images so PNG row 0 corresponds to world y_max.
+    # ESDFMap 内部按翻转后的行存储（第 r 行 = PNG 第 H-1-r 行）。
+    # 生成显示图像前翻转回来，使 PNG 第 0 行对应世界 y_max。
     ed = np.array(esdf_map.get_esdf_array()).reshape(esdf_map.height, esdf_map.width)
     ESDF_SCHEMES = _build_esdf_schemes(ed[::-1, :], unknown_mask)
     ESDF_B64 = ESDF_SCHEMES[0]["png"]
@@ -186,11 +192,11 @@ def init_map():
 
 
 def compute_path_cost_breakdown(xs, ys, pm, map_obj):
-    """Recompute readable path costs on the returned path.
+    """在返回路径上重新计算便于阅读的路径代价。
 
-    Ceres reports 0.5 * sum(residual^2). These terms use the same convention.
-    Reference cost is omitted because the optimizer's internal reference path
-    can be resampled to a different point count than the final returned path.
+    Ceres 报告 0.5 * sum(residual^2)。这里的各项使用相同约定。
+    参考路径代价被省略，因为优化器内部参考路径可能被重采样为与最终返回路径
+    不同的点数。
     """
     n = len(xs)
     terms = dict(length=0.0, smooth=0.0, curvature=0.0, obstacle=0.0, penetration=0.0)
@@ -289,14 +295,15 @@ def _make_smoother_params(body):
     else:
         pm.robot_radius = 0.5
     pm.max_time_seconds = float(body.get("max_time_seconds", 2.0))
-    pm.target_spacing = float(body.get("target_spacing", 0.3))
     pm.resample_after_smooth = bool(body.get("resample_after_smooth", False))
     pm.resample_before_smooth = bool(body.get("resample_before_smooth", True))
+    legacy_spacing = body.get("target_spacing", 0.3)
+    pm.resample_spacing = float(body.get("resample_spacing", legacy_spacing))
     return pm
 
 
 def _obstacle_cost_distance(pm):
-    """Effective obstacle cost distance = safety_margin + robot_radius."""
+    """有效障碍代价距离 = safety_margin + robot_radius。"""
     return pm.safety_margin + pm.robot_radius
 
 
@@ -315,12 +322,11 @@ def _path_length(points):
 
 
 def _compute_curvature_profile(xs, ys):
-    """Compute discrete curvature at each interior point.
+    """计算每个内部点的离散曲率。
 
-    Uses the Menger curvature formula: kappa = 2*sin(theta) / ds,
-    where theta is the turning angle between consecutive segments
-    and ds is the average step size.
-    Returns (max_kappa, curvatures_list).
+    使用 Menger 曲率公式：kappa = 2*sin(theta) / ds，
+    其中 theta 是相邻线段的转角，ds 是平均步长。
+    返回 (max_kappa, curvatures_list)。
     """
     n = len(xs)
     if n < 3:
@@ -363,7 +369,7 @@ def api_costmap():
 
 @app.route("/api/query")
 def api_query():
-    """Query map data at a world coordinate (x, y)."""
+    """查询世界坐标 (x, y) 处的地图数据。"""
     try:
         x = float(request.args.get("x", 0))
         y = float(request.args.get("y", 0))

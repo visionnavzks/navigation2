@@ -1,16 +1,16 @@
 #pragma once
 
 /**
- * Ceres-based 2D path smoother with ESDF obstacle avoidance.
+ * 基于 Ceres 的二维路径平滑器，带 ESDF 障碍物避让。
  *
- * Costs:
- *   - Smoothness:  jerk penalty  (second-order finite difference)
- *   - Curvature:   hinge penalty on local turning angle (≤ min_turning_radius)
- *   - Reference:   spring toward the A* reference path
- *   - Length:      elastic-band squared segment length (uniform-spacing force)
- *   - Obstacle:    ESDF-based; pushes path away from obstacles
+ * 代价项：
+ *   - 平滑度：二阶有限差分惩罚
+ *   - 曲率：局部转角超过限制时的 hinge 惩罚（≤ min_turning_radius）
+ *   - 参考路径：拉向 A* 参考路径的弹簧项
+ *   - 长度：弹性带平方段长（均匀间距作用力）
+ *   - 障碍物：基于 ESDF，将路径推离障碍物
  *
- * All gradients via Ceres AutoDiff (Jet<double,N>). No ROS dependency.
+ * 所有梯度都通过 Ceres AutoDiff（Jet<double,N>）计算。无 ROS 依赖。
  */
 
 #include <algorithm>
@@ -31,15 +31,13 @@
 namespace ceres_smoother_2d
 {
 
-// NOTE on constructor conventions:
-// All cost structs accept a pre-computed sqrt_w in their constructor
-// and store it directly.  The caller is responsible for computing
-// sqrt(w) *once*; the struct must NOT call std::sqrt again internally.
+// 构造函数约定：
+// 所有代价结构体在构造函数中接收预先计算好的 sqrt_w 并直接保存。
+// 调用方负责只计算一次 sqrt(w)；结构体内部不能再调用 std::sqrt。
 
-// Smoothness cost: penalizes second-order finite difference (= discrete
-// acceleration, not jerk).  Jerk would be a 4-point cubic difference
-// p[i+2]-3*p[i+1]+3*p[i]-p[i-1]; we keep this 3-point form because it
-// still yields a tridiagonal Hessian and a closed-form Ceres AutoDiff.
+// 平滑度代价：惩罚二阶有限差分（离散加速度，而非 jerk）。
+// jerk 会是 4 点三阶差分 p[i+2]-3*p[i+1]+3*p[i]-p[i-1]；
+// 这里保留 3 点形式，因为它仍产生三对角 Hessian，且 Ceres AutoDiff 形式简单。
 //   residual = sqrt_w * (p_next - 2*p_curr + p_prev)
 struct SmoothnessCost
 {
@@ -56,17 +54,15 @@ struct SmoothnessCost
   double sqrt_w_;
 };
 
-// Curvature cost: turning-angle hinge loss.
-// Penalizes when the actual turning angle θ exceeds the allowed limit
-// κ_max · ds, where ds is the local average step size.
+// 曲率代价：转角 hinge loss。
+// 当实际转角 θ 超过允许上限 κ_max · ds 时惩罚，其中 ds 为局部平均步长。
 //
-// Unlike the previous dot-product deficit formulation, this version
-// directly computes the angle via atan2, which is more intuitive:
+// 与之前的点积亏损形式不同，这里直接用 atan2 计算角度，更直观：
 //   θ = atan2(|cross|, dot)
 //   violation = max(0, θ - κ_max · ds)
 //
-// Uses sqrt(cross² + eps) instead of abs(cross) to stay smooth at 0
-// for Ceres AutoDiff compatibility.
+// 为兼容 Ceres AutoDiff，在 0 附近保持平滑，使用 sqrt(cross² + eps)
+// 替代 abs(cross)。
 struct CurvatureCost
 {
   CurvatureCost(double sqrt_w, double max_kappa)
@@ -87,13 +83,13 @@ struct CurvatureCost
     const T dot = v1x * v2x + v1y * v2y;
     const T cross = v1x * v2y - v1y * v2x;
 
-    // atan2(|cross|, dot) gives the unsigned turning angle in [0, π].
-    // sqrt(cross² + eps) instead of abs(cross) for smoothness at 0.
+    // atan2(|cross|, dot) 得到 [0, π] 范围内的无符号转角。
+    // 使用 sqrt(cross² + eps) 替代 abs(cross)，保证 0 附近平滑。
     const T theta = ceres::atan2(ceres::sqrt(cross * cross + T(1e-12)), dot);
     const T theta_limit = T(max_kappa_) * ds;
     const T violation = theta - theta_limit;
 
-    // Gate on scalar part for the hinge (same pattern as ObstacleCostCeres).
+    // hinge 根据标量部分开关，模式与 ObstacleCostCeres 相同。
     double viol_scalar;
     if constexpr (std::is_same<T, double>::value) {
       viol_scalar = violation;
@@ -108,7 +104,7 @@ struct CurvatureCost
   double max_kappa_;
 };
 
-// Reference cost: penalty for deviating from the reference path.
+// 参考路径代价：惩罚偏离参考路径。
 //   residual = sqrt_w * (p - p_ref)
 struct ReferenceCost
 {
@@ -127,22 +123,20 @@ struct ReferenceCost
   double sqrt_w_;
 };
 
-// Elastic-band length cost: minimize Σ‖p_next - p_curr‖² (sum of squared
-// inter-point distances). Equivalent to the "rubber band" force used in
-// TEB / E-band planners — no rest length, no sqrt nonlinearity.
+// 弹性带长度代价：最小化 Σ‖p_next - p_curr‖²（相邻点距离平方和）。
+// 等价于 TEB / E-band 规划器中的“橡皮筋”力，没有静止长度，也没有 sqrt 非线性。
 //
-//   residual = sqrt_w * (p_next - p_curr)        // 2 components (dx, dy)
-//   Ceres reports 0.5 * sum(residual²), so final_cost contribution is
-//   0.5 * w * (dx² + dy²) per segment.
+//   residual = sqrt_w * (p_next - p_curr)        // 2 个分量 (dx, dy)
+//   Ceres 报告 0.5 * sum(residual²)，因此每段对 final_cost 的贡献为
+//   0.5 * w * (dx² + dy²)。
 //
-// Why this over a target_spacing spring:
-//   - Pure linear residual → constant Jacobian → Ceres converges in only
-//     a few iterations. No sqrt(.) nonlinearity, no 1/||Δp|| singularities.
-//   - No fixed rest length → no conflict with the locked start/goal points
-//     (target_spacing × (N-1) rarely equals the actual path length).
-//   - When the total length is bounded by other costs (smoothness, reference,
-//     obstacle), minimizing Σ‖Δs‖² also evens out segment lengths, so the
-//     resample_after_smooth step finishes the job deterministically.
+// 相比 target_spacing 弹簧的优点：
+//   - 纯线性残差 → 常量 Jacobian → Ceres 只需少量迭代即可收敛。
+//     没有 sqrt(.) 非线性，也没有 1/||Δp|| 奇异点。
+//   - 没有固定静止长度 → 不会与锁定的起终点冲突
+//     （target_spacing × (N-1) 很少等于真实路径长度）。
+//   - 当总长度受其他代价（平滑、参考、障碍）约束时，最小化 Σ‖Δs‖²
+//     也会拉均匀段长，因此 resample_after_smooth 可以确定性地完成收尾。
 struct PathLengthSquareCost
 {
   explicit PathLengthSquareCost(double sqrt_w) : sqrt_w_(sqrt_w) {}
@@ -157,28 +151,24 @@ struct PathLengthSquareCost
   double sqrt_w_;
 };
 
-// Obstacle cost: two terms for cleaner wall behavior.
-//   residual[0] = sqrt_w_obstacle  * max(0, safe_dist - dist)   // soft hinge outside
-//   residual[1] = sqrt_w_penetrate * max(0, -dist)             // hard penalty inside
+// 障碍物代价：两个项共同改善墙体附近行为。
+//   residual[0] = sqrt_w_obstacle  * max(0, safe_dist - dist)   // 外侧 soft hinge
+//   residual[1] = sqrt_w_penetrate * max(0, -dist)              // 内部强惩罚
 //
-// The first term is the standard symmetric hinge: as the path approaches
-// the safety boundary from outside, residual grows; past the boundary
-// (dist < 0) it stays at a flat plateau. The second term fills in that
-// plateau so the optimizer keeps pushing OUT the deeper it goes — a
-// point 0.3m inside a wall pays `0.5 * w_penetration * 0.09`, vs. a
-// point at the boundary which pays only `0.5 * w_obstacle * safe_dist^2`.
+// 第一项是标准对称 hinge：路径从外侧靠近安全边界时残差增大；
+// 越过边界后（dist < 0）会进入平坦平台。第二项补上这个平台，
+// 使点越深入障碍，优化器越持续向外推。例如位于墙内 0.3m 的点会支付
+// `0.5 * w_penetration * 0.09`，而边界点只支付
+// `0.5 * w_obstacle * safe_dist^2`。
 //
-// Both weights default so w_penetration=0 reproduces the old single-term
-// behavior exactly. Setting w_penetration > 0 makes inside-obstacle
-// states strictly suboptimal, eliminating the "stuck inside a wall"
-// local minimum that the hinge alone cannot escape.
+// w_penetration=0 时可精确复现旧的单项行为。设置 w_penetration > 0 后，
+// 障碍内部状态会严格劣于外部状态，从而消除仅靠 hinge 无法逃离的
+// “卡在墙内”局部最小值。
 //
-// BILINEAR (not BiCubic) lookup — see the long comment on
-// ESDFMap::bilinearJet for why. The BiCubic kernel overshoots across
-// the sharp ESDF discontinuity at obstacle boundaries, producing wildly
-// wrong distances (and gradients that point INTO walls). Bilinear is
-// C^0 only but always bounded by neighbor min/max — so the push direction
-// is always correct.
+// 查询使用双线性（不是双三次），原因见 ESDFMap::bilinearJet 的长注释。
+// 双三次核会跨越障碍边界处的 ESDF 尖锐不连续并过冲，产生严重错误的距离
+// （甚至梯度指向墙内）。双线性仅为 C^0，但始终受邻居 min/max 约束，
+// 因此推离方向始终正确。
 struct ObstacleCostCeres
 {
   ObstacleCostCeres(
@@ -196,12 +186,11 @@ struct ObstacleCostCeres
   template<typename T>
   bool operator()(const T * p, T * residual) const
   {
-    // Bilinear ESDF lookup with analytical Jet derivatives.
+    // 带解析 Jet 导数的双线性 ESDF 查询。
     const T dist = map_->bilinearJet<T>(p[0], p[1]);
     const T diff = T(safe_dist_) - dist;
-    // Gate the hinge on the scalar part. Ceres Jet<T,N> has no implicit
-    // conversion to T, so peek at the .a member; for plain double this
-    // branch is taken and the result is identity.
+    // hinge 根据标量部分开关。Ceres Jet<T,N> 不能隐式转换为 T，
+    // 因此需要查看 .a 成员；普通 double 会走恒等分支。
     double diff_scalar;
     if constexpr (std::is_same<T, double>::value) {
       diff_scalar = diff;
@@ -209,9 +198,9 @@ struct ObstacleCostCeres
       diff_scalar = diff.a;
     }
     residual[0] = diff_scalar > 0.0 ? sqrt_w_obstacle_ * diff : T(0.0);
-    // Penetration cost: -dist > 0 only when inside an obstacle. Active
-    // on the SECOND residual so the AutoDiff slot count matches what
-    // we declare in AddResidualBlock<ObstacleCostCeres, 2, 2>.
+    // 穿透代价：只有位于障碍内部时 -dist > 0。该项放在第二个残差上，
+    // 使 AutoDiff 槽位数量与 AddResidualBlock<ObstacleCostCeres, 2, 2>
+    // 中声明的一致。
     const T pen = -dist;
     double pen_scalar;
     if constexpr (std::is_same<T, double>::value) {
@@ -228,7 +217,7 @@ struct ObstacleCostCeres
 };
 
 // ========================================================================
-// Smoother Result
+// 平滑结果
 // ========================================================================
 struct SmootherResult
 {
@@ -244,21 +233,20 @@ struct SmootherResult
 // ========================================================================
 // resamplePathByArcLength
 // ========================================================================
-// Uniformly resample a polyline along its arc length so consecutive output
-// points are ~`target_spacing` meters apart. Keeps the first and last points
-// exactly (no endpoint drift) and linearly interpolates within each input
-// segment. Used as an optional post-processing step after smooth().
+// 沿弧长均匀重采样折线，使相邻输出点约相隔 `target_spacing` 米。
+// 精确保留首尾点（无端点漂移），并在每个输入线段内线性插值。
+// smooth() 后可将其作为可选后处理步骤。
 //
-// Args:
-//   xs_in, ys_in:    input polyline (N >= 2)
-//   target_spacing:  desired average inter-point distance (meters)
-//   xs_out, ys_out:  resampled output polyline
+// 参数：
+//   xs_in, ys_in：   输入折线（N >= 2）
+//   target_spacing： 期望平均点间距（米）
+//   xs_out, ys_out： 重采样后的输出折线
 //
-// Notes:
-//   - Output count M = max(2, round(L / target_spacing) + 1) where L is the
-//     total arc length, guaranteeing average spacing <= target.
-//   - If N < 2, target_spacing <= 0, or total arc length is ~0, the input
-//     is returned unchanged (degenerate case: no resampling possible).
+// 说明：
+//   - 输出点数 M = max(2, round(L / target_spacing) + 1)，其中 L 为总弧长，
+//     可保证平均间距 <= target。
+//   - 若 N < 2、target_spacing <= 0 或总弧长近似为 0，则原样返回输入
+//     （退化情况，无法重采样）。
 inline void resamplePathByArcLength(
   const std::vector<double> & xs_in,
   const std::vector<double> & ys_in,
@@ -275,7 +263,7 @@ inline void resamplePathByArcLength(
     return;
   }
 
-  // Cumulative arc length at each input vertex.
+  // 每个输入顶点处的累计弧长。
   std::vector<double> cum(N, 0.0);
   for (int i = 1; i < N; ++i) {
     const double dx = xs_in[i] - xs_in[i - 1];
@@ -284,7 +272,7 @@ inline void resamplePathByArcLength(
   }
   const double total = cum.back();
   if (total < 1e-12) {
-    // All input points coincide: nothing to resample.
+    // 所有输入点重合：无需重采样。
     xs_out = xs_in;
     ys_out = ys_in;
     return;
@@ -295,15 +283,15 @@ inline void resamplePathByArcLength(
 
   xs_out.resize(M);
   ys_out.resize(M);
-  // Anchor endpoints to original vertices (preserves start/goal exactly).
+  // 将端点锚定到原始顶点，精确保留起终点。
   xs_out[0] = xs_in.front();
   ys_out[0] = ys_in.front();
   xs_out[M - 1] = xs_in.back();
   ys_out[M - 1] = ys_in.back();
 
-  // For each intermediate output, walk cum[] once to find the enclosing
-  // segment. Output arc lengths are monotonic, so the segment index only
-  // moves forward: O(N + M) instead of restarting the search for every point.
+  // 对每个中间输出点，只遍历一次 cum[] 来寻找所在输入线段。
+  // 输出弧长单调递增，因此线段索引只会向前移动：复杂度 O(N + M)，
+  // 不必为每个点重新搜索。
   int i = 1;
   for (int j = 1; j < M - 1; ++j) {
     const double s = static_cast<double>(j) * total / static_cast<double>(M - 1);
@@ -316,7 +304,7 @@ inline void resamplePathByArcLength(
 }
 
 // ========================================================================
-// PathSmoother2D: Ceres-based 2D path smoother
+// PathSmoother2D：基于 Ceres 的二维路径平滑器
 // ========================================================================
 class PathSmoother2D
 {
@@ -344,15 +332,14 @@ public:
       return result;
     }
 
-    // Pre-processing: optionally resample the input to uniform spacing so
-    // the optimizer starts from an evenly distributed initial guess. Without
-    // this, A*-style inputs with dense clusters near walls and sparse points
-    // in open space would force the optimizer to fight that unevenness.
+    // 前处理：可选地将输入重采样为均匀间距，使优化器从分布均匀的初值开始。
+    // 如果不这样做，A* 风格输入中墙边密集、开阔区域稀疏的点分布会被继承，
+    // 优化器需要额外对抗这种不均匀性。
     std::vector<double> xs = x_in;
     std::vector<double> ys = y_in;
-    if (params_.resample_before_smooth && params_.target_spacing > 0.0) {
+    if (params_.resample_before_smooth && params_.resample_spacing > 0.0) {
       std::vector<double> rx, ry;
-      resamplePathByArcLength(xs, ys, params_.target_spacing, rx, ry);
+      resamplePathByArcLength(xs, ys, params_.resample_spacing, rx, ry);
       xs = std::move(rx);
       ys = std::move(ry);
     }
@@ -407,18 +394,15 @@ public:
         problem.SetParameterBlockConstant(path_optim[N - 1].data());
 
         const double sqrt_w_obs = sqrt_weight(obstacle_weight);
-        // Penetration cost uses its own (decoupled) sqrt weight so the user
-        // can tune "soft obstacle" vs. "hard wall" independently. We do
-        // NOT scale it across obstacle_weight_stages — the goal of the
-        // staged ramp is to let the smoother find a good shape first
-        // (with a low w_obstacle), then progressively tighten. The
-        // penetration term should always be on at full strength: even at
-        // stage 0, we don't want the optimizer sitting inside a wall.
+        // 穿透代价使用独立（解耦）的 sqrt 权重，使用户可以独立调节
+        // “软障碍”和“硬墙”行为。它不会随 obstacle_weight_stages 缩放：
+        // 分阶段提升的目标是先用较低 w_obstacle 找到合理形状，再逐步收紧。
+        // 穿透项应始终全强度开启；即使在 stage 0，也不希望优化器停在墙内。
         const double sqrt_w_pen = sqrt_weight(params_.w_penetration);
-        // Obstacle cost uses the ESDFMap's Jet-aware bilinear lookup directly
-        // (see ObstacleCostCeres comment for why bilinear instead of BiCubic).
+        // 障碍物代价直接使用 ESDFMap 支持 Jet 的双线性查询。
+        // 为什么使用双线性而非双三次，见 ObstacleCostCeres 注释。
         for (int i = 0; i < N; ++i) {
-          // Intermediate node costs (position + obstacle)
+          // 中间节点代价（位置 + 障碍物）。
           if (i > 0 && i < N - 1) {
             if (params_.w_reference > 0.0) {
               problem.AddResidualBlock(
@@ -435,8 +419,8 @@ public:
             }
           }
 
-          // Elastic-band length cost: squared inter-point distance.
-          // 2 residuals (dx, dy) -> constant Jacobian -> fast convergence.
+          // 弹性带长度代价：相邻点距离平方。
+          // 2 个残差 (dx, dy) -> 常量 Jacobian -> 快速收敛。
           if (params_.w_length > 0.0 && i < N - 1) {
             problem.AddResidualBlock(
               new ceres::AutoDiffCostFunction<PathLengthSquareCost, 2, 2, 2>(
@@ -444,7 +428,7 @@ public:
               nullptr, path_optim[i].data(), path_optim[i + 1].data());
           }
 
-          // Three-point geometric constraints (i = 1 .. N-2)
+          // 三点几何约束（i = 1 .. N-2）。
           if (i > 0 && i < N - 1) {
             if (params_.w_smooth > 0.0) {
               problem.AddResidualBlock(
@@ -469,7 +453,7 @@ public:
         options.max_solver_time_in_seconds = params_.max_time_seconds;
         options.minimizer_progress_to_stdout = params_.verbose;
         options.logging_type = params_.verbose ? ceres::PER_MINIMIZER_ITERATION : ceres::SILENT;
-        // Threading overhead exceeds the speedup for sub-2k-variable problems.
+        // 对少于约 2k 变量的问题，线程开销超过并行带来的收益。
         options.num_threads = 1;
 
         ceres::Solver::Summary summary;
@@ -529,12 +513,11 @@ public:
       result.y[i] = path_optim[i][1];
     }
 
-    // Optional post-processing: enforce uniform inter-point spacing along
-    // the smoothed path.  When enabled, the result may contain more (or
-    // fewer) points than the input; start/goal positions are preserved.
-    if (params_.resample_after_smooth && params_.target_spacing > 0.0) {
+    // 可选后处理：沿平滑路径强制均匀点间距。启用后，结果点数可能多于
+    // 或少于输入；起终点位置保持不变。
+    if (params_.resample_after_smooth && params_.resample_spacing > 0.0) {
       std::vector<double> rx, ry;
-      resamplePathByArcLength(result.x, result.y, params_.target_spacing, rx, ry);
+      resamplePathByArcLength(result.x, result.y, params_.resample_spacing, rx, ry);
       result.x = std::move(rx);
       result.y = std::move(ry);
     }

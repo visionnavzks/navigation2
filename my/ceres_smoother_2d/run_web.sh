@@ -2,7 +2,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Ensure nanobind module is up-to-date (cmake增量编译，未改动文件不会重编)
+# 确保 nanobind 模块是最新的（cmake 增量编译，未改动文件不会重编）。
 BUILD_DIR="$SCRIPT_DIR/build"
 cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release
 cmake --build "$BUILD_DIR" -j"$(nproc)"

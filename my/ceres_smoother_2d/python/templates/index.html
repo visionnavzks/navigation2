@@ -66,6 +66,7 @@ details.category .field:last-child{margin-bottom:6px}
 .legend-items{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
 .legend-item{display:inline-flex;align-items:center;gap:5px;color:#34495e;white-space:nowrap;user-select:none}
 .leg-swatch{display:inline-block;width:14px;height:14px;flex:none;box-sizing:border-box}
+.leg-swatch.esdf{width:90px;height:10px;border-radius:2px;border:1px solid rgba(0,0,0,.12)}
 .leg-swatch.line{height:3px;border-radius:1.5px;border:none!important}
 .leg-swatch.line-dash{height:3px;border-radius:0;
   background-image:linear-gradient(to right,currentColor 50%,transparent 50%);
@@ -77,7 +78,7 @@ details.category .field:last-child{margin-bottom:6px}
 <h1>🚗 Ceres 2D 平滑器 — A* + Ceres 路径规划</h1>
 
 <div class="main-layout">
-  <!-- LEFT: Parameters -->
+  <!-- 左侧：参数 -->
   <div class="panel">
     <details open>
     <summary style="cursor:pointer;list-style:none">
@@ -156,12 +157,12 @@ details.category .field:last-child{margin-bottom:6px}
           <input id="p-max-iter" type="number" step="10" min="10" value="200"></div>
         <div class="field"><label>max_time · 求解器时间上限 (秒)</label>
           <input id="p-max-time" type="number" step="0.1" min="0.1" value="2.0"></div>
-        <div class="field"><label>target_spacing · 路径点间距 (米)</label>
-          <input id="p-target-spacing" type="number" step="0.05" min="0.01" value="0.3"></div>
         <div class="field"><label>resample_before_smooth · 平滑前重采样输入</label>
           <input id="p-resample-in" type="checkbox" checked></div>
         <div class="field"><label>resample_after_smooth · 平滑后重采样</label>
           <input id="p-resample" type="checkbox"></div>
+        <div class="field"><label>resample_spacing · 重采样点间距 (米)</label>
+          <input id="p-resample-spacing" type="number" step="0.05" min="0.01" value="0.3"></div>
 
       </details>
 
@@ -176,7 +177,7 @@ details.category .field:last-child{margin-bottom:6px}
     </details>
   </div>
 
-  <!-- CENTER: Plot -->
+  <!-- 中间：图像 -->
   <div class="panel plot-panel" style="position:relative">
     <div id="plot"></div>
     <div class="hint" id="hint">提示：在左侧输入或点击地图设置起点/终点，然后点击"开始规划"。
@@ -188,7 +189,7 @@ details.category .field:last-child{margin-bottom:6px}
           <span class="legend-item"><i class="leg-swatch" style="background:#fff;border:1px solid #ccc"></i>自由空间</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#000"></i>障碍物</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#808080"></i>Unknown</span>
-          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch" style="background:linear-gradient(to right,#4c0519,#b91c1c,#f97316,#fde68a,#67e8f9,#1d4ed8)"></i><span id="lg-esdf-label">ESDF</span></span>
+          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch esdf" style="background:linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#d6edf7,#9fc5dc)"></i><span id="lg-esdf-label">ESDF：负=障碍内，0=边界，正=自由区</span></span>
         </div>
       </div>
       <div class="legend-section">
@@ -205,7 +206,7 @@ details.category .field:last-child{margin-bottom:6px}
     </div>
   </div>
 
-  <!-- RIGHT: Results -->
+  <!-- 右侧：结果 -->
   <div class="panel">
     <h2>📊 规划结果</h2>
     <div class="result-block">
@@ -278,7 +279,7 @@ async function init(){
   const schemeSelect=document.getElementById('esdf-scheme');
   const schemes=costmapMeta.esdf_schemes||[];
   schemeSelect.innerHTML=schemes.map(s=>`<option value="${s.key}">${s.label}</option>`).join('');
-  // Preload ESDF image
+  // 预加载 ESDF 图像。
   esdfImg=new Image(); esdfImg.src='data:image/png;base64,'+getEsdfScheme().png;
   esdfImg.onload=()=>drawPlot();
   clearHoverPanel();
@@ -321,11 +322,11 @@ function drawPlot(){
   const esdfScheme=getEsdfScheme();
   const showGrid=document.getElementById('show-grid').checked;
   const traces=[];
-  // Trace 0: start marker (draggable)
+  // 轨迹 0：起点标记（可拖动）。
   traces.push({type:'scatter',mode:'markers',showlegend:false,legendgroup:'start',name:'S',
     x:[sg.sx],y:[sg.sy],marker:{size:16,color:'rgba(34,197,94,0.3)',line:{color:'#22c55e',width:2.5},cursor:'grab'},
     text:['S'],textposition:'middle center',textfont:{size:10,color:'#fff',family:'Arial Black'},hoverinfo:'text',hovertext:'起点 (拖动我)'});
-  // Trace 1: goal marker (draggable)
+  // 轨迹 1：终点标记（可拖动）。
   traces.push({type:'scatter',mode:'markers+text',showlegend:false,legendgroup:'goal',name:'G',
     x:[sg.gx],y:[sg.gy],marker:{size:16,color:'rgba(239,68,68,0.3)',line:{color:'#ef4444',width:2.5},cursor:'grab'},
     text:['G'],textposition:'middle center',textfont:{size:10,color:'#fff',family:'Arial Black'},hoverinfo:'text',hovertext:'终点 (拖动我)'});
@@ -344,12 +345,12 @@ function drawPlot(){
 
   const bgImg=showEsdf?{source:'data:image/png;base64,'+esdfScheme.png,
     xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
-    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below',opacity:1}
+    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below',opacity:0.72}
     :{source:'data:image/png;base64,'+costmapMeta.png,
     xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
     sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below'};
 
-  // Robot footprint shapes
+  // 机器人足迹形状。
   const robotShapes=[];
   const showRobot=document.getElementById('show-robot').checked;
   const showSafety=document.getElementById('show-safety').checked;
@@ -398,7 +399,8 @@ function getEsdfScheme(){
   const schemes=costmapMeta?.esdf_schemes||[];
   const selected=document.getElementById('esdf-scheme')?.value;
   return schemes.find(s=>s.key===selected)||schemes[0]||{
-    key:'default',label:'ESDF',swatch:'linear-gradient(to right,#4c0519,#b91c1c,#f97316,#fde68a,#67e8f9,#1d4ed8)',
+    key:'default',label:'ESDF',legend:'ESDF：负=障碍内，0=边界，正=自由区',
+    swatch:'linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#d6edf7,#9fc5dc)',
     png:costmapMeta?.esdf_png||''
   };
 }
@@ -499,7 +501,7 @@ function onEndpointPointerUp(evt){
 }
 
 // --- Endpoint drag + click-to-move. Endpoint drag captures the pointer before
-// Plotly's pan handler sees it, while ordinary map drags still use Plotly pan. ---
+// 让 Plotly 的平移处理器接收普通地图拖动，同时标记拖动由自定义逻辑处理。---
 function setupDrag(){
   const gd=document.getElementById('plot');
   if(!gd._endpointHandlersBound){
@@ -512,16 +514,16 @@ function setupDrag(){
   gd._plotlyClickBound=true;
   gd.on('plotly_click',(data)=>{
     if(Date.now()<suppressPlotClickUntil)return;
-    if(mode) return; // don't interfere with click-to-place mode
+    if(mode) return; // 不干扰点击放置模式。
     if(!data.points||!data.points.length) return;
     const pt=data.points[0];
     const wx=Math.max(0,Math.min(costmapMeta.extent_x,+pt.x.toFixed(2)));
     const wy=Math.max(0,Math.min(costmapMeta.extent_y,+pt.y.toFixed(2)));
     if(pt.curveNumber===0){
-      // Clicked on start marker.
+      // 点击了起点标记。
       setEndpoint('start',wx,wy);
     } else if(pt.curveNumber===1){
-      // Clicked on goal marker.
+      // 点击了终点标记。
       setEndpoint('goal',wx,wy);
     } else return;
     drawPlot();
@@ -595,7 +597,7 @@ function renderLegend(){
   const esdfSwatch=document.getElementById('lg-esdf-swatch');
   const esdfLabel=document.getElementById('lg-esdf-label');
   if(esdfSwatch)esdfSwatch.style.background=scheme.swatch;
-  if(esdfLabel)esdfLabel.textContent=scheme.key==='signed'?'ESDF signed':'ESDF clearance';
+  if(esdfLabel)esdfLabel.textContent=scheme.legend||'ESDF：负=障碍内，0=边界，正=自由区';
   const sec=document.getElementById('lg-paths'),items=document.getElementById('lg-paths-items');
   if(!lastResult||!lastResult.found){sec.style.display='none';return;}
   sec.style.display='';
@@ -623,7 +625,7 @@ function getParams(){
     min_turning_radius:+document.getElementById('p-min-turn').value,
     max_iterations:+document.getElementById('p-max-iter').value,
     max_time_seconds:+document.getElementById('p-max-time').value,
-    target_spacing:+document.getElementById('p-target-spacing').value,
+    resample_spacing:+document.getElementById('p-resample-spacing').value,
     resample_after_smooth:document.getElementById('p-resample').checked,
     resample_before_smooth:document.getElementById('p-resample-in').checked};
   const rr=document.getElementById('p-robot-radius').value;
@@ -728,12 +730,12 @@ function resetParams(){
   const d={downsample:3,w_smooth:100,w_max_curvature:1000,w_reference:0,w_length:0.5,w_obstacle:1,
     w_penetration:1000,
     safety_margin:1.0,robot_radius:0.5,min_turning_radius:0.5,max_iterations:200,max_time:2.0,resample_after_smooth:false,
-    target_spacing:0.3};
+    resample_spacing:0.3};
   Object.entries(d).forEach(([k,v])=>{
     const el=document.getElementById('p-'+k.replace(/_/g,'-'));
     if(el)el.value=v;
   });
-  // Defaults match the demo controls.
+  // 默认值与 demo 控件保持一致。
   document.getElementById('p-robot-radius').value='0.5';
 
   document.getElementById('p-resample').checked=false;
@@ -741,22 +743,22 @@ function resetParams(){
   if(lastResult)runPlan();
 }
 
-// Show ESDF toggle → redraw
+// 显示 ESDF 开关变化后重绘。
 document.getElementById('show-esdf').addEventListener('change',drawPlot);
 document.getElementById('show-grid').addEventListener('change',drawPlot);
 document.getElementById('show-robot').addEventListener('change',drawPlot);
 document.getElementById('show-safety').addEventListener('change',drawPlot);
 document.getElementById('esdf-scheme').addEventListener('change',drawPlot);
 
-// Auto-replan: debounce 600ms after changes. Goal edits force the first plan;
-// other edits only replan after a result already exists.
+// 自动重新规划：变更后 debounce 600ms。目标点编辑会触发首次规划；
+// 其他编辑只有在已有结果后才会重新规划。
 let _autoTimer=null;
 function scheduleAutoReplan(force=false){
   if(!force&&!lastResult)return;
   clearTimeout(_autoTimer);
   _autoTimer=setTimeout(()=>runPlan(),600);
 }
-// Bind to all parameter inputs (number fields + checkboxes)
+// 绑定所有参数输入（数值框 + 复选框）。
 document.querySelectorAll(
   '#p-downsample,#p-robot-radius,#p-w-smooth,#p-w-max-curvature,#p-w-reference,'+
   '#p-w-length,#p-w-obstacle,#p-w-penetration,#p-safe-distance,#p-min-turn,'+
@@ -765,7 +767,7 @@ document.querySelectorAll(
   el.addEventListener('input',scheduleAutoReplan);
   if(el.type==='checkbox') el.addEventListener('change',scheduleAutoReplan);
 });
-// Bind to start/goal inputs. Goal edits trigger planning even before a prior result.
+// 绑定起终点输入。目标点编辑即使没有历史结果也会触发规划。
 document.querySelectorAll('#start-x,#start-y,#goal-x,#goal-y')
   .forEach(el=>el.addEventListener('input',()=>{drawPlot();scheduleAutoReplan(el.id.startsWith('goal-'));}));
 

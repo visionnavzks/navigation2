@@ -1,8 +1,8 @@
 /**
- * nanobind module for Ceres 2D Path Smoother with ESDF.
+ * Ceres 二维路径平滑器（带 ESDF）的 nanobind 模块。
  *
- * Exposes ESDFMap, SmootherParams, SmootherResult, and PathSmoother2D
- * to Python for easy integration and visualization.
+ * 将 ESDFMap、SmootherParams、SmootherResult 和 PathSmoother2D 暴露给
+ * Python，便于集成和可视化。
  */
 
 #include <nanobind/nanobind.h>
@@ -110,16 +110,14 @@ NB_MODULE(ceres_smoother_2d, m)
     .def_rw("robot_radius", &SmootherParams::robot_radius,
       "Robot inscribed radius in meters. Effective clearance threshold = "
       "safety_margin + robot_radius.")
-    .def_rw("target_spacing", &SmootherParams::target_spacing,
-      "Desired inter-point spacing in meters, used by the optional input "
-      "and output resampling stages.")
-    .def_rw("resample_after_smooth", &SmootherParams::resample_after_smooth,
-      "If true, uniformly resample the smoothed path along arc length "
-      "so adjacent output points are ~target_spacing meters apart.")
     .def_rw("resample_before_smooth", &SmootherParams::resample_before_smooth,
       "If true, resample the input reference path to uniform spacing "
       "BEFORE optimization. Recommended when the upstream path (e.g. A*) "
-      "has uneven point density.");
+      "has uneven point density.")
+    .def_rw("resample_after_smooth", &SmootherParams::resample_after_smooth,
+      "If true, uniformly resample the smoothed path along arc length.")
+    .def_rw("resample_spacing", &SmootherParams::resample_spacing,
+      "Desired path spacing in meters for enabled resampling stages.");
 
   // ========================================================================
   // SmootherResult
@@ -154,7 +152,7 @@ NB_MODULE(ceres_smoother_2d, m)
       "    SmootherResult with smoothed path and diagnostics.");
 
   // ========================================================================
-  // resamplePathByArcLength (free function)
+  // resamplePathByArcLength（自由函数）
   // ========================================================================
   m.def("resample_path_by_arc_length",
     [](const std::vector<double> & xs, const std::vector<double> & ys,
@@ -175,7 +173,7 @@ NB_MODULE(ceres_smoother_2d, m)
     "    input segment. Output count is max(2, round(L/target)+1).");
 
   // ========================================================================
-  // A* (C++ implementation, ~100x faster than Python on 1k-class grids)
+  // A*（C++ 实现，在千级栅格上比 Python 约快 100 倍）
   // ========================================================================
   nb::class_<AStarResult>(m, "AStarResult",
     "Result of A* pathfinding on the ESDFMap's occupancy grid.")
