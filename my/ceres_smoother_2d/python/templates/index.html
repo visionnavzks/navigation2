@@ -189,7 +189,7 @@ details.category .field:last-child{margin-bottom:6px}
           <span class="legend-item"><i class="leg-swatch" style="background:#fff;border:1px solid #ccc"></i>自由空间</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#000"></i>障碍物</span>
           <span class="legend-item"><i class="leg-swatch" style="background:#808080"></i>Unknown</span>
-          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch esdf" style="background:linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#d6edf7,#9fc5dc)"></i><span id="lg-esdf-label">ESDF：负=障碍内，0=边界，正=自由区</span></span>
+          <span class="legend-item"><i id="lg-esdf-swatch" class="leg-swatch esdf" style="background:linear-gradient(to right,#7f0000,#d7301f,#fc8d59,#f7f7f7,#74add1,#4575b4,#08306b)"></i><span id="lg-esdf-label">ESDF：红=障碍内，白=边界(0)，蓝=自由区(越深越远)</span></span>
         </div>
       </div>
       <div class="legend-section">
@@ -345,7 +345,7 @@ function drawPlot(){
 
   const bgImg=showEsdf?{source:'data:image/png;base64,'+esdfScheme.png,
     xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
-    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below',opacity:0.72}
+    sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below',opacity:0.58}
     :{source:'data:image/png;base64,'+costmapMeta.png,
     xref:'x',yref:'y',x:0,y:costmapMeta.extent_y,sizex:costmapMeta.extent_x,
     sizey:costmapMeta.extent_y,xanchor:'left',yanchor:'top',sizing:'stretch',layer:'below'};
@@ -399,8 +399,8 @@ function getEsdfScheme(){
   const schemes=costmapMeta?.esdf_schemes||[];
   const selected=document.getElementById('esdf-scheme')?.value;
   return schemes.find(s=>s.key===selected)||schemes[0]||{
-    key:'default',label:'ESDF',legend:'ESDF：负=障碍内，0=边界，正=自由区',
-    swatch:'linear-gradient(to right,#d7a0a0,#efd0d0,#f8fafc,#d6edf7,#9fc5dc)',
+    key:'default',label:'ESDF',legend:'ESDF：红=障碍内，白=边界(0)，蓝=自由区(越深越远)',
+    swatch:'linear-gradient(to right,#7f0000,#d7301f,#fc8d59,#f7f7f7,#74add1,#4575b4,#08306b)',
     png:costmapMeta?.esdf_png||''
   };
 }

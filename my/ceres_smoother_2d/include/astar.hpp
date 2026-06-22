@@ -57,6 +57,7 @@ namespace astar_detail
 // 直连 = 1，对角 = sqrt(2)。顺序：W, E, S, N, NW, NE, SW, SE。
 // 顺序不影响结果，按类别分组是为了让内层循环更友好地访问缓存。
 constexpr int kNumDirs = 8;
+constexpr int kNumCardinalDirs = 4;  // 前 4 个为正交方向（W,E,S,N），其余为对角。
 constexpr int kDx[kNumDirs] = {-1, 1, 0, 0, -1, 1, -1, 1};
 constexpr int kDy[kNumDirs] = { 0, 0,-1, 1, -1,-1,  1, 1};
 constexpr double kDiag = 1.4142135623730951;
@@ -68,17 +69,6 @@ struct Cell
 {
   int x{0};
   int y{0};
-};
-
-struct OccupancyView
-{
-  const std::vector<uint8_t> * data{nullptr};
-  std::vector<uint8_t> storage;
-
-  const std::vector<uint8_t> & grid() const
-  {
-    return data ? *data : storage;
-  }
 };
 
 struct OpenNode
@@ -138,33 +128,6 @@ inline double cellToWorldY(const ESDFMap & map, int y)
   return (static_cast<double>(y) + 0.5) * map.resolution() + map.originY();
 }
 
-inline OccupancyView buildSearchOccupancy(
-  const ESDFMap & map,
-  double robot_radius)
-{
-  const size_t n = static_cast<size_t>(map.width()) * static_cast<size_t>(map.height());
-  OccupancyView view;
-  if (robot_radius <= 0.0) {
-    view.data = &map.occupancyGrid();
-    return view;
-  }
-
-  const auto & esdf = map.esdfGrid();
-  view.storage.resize(n);
-  for (size_t i = 0; i < n; ++i) {
-    view.storage[i] = (esdf[i] < robot_radius) ? 1 : 0;
-  }
-  return view;
-}
-
-inline bool isBlocked(
-  const std::vector<uint8_t> & occ,
-  const Cell & c,
-  int width)
-{
-  return occ[static_cast<size_t>(toIndex(c.x, c.y, width))] != 0;
-}
-
 inline void appendPathPoint(
   const ESDFMap & map,
   int32_t idx,
@@ -212,17 +175,25 @@ inline AStarResult astarSolve(
   if (W <= 0 || H <= 0) {return res;}
   const size_t N = static_cast<size_t>(W) * static_cast<size_t>(H);
 
-  const auto occ_search = astar_detail::buildSearchOccupancy(map, robot_radius);
-  const auto & occ = occ_search.grid();
+  // 「能否通行」直接由 ESDF 判断，无需预先物化一张膨胀栅格：
+  //   robot_radius > 0 → 离最近障碍 < robot_radius 的格子视为障碍（膨胀），
+  //                      使中心线路径对该半径的圆形机器人可行；
+  //   robot_radius <= 0 → 用原始占据栅格（点机器人）。
+  const auto & occ = map.occupancyGrid();
+  const auto & esdf = map.esdfGrid();
+  const bool inflate = robot_radius > 0.0;
+  auto blocked = [&](int32_t idx) {
+      const size_t i = static_cast<size_t>(idx);
+      return inflate ? (esdf[i] < robot_radius) : (occ[i] != 0);
+    };
+
   const astar_detail::Cell start = astar_detail::worldToCell(map, sx_w, sy_w);
   const astar_detail::Cell goal = astar_detail::worldToCell(map, gx_w, gy_w);
   const int32_t start_idx = astar_detail::toIndex(start.x, start.y, W);
   const int32_t goal_idx = astar_detail::toIndex(goal.x, goal.y, W);
 
   // 起点或终点在（膨胀后）障碍内时直接拒绝。
-  if (astar_detail::isBlocked(occ, start, W) ||
-    astar_detail::isBlocked(occ, goal, W))
-  {
+  if (blocked(start_idx) || blocked(goal_idx)) {
     return res;  // success=false
   }
 
@@ -271,9 +242,18 @@ inline AStarResult astarSolve(
       const int nx = cur_cell.x + astar_detail::kDx[k];
       const int ny = cur_cell.y + astar_detail::kDy[k];
       if (nx < 0 || nx >= W || ny < 0 || ny >= H) {continue;}
+      // 对角移动禁止穿角：要求两个正交相邻格都空闲，否则路径会从两个
+      // 对角相接的障碍之间「贴角」穿过（robot_radius=0 时尤为明显）。
+      // 两个正交格 (nx,cur.y)、(cur.x,ny) 必在界内，无需再做边界检查。
+      if (k >= astar_detail::kNumCardinalDirs &&
+        (blocked(astar_detail::toIndex(nx, cur_cell.y, W)) ||
+        blocked(astar_detail::toIndex(cur_cell.x, ny, W))))
+      {
+        continue;
+      }
       const astar_detail::Cell next{nx, ny};
       const int32_t nidx = astar_detail::toIndex(next.x, next.y, W);
-      if (astar_detail::isBlocked(occ, next, W) || closed[nidx]) {continue;}
+      if (blocked(nidx) || closed[nidx]) {continue;}
 
       const double tentative_g = g_cur + astar_detail::kDc[k];
       if (tentative_g >= g_score[nidx]) {continue;}

@@ -449,8 +449,12 @@ public:
 
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-        options.max_num_iterations = params_.max_iterations;
-        options.max_solver_time_in_seconds = params_.max_time_seconds;
+        // 预算按总量在各阶段间共享：用「目标值 - 已消耗」作为本阶段上限，
+        // 避免总耗时/总迭代 = 阶段数 × 单阶段上限。外层循环保证进入本阶段时
+        // 预算尚有剩余，因此这里两个值恒为正。
+        options.max_num_iterations = params_.max_iterations - total_iterations;
+        options.max_solver_time_in_seconds =
+          params_.max_time_seconds - total_solve_time_ms / 1000.0;
         options.minimizer_progress_to_stdout = params_.verbose;
         options.logging_type = params_.verbose ? ceres::PER_MINIMIZER_ITERATION : ceres::SILENT;
         // 对少于约 2k 变量的问题，线程开销超过并行带来的收益。
@@ -494,6 +498,12 @@ public:
       };
 
     for (double obstacle_weight : obstacle_weight_stages) {
+      // 预算耗尽则不再开新阶段，保证总迭代/总耗时不超过配置上限。
+      if (total_iterations >= params_.max_iterations ||
+        total_solve_time_ms / 1000.0 >= params_.max_time_seconds)
+      {
+        break;
+      }
       solve_stage(obstacle_weight);
       if (!all_stages_usable) {
         break;
