@@ -471,18 +471,17 @@ public:
         all_stages_usable = all_stages_usable && summary.IsSolutionUsable();
 
         double min_dist = std::numeric_limits<double>::infinity();
-        double min_margin = std::numeric_limits<double>::infinity();
         int active_count = 0;
         const double obstacle_threshold = params_.obstacleCostDistance();
         for (int i = 1; i < N - 1; ++i) {
           const double d = map.bilinearJet<double>(path_optim[i][0], path_optim[i][1]);
-          const double margin = d - obstacle_threshold;
           min_dist = std::min(min_dist, d);
-          min_margin = std::min(min_margin, margin);
           if (d < obstacle_threshold) {
             ++active_count;
           }
         }
+        // min_margin 由 min_dist 派生（阈值为常量），无需单独跟踪。
+        const double min_margin = min_dist - obstacle_threshold;
 
         std::ostringstream stage_report;
         stage_report << "stage w_obstacle=" << obstacle_weight

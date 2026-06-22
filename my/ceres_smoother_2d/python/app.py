@@ -430,8 +430,19 @@ def api_plan():
 
     raw = list(zip(astar_res.x, astar_res.y))
 
-    dp = _downsample_path(raw, body.get("downsample", 3))
-    xs = [p[0] for p in dp]; ys = [p[1] for p in dp]
+    # 优化输入点的生成方式取决于是否启用「平滑前重采样」：
+    #   - 启用（默认）：平滑器本就会按弧长把输入重采样成均匀点，再单独降采样
+    #     纯属多余（会被覆盖）。这里直接对 A* 原始路径做一次同样的重采样，既得到
+    #     真实的优化输入用于展示，又把平滑器内部的重采样关掉避免重复计算。
+    #   - 关闭：不重采样时，降采样是控制优化变量数（A* 点过密）的唯一手段。
+    if pm.resample_before_smooth and pm.resample_spacing > 0 and len(astar_res.x) >= 2:
+        rx, ry = cs2d.resample_path_by_arc_length(
+            list(astar_res.x), list(astar_res.y), pm.resample_spacing)
+        xs, ys = list(rx), list(ry)
+        pm.resample_before_smooth = False  # 已在外部完成，避免平滑器重复重采样
+    else:
+        dp = _downsample_path(raw, body.get("downsample", 3))
+        xs = [p[0] for p in dp]; ys = [p[1] for p in dp]
 
     sm = cs2d.PathSmoother2D(pm)
     t1 = time.perf_counter()

@@ -125,7 +125,7 @@ details.category .field:last-child{margin-bottom:6px}
 
       <details class="category">
         <summary>🔍 A* 搜索</summary>
-        <div class="field"><label>downsample · 路径降采样</label>
+        <div class="field"><label>downsample · 路径降采样（仅当关闭「平滑前重采样」时生效）</label>
           <input id="p-downsample" type="number" step="1" min="1" max="10" value="3">
           <small>每隔 N 个点取一个, 减少优化变量</small></div>
         <div class="field"><label>robot_radius · 车体半径 (米)</label>
@@ -230,7 +230,7 @@ details.category .field:last-child{margin-bottom:6px}
       <div class="sub" id="r-raw-len"></div>
     </div>
     <div class="result-block">
-      <div class="label">降采样点</div>
+      <div class="label">优化输入点</div>
       <div class="value" id="r-ds-pts">—</div>
     </div>
     <div class="result-block">
@@ -603,7 +603,7 @@ function renderLegend(){
   sec.style.display='';
   items.innerHTML=[
     '<span class="legend-item"><i class="leg-swatch line" style="background:#9ca3af"></i>A* 原始路径</span>',
-    '<span class="legend-item"><i class="leg-swatch marker" style="background:#facc15"></i>降采样点</span>',
+    '<span class="legend-item"><i class="leg-swatch marker" style="background:#facc15"></i>优化输入点</span>',
     '<span class="legend-item"><i class="leg-swatch line" style="background:#22c55e"></i>Ceres 平滑</span>',
   ].join('');
 }
