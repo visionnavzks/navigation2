@@ -197,6 +197,12 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.referenceLength': '参考长度',
     'run.optimizedLength': '优化长度',
     'run.optMinusRef': '优化 - 参考',
+    'run.costTermsTitle': 'Ceres 代价分项',
+    'run.costTermName': '代价项',
+    'run.costTermInitial': '初始代价',
+    'run.costTermFinal': '最终代价',
+    'run.costTermShare': '占比',
+    'run.costTermsPending': '优化器运行后，这里会显示每个 Ceres 代价项的贡献。',
     'diagnostics.title': '诊断',
     'diagnostics.pending': '当某次运行产生验证或运动学详情时，它们会显示在这里。',
     'run.kinematicDetails': '运动学详情',
@@ -388,6 +394,17 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.kinematicCurvatureRateWeight': 'Curvature Rate Weight',
       'run.kinematicTargetSpacing': 'Target Spacing',
       'run.kinematicCeresTolerances': 'Ceres Tolerances',
+      'run.costTermsPending': 'Per-term Ceres costs appear after the optimizer runs.',
+      'run.costTermTotal': 'Total',
+      'run.costTerm.kinematic_model': 'Kinematic Model',
+      'run.costTerm.curvature': 'Curvature',
+      'run.costTerm.curvature_rate': 'Curvature Rate',
+      'run.costTerm.spacing': 'Spacing',
+      'run.costTerm.path_length': 'Path Length',
+      'run.costTerm.start_boundary': 'Start Boundary',
+      'run.costTerm.goal_boundary': 'Goal Boundary',
+      'run.costTerm.reference_path': 'Reference Attraction',
+      'run.costTerm.obstacle': 'Obstacle',
       'run.pipeline.pending': 'Pipeline status will appear after each run.',
       'run.pipeline.summary': 'Pipeline: {summary}',
       'run.smoothState.success': '{optimizerLabel} success',
@@ -499,6 +516,17 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.note.success': '{optimizerLabel}已生成平滑路径。切换图层并比较原始、参考和平滑路径长度，可以观察后端如何改变路径几何。',
       'run.note.fallback': '{optimizerLabel}失败，因此当前显示参考路径。{smoothMessage}',
       'run.note.rejected': '{optimizerLabel}未通过验证，但当前仍显示被拒绝的平滑候选路径以便检查。{smoothMessage}',
+      'run.costTermsPending': '优化器运行后，这里会显示每个 Ceres 代价项的贡献。',
+      'run.costTermTotal': '总计',
+      'run.costTerm.kinematic_model': '运动学模型',
+      'run.costTerm.curvature': '曲率',
+      'run.costTerm.curvature_rate': '曲率变化率',
+      'run.costTerm.spacing': '间距',
+      'run.costTerm.path_length': '路径长度',
+      'run.costTerm.start_boundary': '起点约束',
+      'run.costTerm.goal_boundary': '终点约束',
+      'run.costTerm.reference_path': '参考路径吸附',
+      'run.costTerm.obstacle': '障碍物',
       'run.pipeline.pending': '每次运行后会在这里显示流水线状态。',
       'run.pipeline.summary': '流水线：{summary}',
       'run.smoothState.success': '{optimizerLabel}成功',
@@ -2917,10 +2945,96 @@ document.addEventListener('DOMContentLoaded', () => {
     );
   }
 
+  function formatCostTermValue(value) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) {
+      return '--';
+    }
+    if (numeric === 0) {
+      return '0';
+    }
+    const magnitude = Math.abs(numeric);
+    if (magnitude >= 10000 || magnitude < 0.001) {
+      return numeric.toExponential(2);
+    }
+    return numeric.toFixed(3);
+  }
+
+  function updateCostTerms(data) {
+    const table = document.getElementById('cost-terms-table');
+    const body = document.getElementById('cost-terms-body');
+    const note = document.getElementById('cost-terms-note');
+    if (!table || !body || !note) {
+      return;
+    }
+
+    const terms = Array.isArray(data?.cost_terms) ? data.cost_terms : [];
+    body.textContent = '';
+    if (!terms.length) {
+      table.hidden = true;
+      note.hidden = false;
+      return;
+    }
+
+    const sumFinite = values => values.reduce(
+      (total, value) => total + (Number.isFinite(value) ? value : 0),
+      0
+    );
+    const toOptionalNumber = value => value === null || value === undefined ? NaN : Number(value);
+    const initialValues = terms.map(term => toOptionalNumber(term.initial_cost));
+    const finalValues = terms.map(term => toOptionalNumber(term.final_cost));
+    const initialTotal = sumFinite(initialValues);
+    const hasFinal = finalValues.some(Number.isFinite);
+    const finalTotal = sumFinite(finalValues);
+
+    const appendRow = (label, initialValue, finalValue, shareText, isTotal) => {
+      const row = document.createElement('tr');
+      if (isTotal) {
+        row.className = 'cost-terms-total';
+      }
+      [
+        label,
+        formatCostTermValue(initialValue),
+        formatCostTermValue(finalValue),
+        shareText,
+      ].forEach(cellText => {
+        const cell = document.createElement('td');
+        cell.textContent = cellText;
+        row.appendChild(cell);
+      });
+      body.appendChild(row);
+    };
+
+    terms.forEach((term, index) => {
+      const finalValue = finalValues[index];
+      const shareText = hasFinal && Number.isFinite(finalValue) && finalTotal > 0
+        ? `${(100 * finalValue / finalTotal).toFixed(1)}%`
+        : '--';
+      appendRow(
+        t(`run.costTerm.${term.name}`),
+        initialValues[index],
+        finalValue,
+        shareText,
+        false
+      );
+    });
+    appendRow(
+      t('run.costTermTotal'),
+      initialTotal,
+      hasFinal ? finalTotal : NaN,
+      hasFinal && finalTotal > 0 ? '100%' : '--',
+      true
+    );
+
+    table.hidden = false;
+    note.hidden = true;
+  }
+
   function updateRunInfo(data) {
     state.curvatureProfile = computeCurvatureProfile(data);
     updateSmoothedLayerPresentation(data);
     updateKinematicDiagnostics(data);
+    updateCostTerms(data);
     const showsRejectedCandidate = !data.smooth_success
       && data.final_rectangle_validation?.validated_path === 'smoothed_path';
     const optimizerLabel = localizeOptimizerLabel(data.optimizer_label || '');
@@ -3037,6 +3151,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setText('pipeline-summary', t('run.pipeline.pending'));
     setText('footprint-validation-summary', t('robot.validation.pending'));
     updateSmoothedLayerPresentation(null);
+    updateCostTerms(null);
     clearValidationFailureDetails();
     clearKinematicDiagnostics();
     drawFootprintPreview();

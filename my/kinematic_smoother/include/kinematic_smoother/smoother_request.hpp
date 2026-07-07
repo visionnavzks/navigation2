@@ -17,6 +17,8 @@
 #define CONSTRAINED_SMOOTHER__SMOOTHER_REQUEST_HPP_
 
 #include <cstddef>
+#include <limits>
+#include <string>
 #include <vector>
 
 #include "Eigen/Core"
@@ -27,6 +29,20 @@
 
 namespace kinematic_smoother
 {
+
+/// 单个 Ceres 代价分项在求解前后的代价值。
+///
+/// 代价值与 Ceres 总代价同口径（0.5·Σr²），因此所有分项之和等于问题总代价。
+/// 求解器未运行到对应阶段时，对应字段保持 NaN。
+struct SmootherCostTerm
+{
+  /// 分项的稳定标识名（如 "kinematic_model"、"obstacle"），供 UI 做本地化映射。
+  std::string name;
+  /// 求解前（初值状态）该分项的代价。
+  double initial_cost{std::numeric_limits<double>::quiet_NaN()};
+  /// 求解成功后该分项的代价；求解失败时保持 NaN。
+  double final_cost{std::numeric_limits<double>::quiet_NaN()};
+};
 
 /// 一次平滑调用产出的显式结果对象。
 ///
@@ -43,6 +59,8 @@ struct SmootherResult
   std::vector<double> smoothed_curvatures;
   /// 与 smoothed_path 等长的输出采样点曲率变化率 dk/ds。
   std::vector<double> smoothed_curvature_rates;
+  /// 各 Ceres 代价分项在求解前后的代价值，顺序固定，供诊断 / UI 展示。
+  std::vector<SmootherCostTerm> cost_terms;
   /// 本次参与优化的状态点数量。
   std::size_t optimized_knot_count{0};
   /// 本次优化使用的目标 knot 间距（米）。

@@ -142,6 +142,33 @@ py::list make_optional_float_list(const std::vector<double> & values)
   return result;
 }
 
+py::object make_optional_float(double value)
+{
+  if (std::isfinite(value)) {
+    return py::float_(value);
+  }
+  return py::none();
+}
+
+// 把 SmootherResult.cost_terms 折叠为稳定的 [{name, initial_cost, final_cost}] 列表；
+// 未评估的阶段（如求解失败时的 final_cost）以 None 表示。
+py::object make_cost_terms_payload(
+  const std::vector<kinematic_smoother::SmootherCostTerm> & cost_terms)
+{
+  if (cost_terms.empty()) {
+    return py::none();
+  }
+  py::list result;
+  for (const auto & term : cost_terms) {
+    py::dict entry;
+    entry["name"] = py::str(term.name);
+    entry["initial_cost"] = make_optional_float(term.initial_cost);
+    entry["final_cost"] = make_optional_float(term.final_cost);
+    result.append(entry);
+  }
+  return result;
+}
+
 SmoothBindingInput parse_smooth_input(
   const py::handle & path_handle,
   const py::handle & start_dir_handle,
@@ -166,6 +193,7 @@ SmoothBindingInput parse_smooth_input(
 //     "candidate_path": list | None,
 //     "optimized_knot_count": int,
 //     "target_spacing_m": float,
+//     "cost_terms": [{"name": str, "initial_cost": float | None, "final_cost": float | None}] | None,
 //     "error_code": str | None,
 //     "error_message": str | None,
 //     "error_reason": str | None,
@@ -238,6 +266,7 @@ py::dict make_error_result_base(const ErrorT & error)
   result["target_spacing_m"] = py::float_(0.0);
   result["smoothed_curvatures"] = py::none();
   result["smoothed_curvature_rates"] = py::none();
+  result["cost_terms"] = py::none();
   result["error_code"] = py::str(error.codeString());
   result["error_message"] = py::str(error.what());
   result["error_reason"] = py::none();
@@ -259,6 +288,7 @@ void fill_result_payload(
   result_dict["candidate_path"] = candidate_path;
   result_dict["optimized_knot_count"] = py::int_(smooth_result.optimized_knot_count);
   result_dict["target_spacing_m"] = py::float_(smooth_result.target_spacing);
+  result_dict["cost_terms"] = make_cost_terms_payload(smooth_result.cost_terms);
   if (smooth_result.success) {
     result_dict["smoothed_curvatures"] =
       make_optional_float_list(smooth_result.smoothed_curvatures);
@@ -297,6 +327,7 @@ py::dict make_error_result(const kinematic_smoother::InvalidCostmap & error)
   result["target_spacing_m"] = py::float_(0.0);
   result["smoothed_curvatures"] = py::none();
   result["smoothed_curvature_rates"] = py::none();
+  result["cost_terms"] = py::none();
   result["error_code"] = py::str(
     kinematic_smoother::toErrorCodeString(kinematic_smoother::ErrorCode::InvalidCostmap));
   result["error_message"] = py::str(error.what());
@@ -317,6 +348,7 @@ py::dict make_error_result(
   result["target_spacing_m"] = py::float_(0.0);
   result["smoothed_curvatures"] = py::none();
   result["smoothed_curvature_rates"] = py::none();
+  result["cost_terms"] = py::none();
   result["error_code"] = py::str(
     kinematic_smoother::toErrorCodeString(
       kinematic_smoother::ErrorCode::PrecomputedEsdfSizeMismatch));
@@ -603,6 +635,11 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
       "optimized_knot_count",
       &kinematic_smoother::SmootherResult::optimized_knot_count)
     .def_property_readonly(
+      "cost_terms",
+      [](const kinematic_smoother::SmootherResult & result) {
+        return make_cost_terms_payload(result.cost_terms);
+      })
+    .def_property_readonly(
       "target_spacing_m",
       [](const kinematic_smoother::SmootherResult & result) {
         return result.target_spacing;
@@ -699,6 +736,9 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
     .def_readwrite(
     "obstacle_safe_distance",
     &kinematic_smoother::SmootherParams::obstacle_safe_distance)
+    .def_readwrite(
+    "costmap_boundary_margin",
+    &kinematic_smoother::SmootherParams::costmap_boundary_margin)
     .def_readwrite(
     "cost_check_radius",
     &kinematic_smoother::SmootherParams::cost_check_radius)

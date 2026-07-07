@@ -102,7 +102,8 @@ public:
 
     // problem 在本次调用内构建并求解，不跨调用复用。
     ceres::Problem problem;
-    builder.buildProblem(processed, request.costmap, request.params, variables, problem);
+    const KinematicResidualCatalog residual_catalog =
+      builder.buildProblem(processed, request.costmap, request.params, variables, problem);
 
     KinematicSmootherProblemBuilder::applyBounds(
       problem,
@@ -118,6 +119,21 @@ public:
     result.optimized_knot_count = processed.state_count;
     result.target_spacing = processed.target_spacing;
 
+    // 在求解前按分项记录初始代价；final_cost 先保持 NaN，求解成功后回填。
+    // 这样即使求解失败，调用方也能看到初值状态下各代价项的量级。
+    {
+      const std::vector<double> initial_costs =
+        KinematicSmootherProblemBuilder::evaluateCostTermValues(problem, residual_catalog);
+      const auto & term_names = KinematicSmootherProblemBuilder::costTermNames();
+      result.cost_terms.reserve(term_names.size());
+      for (size_t index = 0; index < term_names.size(); ++index) {
+        SmootherCostTerm term;
+        term.name = term_names[index];
+        term.initial_cost = initial_costs[index];
+        result.cost_terms.push_back(std::move(term));
+      }
+    }
+
     // 4) 调用 Ceres 求解，失败原因统一写入 failure（如提供）。
     if (!solveProblemOrReportFailure(
         problem,
@@ -127,6 +143,15 @@ public:
         request.failure))
     {
       return result;
+    }
+
+    // 求解成功后回填各分项的最终代价（无论后验校验是否通过都保留，便于诊断）。
+    {
+      const std::vector<double> final_costs =
+        KinematicSmootherProblemBuilder::evaluateCostTermValues(problem, residual_catalog);
+      for (size_t index = 0; index < result.cost_terms.size(); ++index) {
+        result.cost_terms[index].final_cost = final_costs[index];
+      }
     }
 
     // 5) 将内部变量解包为公共路径表示，并执行后验硬校验。
@@ -244,6 +269,7 @@ private:
     require_positive(params.max_curvature, "max_curvature");
     require_positive(params.max_time, "max_time");
     require_finite(params.obstacle_safe_distance, "obstacle_safe_distance");
+    require_finite(params.costmap_boundary_margin, "costmap_boundary_margin");
     require_finite(params.cost_check_radius, "cost_check_radius");
     require_finite(params.path_target_spacing, "path_target_spacing");
     require_finite(params.path_output_spacing, "path_output_spacing");

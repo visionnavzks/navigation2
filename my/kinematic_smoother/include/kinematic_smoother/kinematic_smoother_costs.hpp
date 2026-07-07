@@ -447,7 +447,7 @@ private:
  *   - 当到障碍物表面的距离 >= obstacle_safe_distance 时，残差为 0
  *   - 当距离 < obstacle_safe_distance 时，残差为一次 hinge；
  *     Ceres 对 residual 平方后得到二次净空代价
- *   - 当路径点超出代价地图范围时，返回常数边界残差
+ *   - 当路径点接近或超出代价地图边界时，施加带梯度的软约束，将点推回地图内
  *
  * 支持多检测点模式（cost_check_points）：
  *   可指定多个相对于路径点坐标系的检测点（如机器人轮廓上的多个点），
@@ -477,6 +477,15 @@ public:
     size_x_(costmap->getSizeInCellsX()),
     size_y_(costmap->getSizeInCellsY()),
     obstacle_safe_distance_(std::max(params.obstacle_safe_distance, 1e-6)),
+    costmap_boundary_margin_cells_(
+      std::min(
+        std::max(params.costmap_boundary_margin, 0.0) /
+        std::max(costmap->getResolution(), 1e-9),
+        std::max(
+          0.0,
+          0.5 *
+          (static_cast<double>(
+            std::min(costmap->getSizeInCellsX(), costmap->getSizeInCellsY())) - 3.0)))),
     cost_check_radius_(std::max(params.cost_check_radius, 0.0)),
     obstacle_weight_(std::max(obstacle_weight, 0.0)),
     cost_check_points_(params.cost_check_points),
@@ -573,12 +582,13 @@ private:
     // 将世界坐标转换为代价地图格坐标
     const T grid_x = (world_x - T(costmap_origin_.x())) / T(costmap_resolution_);
     const T grid_y = (world_y - T(costmap_origin_.y())) / T(costmap_resolution_);
+    const T boundary_penalty = boundaryPenalty(grid_x, grid_y);
 
-    // 若超出可插值边界，返回常数边界残差。
+    // 若超出可插值边界，直接返回带梯度的边界残差，避免越界访问 ESDF 插值器。
     if (grid_x < T(1.5) || grid_y < T(1.5) ||
       grid_x >= T(static_cast<double>(size_x_) - 1.5) || grid_y >= T(static_cast<double>(size_y_) - 1.5))
     {
-      return T(1.0);
+      return boundary_penalty;
     }
 
     // 通过双三次插值查询该格坐标处的 ESDF 距离值（单位：米）
@@ -590,12 +600,62 @@ private:
     const T surface_distance = distance - T(cost_check_radius_);
 
     // 若到障碍物表面距离已满足安全要求，惩罚为零
+    T clearance_penalty = T(0.0);
     if (surface_distance >= T(obstacle_safe_distance_)) {
+      clearance_penalty = T(0.0);
+    } else {
+      // 一次 hinge residual；Ceres 平方 residual 后得到二次净空代价。
+      clearance_penalty =
+        (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
+    }
+
+    if (boundary_penalty <= T(0.0)) {
+      return clearance_penalty;
+    }
+    if (clearance_penalty <= T(0.0)) {
+      return boundary_penalty;
+    }
+    return sqrtValue(
+      clearance_penalty * clearance_penalty + boundary_penalty * boundary_penalty);
+  }
+
+  template<typename T>
+  T boundaryPenalty(T grid_x, T grid_y) const
+  {
+    const T min_grid = T(1.5);
+    const T max_grid_x = T(static_cast<double>(size_x_) - 1.5);
+    const T max_grid_y = T(static_cast<double>(size_y_) - 1.5);
+    const T margin_cells = T(costmap_boundary_margin_cells_);
+    const T min_allowed_x = min_grid + margin_cells;
+    const T min_allowed_y = min_grid + margin_cells;
+    const T max_allowed_x = max_grid_x - margin_cells;
+    const T max_allowed_y = max_grid_y - margin_cells;
+
+    T squared_violation = T(0.0);
+    const T lower_x = min_allowed_x - grid_x;
+    if (lower_x > T(0.0)) {
+      squared_violation += lower_x * lower_x;
+    }
+    const T lower_y = min_allowed_y - grid_y;
+    if (lower_y > T(0.0)) {
+      squared_violation += lower_y * lower_y;
+    }
+    const T upper_x = grid_x - max_allowed_x;
+    if (upper_x > T(0.0)) {
+      squared_violation += upper_x * upper_x;
+    }
+    const T upper_y = grid_y - max_allowed_y;
+    if (upper_y > T(0.0)) {
+      squared_violation += upper_y * upper_y;
+    }
+    if (squared_violation <= T(0.0)) {
       return T(0.0);
     }
 
-    // 一次 hinge residual；Ceres 平方 residual 后得到二次净空代价。
-    return (T(obstacle_safe_distance_) - surface_distance) / T(obstacle_safe_distance_);
+    // With a configured margin, the residual reaches 1.0 at the interpolatable map edge.
+    // Without a margin, each cell outside the map adds one unit of residual.
+    const T scale = margin_cells > T(1.0) ? margin_cells : T(1.0);
+    return sqrtValue(squared_violation) / scale;
   }
 
   Eigen::Vector2d costmap_origin_;   ///< 代价地图原点（世界坐标，米）
@@ -603,6 +663,7 @@ private:
   unsigned int size_x_;              ///< 代价地图 x 方向格数
   unsigned int size_y_;              ///< 代价地图 y 方向格数
   double obstacle_safe_distance_;    ///< 障碍物安全距离阈值（米），低于此值时施加惩罚
+  double costmap_boundary_margin_cells_; ///< 距可插值边界的软约束带宽（格）
   double cost_check_radius_;         ///< 机器人检测半径（米），从 ESDF 距离中减去
   double obstacle_weight_;           ///< 当前路径点解析后的障碍物惩罚权重（平方根形式）
   std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]

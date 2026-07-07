@@ -116,6 +116,10 @@ struct SmootherParams
   bool use_exact_esdf{true};
   /// 对障碍物距离场期望满足的最小有符号净空，单位米。
   double obstacle_safe_distance{0.5};
+  /// 距代价地图「可插值边界」这么近（单位米）就开始施加“推回地图内”的软约束。
+  /// <= 0 时仅在路径点真正越界后才推回；> 0 时提前在边界带内推回。
+  /// 该约束带梯度且方向指向地图内部，用于防止优化过程中路径点跑出地图。
+  double costmap_boundary_margin{0.0};
   /// 当 cost_check_points 为空时使用的圆形足迹采样半径，单位米。
   double cost_check_radius{0.0};
   /// 用于障碍物足迹检查的局部坐标三元组 (x, y, weight)。

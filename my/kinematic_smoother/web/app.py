@@ -1450,6 +1450,7 @@ def _run_smoother_stage(
     smoothed_curvature_rates = None
     optimized_knot_count = 0
     target_spacing_m = 0.0
+    cost_terms = None
 
     try:
         if planner_stage_result["planner"] is None:
@@ -1482,6 +1483,7 @@ def _run_smoother_stage(
 
         optimized_knot_count = int(smooth_result.get("optimized_knot_count") or 0)
         target_spacing_m = float(smooth_result.get("target_spacing_m") or 0.0)
+        cost_terms = smooth_result.get("cost_terms")
 
         smooth_success = bool(smooth_result["ok"])
         if smooth_success:
@@ -1532,6 +1534,7 @@ def _run_smoother_stage(
         "smoother_stage": smoother_stage,
         "optimized_knot_count": optimized_knot_count,
         "target_spacing_m": target_spacing_m,
+        "cost_terms": cost_terms,
     }
 
 
@@ -1653,6 +1656,7 @@ def _build_plan_response_payload(
     smooth_error,
     smoothed_curvatures,
     smoothed_curvature_rates,
+    cost_terms,
     candidate_rectangle_validation,
     goal_orientation_diagnostics,
     final_rectangle_validation,
@@ -1721,6 +1725,9 @@ def _build_plan_response_payload(
         "opt_theta": opt_theta,
         "opt_kappa": smoothed_curvatures if has_optimizer_profile else None,
         "opt_dkds": smoothed_curvature_rates if has_optimizer_profile else None,
+
+        # Ceres 各代价分项在求解前后的代价（与总代价同口径，0.5*Σr²）。
+        "cost_terms": cost_terms,
 
         # Path cardinality and length metrics.
         "num_astar_pts": len(raw_path),
@@ -1903,6 +1910,7 @@ def plan_and_smooth():
             smooth_error,
             smoother_stage["smoothed_curvatures"],
             smoother_stage["smoothed_curvature_rates"],
+            smoother_stage["cost_terms"],
             candidate_rectangle_validation,
             goal_orientation_diagnostics,
             final_rectangle_validation,

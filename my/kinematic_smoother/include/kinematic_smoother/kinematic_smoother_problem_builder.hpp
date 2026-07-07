@@ -17,9 +17,11 @@
 #define CONSTRAINED_SMOOTHER__KINEMATIC_SMOOTHER_PROBLEM_BUILDER_HPP_
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "ceres/ceres.h"
@@ -29,6 +31,7 @@
 #include "kinematic_smoother/exceptions.hpp"
 #include "kinematic_smoother/kinematic_smoother_costs.hpp"
 #include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/smoother_request.hpp"
 #include "kinematic_smoother/state_layout.hpp"
 #include "kinematic_smoother/utils.hpp"
 
@@ -57,6 +60,19 @@ struct KinematicUpsampledPathProfile
   std::vector<Eigen::Vector3d> path{};
   std::vector<double> curvatures{};
   std::vector<double> curvature_rates{};
+};
+
+/// buildProblem() 期间记录的各代价类别残差块 ID。
+///
+/// 求解前后可以据此用 ceres::Problem::Evaluate 按类别拆分代价，
+/// 供诊断 / UI 展示每个代价项对总代价的贡献。
+struct KinematicResidualCatalog
+{
+  std::vector<ceres::ResidualBlockId> transition_blocks{};
+  std::vector<ceres::ResidualBlockId> start_boundary_blocks{};
+  std::vector<ceres::ResidualBlockId> goal_boundary_blocks{};
+  std::vector<ceres::ResidualBlockId> reference_blocks{};
+  std::vector<ceres::ResidualBlockId> obstacle_blocks{};
 };
 
 /// 运动学版 smoother 的问题构建器。
@@ -214,7 +230,7 @@ public:
     return processed;
   }
 
-  void buildProblem(
+  KinematicResidualCatalog buildProblem(
     const KinematicProcessedPath & processed,
     const Costmap2D * costmap,
     const SmootherParams & params,
@@ -223,6 +239,7 @@ public:
   {
     // 调用方必须先用 buildProcessedPath() 生成 processed，并把 variables 初始化为状态初值。
     // 大多数权重由调用方传入平方后的值，代码内部自动开方；fix_weight 是直接约束系数，不再额外开方。
+    KinematicResidualCatalog catalog;
     const double model_weight = std::sqrt(std::max(params.model_weight, 0.0));
     const double curvature_weight = std::sqrt(std::max(params.kinematic_curvature_weight, 0.0));
     const double curvature_rate_weight =
@@ -234,36 +251,40 @@ public:
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
     // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与期望间距。
+    catalog.transition_blocks.reserve(
+      processed.state_count > 0 ? processed.state_count - 1 : 0);
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
-      problem.AddResidualBlock(
-        kinematic_smoother_detail::TransitionCostFunctor::Create(
-          processed.gears[index],
-          processed.is_cusp_segment[index],
-          model_weight,
-          curvature_weight,
-          curvature_rate_weight,
-          spacing_weight,
-          length_weight,
-          fix_weight,
-          params.max_curvature,
-          processed.target_spacing),
-        nullptr,
-        stateData(variables, index),
-        stateData(variables, index + 1));
+      catalog.transition_blocks.push_back(
+        problem.AddResidualBlock(
+          kinematic_smoother_detail::TransitionCostFunctor::Create(
+            processed.gears[index],
+            processed.is_cusp_segment[index],
+            model_weight,
+            curvature_weight,
+            curvature_rate_weight,
+            spacing_weight,
+            length_weight,
+            fix_weight,
+            params.max_curvature,
+            processed.target_spacing),
+          nullptr,
+          stateData(variables, index),
+          stateData(variables, index + 1)));
     }
 
     // 起点边界残差：位置固定，朝向是否固定由 keep_start_orientation 控制。
-    problem.AddResidualBlock(
-      kinematic_smoother_detail::BoundaryCostFunctor::Create(
-        processed.reference_points.front(),
-        processed.start_theta,
-        params.keep_start_orientation,
-        0.0,
-        0.0,
-        0.0,
-        fix_weight),
-      nullptr,
-      stateData(variables, 0));
+    catalog.start_boundary_blocks.push_back(
+      problem.AddResidualBlock(
+        kinematic_smoother_detail::BoundaryCostFunctor::Create(
+          processed.reference_points.front(),
+          processed.start_theta,
+          params.keep_start_orientation,
+          0.0,
+          0.0,
+          0.0,
+          fix_weight),
+        nullptr,
+        stateData(variables, 0)));
 
     // 终点位置容差框所用的参考朝向：
     // keep_goal_orientation=true 时采用 end_theta，否则采用末段几何朝向。
@@ -273,40 +294,120 @@ public:
       params.keep_goal_orientation);
 
     // 终点边界残差：支持纵向/横向容差与可选朝向固定。
-    problem.AddResidualBlock(
-      kinematic_smoother_detail::BoundaryCostFunctor::Create(
-        processed.reference_points.back(),
-        goal_position_theta,
-        params.keep_goal_orientation,
-        params.goal_longitudinal_tolerance,
-        params.goal_lateral_tolerance,
-        params.goal_orientation_tolerance,
-        fix_weight),
-      nullptr,
-      stateData(variables, processed.state_count - 1));
+    catalog.goal_boundary_blocks.push_back(
+      problem.AddResidualBlock(
+        kinematic_smoother_detail::BoundaryCostFunctor::Create(
+          processed.reference_points.back(),
+          goal_position_theta,
+          params.keep_goal_orientation,
+          params.goal_longitudinal_tolerance,
+          params.goal_lateral_tolerance,
+          params.goal_orientation_tolerance,
+          fix_weight),
+        nullptr,
+        stateData(variables, processed.state_count - 1)));
 
     // 参考路径吸附残差：仅在 reference_weight>0 时启用。
     if (reference_weight > KinematicStateLayout::EnabledEpsilon) {
+      catalog.reference_blocks.reserve(processed.state_count);
       for (size_t index = 0; index < processed.state_count; ++index) {
-        problem.AddResidualBlock(
-          kinematic_smoother_detail::ReferenceCostFunctor::Create(
-            processed.reference_points[index], reference_weight),
-          nullptr,
-          stateData(variables, index));
+        catalog.reference_blocks.push_back(
+          problem.AddResidualBlock(
+            kinematic_smoother_detail::ReferenceCostFunctor::Create(
+              processed.reference_points[index], reference_weight),
+            nullptr,
+            stateData(variables, index)));
       }
     }
 
     // 障碍物残差：所有状态使用统一的 ESDF 障碍物权重。
     if (has_obstacle_cost) {
       const double obstacle_weight = std::sqrt(std::max(params.obstacle_weight, 0.0));
+      catalog.obstacle_blocks.reserve(processed.state_count);
       for (size_t index = 0; index < processed.state_count; ++index) {
-        problem.AddResidualBlock(
-          kinematic_smoother_detail::ObstacleCostFunctor::Create(
-            obstacle_weight, costmap, params, esdf_grid_, esdf_interpolator_),
-          nullptr,
-          stateData(variables, index));
+        catalog.obstacle_blocks.push_back(
+          problem.AddResidualBlock(
+            kinematic_smoother_detail::ObstacleCostFunctor::Create(
+              obstacle_weight, costmap, params, esdf_grid_, esdf_interpolator_),
+            nullptr,
+            stateData(variables, index)));
       }
     }
+
+    return catalog;
+  }
+
+  /// 代价分项的稳定名称表；顺序与 evaluateCostTermValues() 返回值一一对应。
+  ///
+  /// 前 5 项对应 TransitionCostFunctor 的 7 个残差按语义拆分：
+  /// [0..2] 运动学模型（尖点段为固定约束）、[3] 曲率、[4] 曲率变化率、
+  /// [5] 间距（尖点段为零步长约束）、[6] 路径长度。
+  static const std::array<const char *, 9> & costTermNames()
+  {
+    static const std::array<const char *, 9> names = {
+      "kinematic_model",
+      "curvature",
+      "curvature_rate",
+      "spacing",
+      "path_length",
+      "start_boundary",
+      "goal_boundary",
+      "reference_path",
+      "obstacle",
+    };
+    return names;
+  }
+
+  /// 按 costTermNames() 顺序评估当前变量下各代价分项的代价。
+  ///
+  /// 代价口径与 Ceres 总代价一致（0.5·Σr²），因此所有分项之和等于问题总代价。
+  /// 可在求解前后各调用一次，得到初始 / 最终代价对比。
+  static std::vector<double> evaluateCostTermValues(
+    ceres::Problem & problem,
+    const KinematicResidualCatalog & catalog)
+  {
+    std::vector<double> values(costTermNames().size(), 0.0);
+
+    // Transition 块的 7 个残差按索引拆分为前 5 个代价分项。
+    if (!catalog.transition_blocks.empty()) {
+      ceres::Problem::EvaluateOptions options;
+      options.residual_blocks = catalog.transition_blocks;
+      options.apply_loss_function = true;
+      double cost = 0.0;
+      std::vector<double> residuals;
+      problem.Evaluate(options, &cost, &residuals, nullptr, nullptr);
+      constexpr size_t kTransitionResidualCount = 7;
+      for (size_t offset = 0; offset + kTransitionResidualCount <= residuals.size();
+        offset += kTransitionResidualCount)
+      {
+        auto half_squared = [&](size_t index) {
+            const double residual = residuals[offset + index];
+            return 0.5 * residual * residual;
+          };
+        values[0] += half_squared(0) + half_squared(1) + half_squared(2);
+        values[1] += half_squared(3);
+        values[2] += half_squared(4);
+        values[3] += half_squared(5);
+        values[4] += half_squared(6);
+      }
+    }
+
+    auto blocks_cost = [&problem](const std::vector<ceres::ResidualBlockId> & blocks) {
+        if (blocks.empty()) {
+          return 0.0;
+        }
+        ceres::Problem::EvaluateOptions options;
+        options.residual_blocks = blocks;
+        options.apply_loss_function = true;
+        double cost = 0.0;
+        problem.Evaluate(options, &cost, nullptr, nullptr, nullptr);
+        return cost;
+      };
+    values[5] = blocks_cost(catalog.start_boundary_blocks);
+    values[6] = blocks_cost(catalog.goal_boundary_blocks);
+    values[7] = blocks_cost(catalog.reference_blocks);
+    values[8] = blocks_cost(catalog.obstacle_blocks);
+    return values;
   }
 
   static void applyBounds(
