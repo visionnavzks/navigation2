@@ -176,7 +176,6 @@ class TEBMPCController:
         self.w_speed = float(self.params.get("w_speed", 10.0))
         self.w_accel = float(self.params.get("w_accel", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
-        self.w_dt = float(self.params.get("w_dt", 1.0))
         self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
@@ -202,14 +201,12 @@ class TEBMPCController:
         jerk = opti.variable(n - 1)
         dkappa = opti.variable(n - 1)
 
-        cost_dt_ref = 0
         cost_jerk = 0
         cost_dkappa = 0
         cost_dt_uniform = 0
         cost_time = 0
 
         for i in range(n - 1):
-            cost_dt_ref += self.w_dt * (dt[i] - reference.dt_ref) ** 2
             if i > 0:
                 dt_delta = dt[i] - dt[i - 1]
                 cost_dt_uniform += self.w_dt_uniform * dt_delta ** 2
@@ -241,7 +238,7 @@ class TEBMPCController:
             + terminal_accel_cost
         )
         time_cost = self.w_time * cost_time
-        cost_control = cost_dt_ref + cost_dt_uniform + cost_jerk + cost_dkappa
+        cost_control = cost_dt_uniform + cost_jerk + cost_dkappa
         total_cost = terminal_cost + cost_control + time_cost
         opti.minimize(total_cost)
 
@@ -318,7 +315,6 @@ class TEBMPCController:
         dt_values = np.atleast_1d(np.array(sol.value(dt), dtype=float))
         jerk_values = np.atleast_1d(np.array(sol.value(jerk), dtype=float))
         dkappa_values = np.atleast_1d(np.array(sol.value(dkappa), dtype=float))
-        dt_error_values = dt_values - float(reference.dt_ref)
         dt_delta_values = np.diff(dt_values)
 
         def rms(values: np.ndarray) -> float:
@@ -368,14 +364,6 @@ class TEBMPCController:
                 "cost": float(sol.value(terminal_accel_cost)),
             },
             {
-                "key": "dt_ref",
-                "label": "dt reference deviation",
-                "residual": rms(dt_error_values),
-                "unit": "s RMS",
-                "weight": self.w_dt,
-                "cost": float(sol.value(cost_dt_ref)),
-            },
-            {
                 "key": "dt_uniform",
                 "label": "neighbor dt jump",
                 "residual": rms(dt_delta_values),
@@ -423,7 +411,6 @@ class TEBMPCController:
             "solver_status": str(solver_stats.get("return_status", "Solve_Succeeded")),
             "costs": {
                 "control": float(sol.value(cost_control)),
-                "dt_ref": float(sol.value(cost_dt_ref)),
                 "dt_uniform": float(sol.value(cost_dt_uniform)),
                 "jerk": float(sol.value(cost_jerk)),
                 "dkappa": float(sol.value(cost_dkappa)),

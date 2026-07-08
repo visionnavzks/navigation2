@@ -21,6 +21,7 @@ DEMO_DT_REF = 0.1
 
 
 DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
+    "horizon": 0.0,
     "ds": DEMO_REFERENCE_DS,
     "cruise_speed": DEMO_CRUISE_SPEED,
     "dt_ref": DEMO_DT_REF,
@@ -128,7 +129,6 @@ def describe_demo_configuration(
             "w_speed": controller.w_speed,
             "w_accel": controller.w_accel,
             "w_time": controller.w_time,
-            "w_dt": controller.w_dt,
             "w_dt_uniform": controller.w_dt_uniform,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
@@ -314,20 +314,35 @@ def _sample_reference_at_s(reference: ReferenceTrajectory, query_s: np.ndarray) 
     return samples
 
 
-def _build_aligned_query_s(original_s: np.ndarray, projection_s: float) -> np.ndarray:
+def _normalize_horizon_count(horizon: float | int | None) -> int | None:
+    if horizon is None:
+        return None
+    horizon_count = int(horizon)
+    if horizon_count <= 0:
+        return None
+    return max(horizon_count, 2)
+
+
+def _build_aligned_query_s(original_s: np.ndarray, projection_s: float, horizon: float | int | None = None) -> np.ndarray:
     shifted_s = projection_s + original_s
     end_s = float(original_s[-1])
+    horizon_count = _normalize_horizon_count(horizon)
 
     if projection_s > end_s:
-        return shifted_s
+        query_s = shifted_s
+        return query_s[:horizon_count] if horizon_count else query_s
 
     tol = 1e-9
     query_s = shifted_s[shifted_s <= end_s + tol]
     if query_s.size == 0:
         query_s = np.array([projection_s], dtype=float)
 
-    if projection_s >= 0.0 and query_s[-1] < end_s - tol:
+    has_room_for_end = horizon_count is None or query_s.size < horizon_count
+    if projection_s >= 0.0 and query_s[-1] < end_s - tol and has_room_for_end:
         query_s = np.concatenate((query_s, np.array([end_s], dtype=float)))
+
+    if horizon_count is not None and query_s.size > horizon_count:
+        query_s = query_s[:horizon_count]
 
     if query_s.size == 1:
         query_s = np.concatenate((query_s, np.array([query_s[0]], dtype=float)))
@@ -390,22 +405,25 @@ def align_reference_to_projection(reference: ReferenceTrajectory, state: Vehicle
 def align_reference_to_projection_with_constraints(
     reference: ReferenceTrajectory,
     state: VehicleState,
+    horizon: float | int | None = None,
     stop_constraints: Dict[str, float] | None = None,
 ) -> Tuple[ReferenceTrajectory, Dict[str, object]]:
     projection = project_state_onto_reference(reference, state)
+    horizon_count = _normalize_horizon_count(horizon)
     end_s = float(reference.s[-1])
     if float(projection["s"]) > end_s:
         return (
             _build_stopping_reference(
                 state=state,
                 reference=reference,
-                sample_count=reference.size,
+                sample_count=horizon_count or reference.size,
                 dt_ref=reference.dt_ref,
                 stop_constraints=stop_constraints,
             ),
             {
                 "mode": "beyond_end_stop",
                 "is_stopping_reference": True,
+                "horizon": horizon_count,
                 "end_extension_line": {
                     "x": float(reference.x[-1]),
                     "y": float(reference.y[-1]),
@@ -415,7 +433,7 @@ def align_reference_to_projection_with_constraints(
         )
 
     original_s = np.array(reference.s, dtype=float)
-    query_s = _build_aligned_query_s(original_s, float(projection["s"]))
+    query_s = _build_aligned_query_s(original_s, float(projection["s"]), horizon=horizon_count)
     aligned_s = query_s - query_s[0]
     aligned_samples = _sample_reference_at_s(reference, query_s)
 
@@ -433,6 +451,7 @@ def align_reference_to_projection_with_constraints(
         {
             "mode": "aligned_projection",
             "is_stopping_reference": False,
+            "horizon": horizon_count,
         },
     )
 
@@ -444,7 +463,8 @@ def run_random_demo(
     sampling_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     rng = np.random.default_rng(seed)
-    base_reference = default_demo_reference(reference_config=reference_config)
+    merged_reference_config = _merged_reference_config(reference_config)
+    base_reference = default_demo_reference(reference_config=merged_reference_config)
     initial_state = sample_random_initial_state(rng=rng, reference=base_reference, sampling_config=sampling_config)
     controller = TEBMPCController(params=params)
     stop_constraints = {
@@ -455,6 +475,7 @@ def run_random_demo(
     reference, reference_meta = align_reference_to_projection_with_constraints(
         base_reference,
         initial_state,
+        horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference)
@@ -467,7 +488,8 @@ def solve_demo(
     params: Dict[str, float] | None = None,
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
-    base_reference = default_demo_reference(reference_config=reference_config)
+    merged_reference_config = _merged_reference_config(reference_config)
+    base_reference = default_demo_reference(reference_config=merged_reference_config)
     controller = TEBMPCController(params=params)
     stop_constraints = {
         "max_lat_accel": controller.max_lat_accel,
@@ -477,6 +499,7 @@ def solve_demo(
     reference, reference_meta = align_reference_to_projection_with_constraints(
         base_reference,
         initial_state,
+        horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference)
@@ -489,6 +512,7 @@ def demo_problem(
     reference_config: Dict[str, float] | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     initial_state = VehicleState(x=0.0, y=-0.3, theta=0.05, v=0.5, a=0.0, kappa=0.0)
+    merged_reference_config = _merged_reference_config(reference_config)
     controller = TEBMPCController(params=params)
     stop_constraints = {
         "max_lat_accel": controller.max_lat_accel,
@@ -496,8 +520,9 @@ def demo_problem(
         "max_dkappa": controller.max_dkappa,
     }
     reference, reference_meta = align_reference_to_projection_with_constraints(
-        default_demo_reference(reference_config=reference_config),
+        default_demo_reference(reference_config=merged_reference_config),
         initial_state,
+        horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
     solution = controller.solve(initial_state=initial_state, reference=reference)

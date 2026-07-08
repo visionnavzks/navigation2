@@ -40,6 +40,7 @@
                     <details class="config-block" open>
                         <summary>参考轨迹</summary>
                         <div class="param-grid">
+                            <label class="param-field"><span>horizon</span><input data-param-group="reference" data-param-key="horizon" data-param-type="int" type="number" step="1" min="0" value="0"></label>
                             <label class="param-field"><span>ds</span><input data-param-group="reference" data-param-key="ds" type="number" step="0.01" value="0.25"></label>
                             <label class="param-field"><span>cruise_speed</span><input data-param-group="reference" data-param-key="cruise_speed" type="number" step="0.05" value="1.0"></label>
                             <label class="param-field"><span>dt_ref</span><input data-param-group="reference" data-param-key="dt_ref" type="number" step="0.01" value="0.1"></label>
@@ -90,7 +91,6 @@
                             <label class="param-field"><span>w_speed</span><input data-param-group="controller" data-param-key="w_speed" type="number" step="0.1" value="10.0"></label>
                             <label class="param-field"><span>w_accel</span><input data-param-group="controller" data-param-key="w_accel" type="number" step="0.1" value="2.0"></label>
                             <label class="param-field"><span>w_time</span><input data-param-group="controller" data-param-key="w_time" type="number" step="0.1" value="2.0"></label>
-                            <label class="param-field"><span>w_dt</span><input data-param-group="controller" data-param-key="w_dt" type="number" step="0.1" value="1.0"></label>
                             <label class="param-field"><span>w_dt_uniform</span><input data-param-group="controller" data-param-key="w_dt_uniform" type="number" step="0.1" value="100.0"></label>
                             <label class="param-field"><span>w_jerk</span><input data-param-group="controller" data-param-key="w_jerk" type="number" step="0.1" value="0.5"></label>
                             <label class="param-field"><span>w_dkappa</span><input data-param-group="controller" data-param-key="w_dkappa" type="number" step="0.1" value="0.5"></label>

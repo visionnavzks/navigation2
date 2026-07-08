@@ -51,7 +51,7 @@ $$
 \{x_{ref}, y_{ref}, \theta_{ref}, v_{ref}, a_{ref}, \kappa_{ref}, s_{ref}, dt_{ref}\}
 $$
 
-其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长，默认用于鼓励 `dt` 不要偏离名义值。
+其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长，默认用于初始化 `dt` 并作为图表参考线。
 
 ## 轨迹生成
 
@@ -206,7 +206,7 @@ $$
 
 $$
 J_{control} = \sum_i \Big[
-w_{dt}(dt_i-dt_{ref})^2
+w_{dt\_uniform}(dt_i-dt_{i-1})^2
 + w_{jerk} jerk_i^2
 + w_{d\kappa} d\kappa_i^2
 \Big]
@@ -219,7 +219,7 @@ $$
 解释：
 
 - `w_time` 越大，优化越倾向缩短总时间
-- `w_dt` 控制每段 `dt` 偏离 `dt_ref` 的程度
+- `w_dt_uniform` 控制相邻 `dt` 的均匀程度
 - `w_jerk` 抑制过大的加加速度
 - `w_dkappa` 抑制曲率变化过快
 
@@ -277,7 +277,7 @@ $$
 - `w_speed = 10.0`
 - `w_accel = 2.0`
 - `w_time = 2.0`
-- `w_dt = 1.0`
+- `w_dt_uniform = 100.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
 
