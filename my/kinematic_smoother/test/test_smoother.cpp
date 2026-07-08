@@ -494,10 +494,12 @@ TEST(KinematicSmootherProblemBuilderTest, UpsamplePathKinematicDistributesClosur
   kinematic_smoother::SmootherParams params;
   params.path_upsampling_factor = 4;
 
-  const auto upsampled = kinematic_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematic(
-    variables,
-    processed,
-    params);
+  const auto profile =
+    kinematic_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
+      variables,
+      processed,
+      params);
+  const auto & upsampled = profile.path;
 
   ASSERT_EQ(upsampled.size(), 5u);
 
@@ -535,10 +537,12 @@ TEST(KinematicSmootherProblemBuilderTest, OutputSpacingUpsamplesByMetricDistance
   kinematic_smoother::SmootherParams params;
   params.path_output_spacing = 0.25;
 
-  const auto upsampled = kinematic_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematic(
-    variables,
-    processed,
-    params);
+  const auto profile =
+    kinematic_smoother::KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
+      variables,
+      processed,
+      params);
+  const auto & upsampled = profile.path;
 
   ASSERT_EQ(upsampled.size(), 5u);
   for (size_t index = 0; index + 1 < upsampled.size(); ++index) {
@@ -1001,6 +1005,16 @@ TEST(KinematicSmootherTest, NonFiniteEndpointDirectionThrowsInvalidPath)
         nullptr,
       }),
     kinematic_smoother::InvalidPath);
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::Zero(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    kinematic_smoother::InvalidPath);
+
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::Zero(), nullptr, params, nullptr, nullptr}),
+    kinematic_smoother::InvalidPath);
 }
 
 TEST(KinematicSmootherTest, NonFiniteSmootherParamThrowsInvalidArgument)
@@ -1021,6 +1035,22 @@ TEST(KinematicSmootherTest, NonFiniteSmootherParamThrowsInvalidArgument)
   EXPECT_THROW(
     (void)smoother.smooth(
       {path, Eigen::Vector2d::UnitX(), Eigen::Vector2d::UnitX(), nullptr, params, nullptr, nullptr}),
+    std::invalid_argument);
+
+  kinematic_smoother::SmootherParams negative_validation_params;
+  negative_validation_params.obstacle_weight = 0.0;
+  negative_validation_params.validation.min_segment_displacement_m = -1.0;
+  EXPECT_THROW(
+    (void)smoother.smooth(
+      {
+        path,
+        Eigen::Vector2d::UnitX(),
+        Eigen::Vector2d::UnitX(),
+        nullptr,
+        negative_validation_params,
+        nullptr,
+        nullptr,
+      }),
     std::invalid_argument);
 }
 

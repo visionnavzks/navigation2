@@ -268,8 +268,8 @@ public:
             params.max_curvature,
             processed.target_spacing),
           nullptr,
-          stateData(variables, index),
-          stateData(variables, index + 1)));
+          KinematicStateLayout::data(variables, index),
+          KinematicStateLayout::data(variables, index + 1)));
     }
 
     // 起点边界残差：位置固定，朝向是否固定由 keep_start_orientation 控制。
@@ -284,7 +284,7 @@ public:
           0.0,
           fix_weight),
         nullptr,
-        stateData(variables, 0)));
+        KinematicStateLayout::data(variables, 0)));
 
     // 终点位置容差框所用的参考朝向：
     // keep_goal_orientation=true 时采用 end_theta，否则采用末段几何朝向。
@@ -305,7 +305,7 @@ public:
           params.goal_orientation_tolerance,
           fix_weight),
         nullptr,
-        stateData(variables, processed.state_count - 1)));
+        KinematicStateLayout::data(variables, processed.state_count - 1)));
 
     // 参考路径吸附残差：仅在 reference_weight>0 时启用。
     if (reference_weight > KinematicStateLayout::EnabledEpsilon) {
@@ -316,7 +316,7 @@ public:
             kinematic_smoother_detail::ReferenceCostFunctor::Create(
               processed.reference_points[index], reference_weight),
             nullptr,
-            stateData(variables, index)));
+            KinematicStateLayout::data(variables, index)));
       }
     }
 
@@ -330,7 +330,7 @@ public:
             kinematic_smoother_detail::ObstacleCostFunctor::Create(
               obstacle_weight, costmap, params, esdf_grid_, esdf_interpolator_),
             nullptr,
-            stateData(variables, index)));
+            KinematicStateLayout::data(variables, index)));
       }
     }
 
@@ -474,21 +474,13 @@ public:
     std::vector<Eigen::Vector3d> path;
     path.reserve(state_count);
     for (size_t index = 0; index < state_count; ++index) {
-      const size_t offset = stateOffset(index);
+      const size_t offset = KinematicStateLayout::offset(index);
       path.emplace_back(
         variables[offset + KinematicStateLayout::X],
         variables[offset + KinematicStateLayout::Y],
         normalizeAngle(variables[offset + KinematicStateLayout::Theta]));
     }
     return path;
-  }
-
-  static std::vector<Eigen::Vector3d> upsamplePathKinematic(
-    const std::vector<double> & variables,
-    const KinematicProcessedPath & processed,
-    const SmootherParams & params)
-  {
-    return upsamplePathKinematicProfile(variables, processed, params).path;
   }
 
   static KinematicUpsampledPathProfile upsamplePathKinematicProfile(
@@ -752,21 +744,6 @@ private:
     }
 
     return sampled;
-  }
-
-  static double normalizeAngle(double angle)
-  {
-    return std::atan2(std::sin(angle), std::cos(angle));
-  }
-
-  static double * stateData(std::vector<double> & variables, size_t index)
-  {
-    return KinematicStateLayout::data(variables, index);
-  }
-
-  static size_t stateOffset(size_t index)
-  {
-    return KinematicStateLayout::offset(index);
   }
 
   static double directionSign(const Eigen::Vector3d & point, bool reversing_enabled)

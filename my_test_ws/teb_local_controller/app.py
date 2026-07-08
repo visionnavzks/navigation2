@@ -13,8 +13,8 @@ for path_entry in (REPO_ROOT, CURRENT_DIR):
     if path_entry not in sys.path:
         sys.path.append(path_entry)
 
-from my.teb_local_controller.demo_support import default_demo_reference, describe_demo_configuration, run_random_demo, solve_demo
-from my.teb_local_controller.teb_mpc import VehicleState
+from demo_support import default_demo_reference, describe_demo_configuration, run_random_demo, solve_demo
+from teb_mpc import VehicleState
 
 
 app = Flask(__name__)
@@ -114,6 +114,7 @@ def random_demo():
                     "solve_time_ms": float(solution["solve_time_ms"]),
                     "solver_status": str(solution.get("solver_status", "Optimization succeeded")),
                     "costs": solution["costs"],
+                    "cost_items": solution.get("cost_items", []),
                 },
             }
         )

@@ -25,6 +25,21 @@ namespace kinematic_smoother
 constexpr double EPSILON = 0.0001;
 constexpr double PI = 3.14159265358979323846;
 
+template<typename T>
+inline T normalizeAngle(T angle)
+{
+  using std::atan2;
+  using std::cos;
+  using std::sin;
+  return atan2(sin(angle), cos(angle));
+}
+
+template<typename T>
+inline T angleDifference(T a, T b)
+{
+  return normalizeAngle(a - b);
+}
+
 inline double goalPositionFrameHeading(
   const std::vector<Eigen::Vector2d> & reference_points,
   double end_theta,

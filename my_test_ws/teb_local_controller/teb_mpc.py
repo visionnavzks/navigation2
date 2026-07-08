@@ -170,20 +170,21 @@ class TEBMPCController:
         self.max_jerk = float(self.params.get("max_jerk", 3.0))
         self.max_kappa = float(self.params.get("max_kappa", 2.0))
         self.max_dkappa = float(self.params.get("max_dkappa", 1.5))
-        self.w_pos = float(self.params.get("w_pos", 30.0))
-        self.w_theta = float(self.params.get("w_theta", 15.0))
-        self.w_speed = float(self.params.get("w_speed", 4.0))
-        self.w_accel = float(self.params.get("w_accel", 1.5))
-        self.w_kappa = float(self.params.get("w_kappa", 2.0))
-        self.w_dt = float(self.params.get("w_dt", 10.0))
+        self.w_lat = float(self.params.get("w_lat", self.params.get("w_terminal", 300.0)))
+        self.w_lon = float(self.params.get("w_lon", self.params.get("w_terminal", 100.0)))
+        self.w_theta = float(self.params.get("w_theta", 60.0))
+        self.w_speed = float(self.params.get("w_speed", 10.0))
+        self.w_accel = float(self.params.get("w_accel", 2.0))
+        self.w_time = float(self.params.get("w_time", 2.0))
+        self.w_dt = float(self.params.get("w_dt", 1.0))
+        self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
-        self.w_terminal = float(self.params.get("w_terminal", 60.0))
         self.ipopt_max_iter = int(self.params.get("ipopt_max_iter", 500))
         self.ipopt_tol = float(self.params.get("ipopt_tol", 1e-6))
         self.ipopt_print_level = int(self.params.get("ipopt_print_level", 0))
 
-    def solve(self, initial_state: VehicleState, reference: ReferenceTrajectory) -> Dict[str, np.ndarray | float | Dict[str, float]]:
+    def solve(self, initial_state: VehicleState, reference: ReferenceTrajectory) -> Dict[str, object]:
         if reference.size < 2:
             raise ValueError("Reference trajectory must contain at least 2 samples")
 
@@ -201,24 +202,48 @@ class TEBMPCController:
         jerk = opti.variable(n - 1)
         dkappa = opti.variable(n - 1)
 
-        cost_track = 0
-        cost_control = 0
-        for i in range(n):
-            cost_track += self.w_pos * ((x[i] - reference.x[i]) ** 2 + (y[i] - reference.y[i]) ** 2)
-            cost_track += self.w_speed * (v[i] - reference.v[i]) ** 2
+        cost_dt_ref = 0
+        cost_jerk = 0
+        cost_dkappa = 0
+        cost_dt_uniform = 0
+        cost_time = 0
 
         for i in range(n - 1):
-            cost_control += self.w_dt * (dt[i] - reference.dt_ref) ** 2
-            cost_control += self.w_jerk * jerk[i] ** 2
-            cost_control += self.w_dkappa * dkappa[i] ** 2
+            cost_dt_ref += self.w_dt * (dt[i] - reference.dt_ref) ** 2
+            if i > 0:
+                dt_delta = dt[i] - dt[i - 1]
+                cost_dt_uniform += self.w_dt_uniform * dt_delta ** 2
+            cost_jerk += self.w_jerk * jerk[i] ** 2
+            cost_dkappa += self.w_dkappa * dkappa[i] ** 2
+            cost_time += dt[i]
 
-        terminal_cost = self.w_terminal * (
-            (x[-1] - reference.x[-1]) ** 2
-            + (y[-1] - reference.y[-1]) ** 2
-            + (v[-1] - reference.v[-1]) ** 2
-            + (1.0 - ca.cos(theta[-1] - reference.theta[-1]))
+        terminal_theta_ref = float(reference.theta[-1])
+        terminal_dx = x[-1] - float(reference.x[-1])
+        terminal_dy = y[-1] - float(reference.y[-1])
+        terminal_lon_error = math.cos(terminal_theta_ref) * terminal_dx + math.sin(terminal_theta_ref) * terminal_dy
+        terminal_lat_error = -math.sin(terminal_theta_ref) * terminal_dx + math.cos(terminal_theta_ref) * terminal_dy
+        terminal_theta_error = ca.atan2(
+            ca.sin(theta[-1] - terminal_theta_ref),
+            ca.cos(theta[-1] - terminal_theta_ref),
         )
-        opti.minimize(cost_track + cost_control + terminal_cost)
+        terminal_speed_error = v[-1] - float(reference.v[-1])
+        terminal_accel_error = a[-1] - float(reference.a[-1])
+        terminal_lat_cost = self.w_lat * terminal_lat_error ** 2
+        terminal_lon_cost = self.w_lon * terminal_lon_error ** 2
+        terminal_theta_cost = self.w_theta * terminal_theta_error ** 2
+        terminal_speed_cost = self.w_speed * terminal_speed_error ** 2
+        terminal_accel_cost = self.w_accel * terminal_accel_error ** 2
+        terminal_cost = (
+            terminal_lat_cost
+            + terminal_lon_cost
+            + terminal_theta_cost
+            + terminal_speed_cost
+            + terminal_accel_cost
+        )
+        time_cost = self.w_time * cost_time
+        cost_control = cost_dt_ref + cost_dt_uniform + cost_jerk + cost_dkappa
+        total_cost = terminal_cost + cost_control + time_cost
+        opti.minimize(total_cost)
 
         for i in range(n - 1):
             a_next = a[i] + dt[i] * jerk[i]
@@ -288,6 +313,102 @@ class TEBMPCController:
 
         elapsed_ms = (time.time() - start_time) * 1000.0
         solver_stats = opti.stats()
+        # sol.value(...) 对长度为 1 的变量(n == 2)返回标量,np.array 会得到 0 维数组;
+        # 用 atleast_1d 保证后续 np.diff / rms 等运算始终作用在至少 1 维数组上。
+        dt_values = np.atleast_1d(np.array(sol.value(dt), dtype=float))
+        jerk_values = np.atleast_1d(np.array(sol.value(jerk), dtype=float))
+        dkappa_values = np.atleast_1d(np.array(sol.value(dkappa), dtype=float))
+        dt_error_values = dt_values - float(reference.dt_ref)
+        dt_delta_values = np.diff(dt_values)
+
+        def rms(values: np.ndarray) -> float:
+            if values.size == 0:
+                return 0.0
+            return float(np.sqrt(np.mean(np.square(values))))
+
+        cost_items = [
+            {
+                "key": "terminal_lat",
+                "label": "terminal lateral error",
+                "residual": float(sol.value(terminal_lat_error)),
+                "unit": "m",
+                "weight": self.w_lat,
+                "cost": float(sol.value(terminal_lat_cost)),
+            },
+            {
+                "key": "terminal_lon",
+                "label": "terminal longitudinal error",
+                "residual": float(sol.value(terminal_lon_error)),
+                "unit": "m",
+                "weight": self.w_lon,
+                "cost": float(sol.value(terminal_lon_cost)),
+            },
+            {
+                "key": "terminal_theta",
+                "label": "terminal heading error",
+                "residual": float(sol.value(terminal_theta_error)),
+                "unit": "rad",
+                "weight": self.w_theta,
+                "cost": float(sol.value(terminal_theta_cost)),
+            },
+            {
+                "key": "terminal_speed",
+                "label": "terminal speed error",
+                "residual": float(sol.value(terminal_speed_error)),
+                "unit": "m/s",
+                "weight": self.w_speed,
+                "cost": float(sol.value(terminal_speed_cost)),
+            },
+            {
+                "key": "terminal_accel",
+                "label": "terminal accel error",
+                "residual": float(sol.value(terminal_accel_error)),
+                "unit": "m/s^2",
+                "weight": self.w_accel,
+                "cost": float(sol.value(terminal_accel_cost)),
+            },
+            {
+                "key": "dt_ref",
+                "label": "dt reference deviation",
+                "residual": rms(dt_error_values),
+                "unit": "s RMS",
+                "weight": self.w_dt,
+                "cost": float(sol.value(cost_dt_ref)),
+            },
+            {
+                "key": "dt_uniform",
+                "label": "neighbor dt jump",
+                "residual": rms(dt_delta_values),
+                "unit": "s RMS",
+                "weight": self.w_dt_uniform,
+                "cost": float(sol.value(cost_dt_uniform)),
+            },
+            {
+                "key": "jerk",
+                "label": "jerk smoothness",
+                "residual": rms(jerk_values),
+                "unit": "m/s^3 RMS",
+                "weight": self.w_jerk,
+                "cost": float(sol.value(cost_jerk)),
+            },
+            {
+                "key": "dkappa",
+                "label": "dkappa smoothness",
+                "residual": rms(dkappa_values),
+                "unit": "1/(m*s) RMS",
+                "weight": self.w_dkappa,
+                "cost": float(sol.value(cost_dkappa)),
+            },
+            {
+                "key": "time",
+                "label": "total time",
+                "residual": float(np.sum(dt_values)),
+                "unit": "s",
+                "weight": self.w_time,
+                "cost": float(sol.value(time_cost)),
+            },
+        ]
+
         result = {
             "x": np.array(sol.value(x), dtype=float),
             "y": np.array(sol.value(y), dtype=float),
@@ -295,17 +416,32 @@ class TEBMPCController:
             "v": np.array(sol.value(v), dtype=float),
             "a": np.array(sol.value(a), dtype=float),
             "kappa": np.array(sol.value(kappa), dtype=float),
-            "dt": np.array(sol.value(dt), dtype=float),
-            "jerk": np.array(sol.value(jerk), dtype=float),
-            "dkappa": np.array(sol.value(dkappa), dtype=float),
+            "dt": dt_values,
+            "jerk": jerk_values,
+            "dkappa": dkappa_values,
             "solve_time_ms": float(elapsed_ms),
             "solver_status": str(solver_stats.get("return_status", "Solve_Succeeded")),
             "costs": {
-                "track": float(sol.value(cost_track)),
                 "control": float(sol.value(cost_control)),
+                "dt_ref": float(sol.value(cost_dt_ref)),
+                "dt_uniform": float(sol.value(cost_dt_uniform)),
+                "jerk": float(sol.value(cost_jerk)),
+                "dkappa": float(sol.value(cost_dkappa)),
+                "time": float(sol.value(time_cost)),
                 "terminal": float(sol.value(terminal_cost)),
-                "total": float(sol.value(cost_track + cost_control + terminal_cost)),
+                "terminal_lat": float(sol.value(terminal_lat_cost)),
+                "terminal_lon": float(sol.value(terminal_lon_cost)),
+                "terminal_theta": float(sol.value(terminal_theta_cost)),
+                "terminal_speed": float(sol.value(terminal_speed_cost)),
+                "terminal_accel": float(sol.value(terminal_accel_cost)),
+                "total": float(sol.value(total_cost)),
+                "terminal_lat_error": float(sol.value(terminal_lat_error)),
+                "terminal_lon_error": float(sol.value(terminal_lon_error)),
+                "terminal_theta_error": float(sol.value(terminal_theta_error)),
+                "terminal_speed_error": float(sol.value(terminal_speed_error)),
+                "terminal_accel_error": float(sol.value(terminal_accel_error)),
             },
+            "cost_items": cost_items,
         }
         result["time"] = np.concatenate(([0.0], np.cumsum(result["dt"])))
         return result

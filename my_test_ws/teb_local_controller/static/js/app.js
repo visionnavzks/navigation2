@@ -1,6 +1,4 @@
 const randomizeBtn = document.getElementById('randomize-btn');
-const applyParamsBtn = document.getElementById('apply-params-btn');
-const resetParamsBtn = document.getElementById('reset-params-btn');
 const paramForm = document.getElementById('param-form');
 const statusText = document.getElementById('status-text');
 const statusBadge = document.getElementById('status-badge');
@@ -8,6 +6,7 @@ const pathPlot = document.getElementById('path-plot');
 const plotlyChart = document.getElementById('plotly-chart');
 const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
+const vizTabButtons = Array.from(document.querySelectorAll('.viz-tab-btn'));
 const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
 const initialHeadingSlider = document.getElementById('initial-heading-slider');
 const initialHeadingValue = document.getElementById('initial-heading-value');
@@ -16,6 +15,14 @@ const PATH_PLOT_CONFIG = {
     displaylogo: false,
     modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
 };
+const PATH_WHEEL_ZOOM_IN_FACTOR = 0.82;
+const PATH_WHEEL_ZOOM_OUT_FACTOR = 1.22;
+const PATH_MIN_ZOOM_SPAN = 0.05;
+const MAIN_VIEW_OPACITY = 0.5;
+const ENDPOINT_POSE_ARROW_OPACITY = 0.9;
+const START_ARROW_COLOR = '#2563eb';
+const END_ARROW_COLOR = '#dc2626';
+const MID_ARROW_COLOR = '#7c3aed';
 
 const statsEls = {
     optimizationStatus: document.getElementById('optimization-status'),
@@ -28,11 +35,8 @@ const statsEls = {
     pathLength: document.getElementById('path-length'),
     terminalError: document.getElementById('terminal-error'),
     totalCost: document.getElementById('total-cost'),
+    costBreakdown: document.getElementById('cost-breakdown'),
     initialState: document.getElementById('initial-state'),
-    referenceConfig: document.getElementById('reference-config'),
-    limitsConfig: document.getElementById('limits-config'),
-    weightsConfig: document.getElementById('weights-config'),
-    solverConfig: document.getElementById('solver-config'),
 };
 
 const PARAM_HELP_TEXTS = {
@@ -48,14 +52,12 @@ const PARAM_HELP_TEXTS = {
     line_3_length: '最后一段直线的长度，单位 m。决定终点前的收尾距离。',
     x_offset_range: '随机初始状态在 x 方向相对参考起点的采样范围，单位 m。实际采样区间是 [-range, +range]。',
     y_offset_range: '随机初始状态在 y 方向相对参考起点的采样范围，单位 m。值越大，初始横向偏差越大。',
-    theta_offset_range: '随机初始航向相对参考起点的采样范围，输入单位 rad。实际采样区间是 [-range, +range]，0.7 rad 约等于 40 deg。',
     speed_min: '随机初始速度的最小值，单位 m/s。用于生成新的起始状态。',
     speed_max: '随机初始速度的最大值，单位 m/s。它不等于控制器速度上限，只影响随机起点采样。',
     accel_min: '随机初始加速度的最小值，单位 m/s²。',
     accel_max: '随机初始加速度的最大值，单位 m/s²。',
-    kappa_offset_range: '随机初始曲率相对参考起点的扰动范围，单位 1/m。值越大，起步转向偏差越明显。',
-    kappa_min: '随机初始曲率的下界，单位 1/m。与 kappa_offset_range 一起决定随机起点的曲率范围。',
-    kappa_max: '随机初始曲率的上界，单位 1/m。',
+    kappa_min: '随机初始曲率的采样下界，单位 1/m。',
+    kappa_max: '随机初始曲率的采样上界，单位 1/m。',
     dt_min: '优化允许的最小时间步长，单位 s。减小它会允许更细的时间伸缩，但可能让问题更难。',
     dt_max: '优化允许的最大时间步长，单位 s。增大它会允许轨迹在某些段上明显放慢。',
     max_speed: '优化状态中的速度上界，单位 m/s。它是硬约束，不是参考速度。',
@@ -64,24 +66,39 @@ const PARAM_HELP_TEXTS = {
     max_jerk: '控制量 jerk 的绝对值上界，单位 m/s³。越小表示速度变化更平滑，但机动性更弱。',
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
-    w_pos: '位置跟踪权重。越大，优化越优先贴近参考路径的 x/y 位置，但控制代价和光滑性可能被压制。',
-    w_theta: '终端航向误差权重。当前实现中 theta 只在终点代价里使用，所以它主要决定末端朝向是否对齐。',
-    w_speed: '速度跟踪权重。越大，优化速度曲线越接近参考速度。',
-    w_accel: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用加速度参考，所以它目前不会改变结果。',
-    w_kappa: '当前实现里该权重已保留在参数面板中，但中间跟踪项不再使用曲率参考，所以它目前不会改变结果。',
-    w_dt: '时间弹性权重。越大，dt 越接近 dt_ref；越小，优化越愿意拉伸或压缩时间分配。',
+    w_lat: '终点横向误差权重。误差按参考终点航向投影，越大越优先把末端拉回参考线。',
+    w_lon: '终点纵向误差权重。误差按参考终点航向投影，越大越优先让末端前后位置对齐。',
+    w_theta: '终点航向误差权重。越大，优化越优先让末端朝向对齐参考终点。',
+    w_speed: '终点速度误差权重。越大，末端速度越接近参考终点速度。',
+    w_accel: '终点加速度误差权重。越大，末端加速度越接近参考终点加速度。',
+    w_time: '总时间代价权重。越大，优化越倾向缩短总时长。',
+    w_dt: '时间步长正则权重。越大，dt 越接近 dt_ref；越小，优化越愿意重新分配各段时间。',
+    w_dt_uniform: '相邻时间步长均匀性权重。越大，相邻 dt 之间的跳变越小。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
-    w_terminal: '终端状态权重。越大，优化越强调最后一个点在位置、速度和航向上贴近参考终点。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
     ipopt_tol: 'IPOPT 收敛容差。数值越小，解要求越严格，通常也会更慢。',
     ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印，更高值会输出更多求解细节。',
+};
+
+const COST_ITEM_LABELS = {
+    terminal_lat: '终点横向误差',
+    terminal_lon: '终点纵向误差',
+    terminal_theta: '终点航向误差',
+    terminal_speed: '终点速度误差',
+    terminal_accel: '终点加速度误差',
+    dt_ref: 'dt 偏离参考',
+    dt_uniform: '相邻 dt 跳变',
+    jerk: 'jerk 平滑',
+    dkappa: 'dkappa 平滑',
+    time: '总时间',
 };
 
 let currentScene = null;
 let currentData = null;
 let activeHoverKey = null;
 let chartAxisMode = 'time';
+let activeVizTab = 'main';
 let defaultParameterSnapshot = null;
 let autoReplanTimer = null;
 let solveInFlight = false;
@@ -89,16 +106,31 @@ let pendingAutoReplanOptions = null;
 let globalParamTooltip = null;
 let activeParamTooltipAnchor = null;
 let isDraggingInitialState = false;
+let isPanningPath = false;
+let pathPanStart = null;
 const layerVisibility = {
     reference: true,
     stopReference: true,
     optimized: true,
     correspondence: true,
     initial: true,
+    arrows: true,
 };
 
 function formatNumber(value, digits = 3) {
     return Number(value).toFixed(digits);
+}
+
+function formatMetric(value, digits = 3) {
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+        return '--';
+    }
+    const absValue = Math.abs(numericValue);
+    if ((absValue > 0 && absValue < 0.001) || absValue >= 100000) {
+        return numericValue.toExponential(2);
+    }
+    return numericValue.toFixed(digits);
 }
 
 function normalizeAngle(angle) {
@@ -127,10 +159,7 @@ function setOptimizationIndicator(succeeded, message) {
 
 function setButtonLoading(isLoading) {
     randomizeBtn.disabled = isLoading;
-    applyParamsBtn.disabled = isLoading;
-    resetParamsBtn.disabled = isLoading;
     randomizeBtn.textContent = isLoading ? '求解中...' : '随机初始化并求解';
-    applyParamsBtn.textContent = isLoading ? '应用中...' : '应用当前参数并求解';
 }
 
 function shouldPreserveInitialStateForInput(input) {
@@ -193,14 +222,6 @@ function collectParameterPayload() {
         payload[targetMap[input.dataset.paramGroup]][input.dataset.paramKey] = value;
     });
     return payload;
-}
-
-function resetParameterForm() {
-    if (!defaultParameterSnapshot) {
-        return;
-    }
-    applyConfigToForm(defaultParameterSnapshot);
-    setStatus('已恢复默认参数，可以点击按钮重新求解。', 'idle');
 }
 
 function updateInitialHeadingControls(initialState) {
@@ -480,6 +501,29 @@ function updateAxisButtonStyles() {
     });
 }
 
+function setVizTab(tabName) {
+    activeVizTab = tabName;
+    vizTabButtons.forEach((button) => {
+        button.classList.toggle('active', button.dataset.vizTab === activeVizTab);
+    });
+    document.querySelectorAll('[data-viz-tab-panel]').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.vizTabPanel === activeVizTab);
+    });
+
+    if (activeVizTab === 'main') {
+        requestAnimationFrame(() => {
+            // 仅对已完成绘制(存在 _fullLayout)的图执行 resize;首屏调用时
+            // runRandomDemo 仍在 await,两个图尚未 Plotly.react,跳过以免未处理的 Promise 拒绝。
+            if (pathPlot && pathPlot._fullLayout) {
+                Plotly.Plots.resize(pathPlot);
+            }
+            if (plotlyChart && plotlyChart._fullLayout) {
+                Plotly.Plots.resize(plotlyChart);
+            }
+        });
+    }
+}
+
 function drawArrow(ctx, viewport, x, y, theta, color, arrowLength = 20, alpha = 1, lineWidth = 2) {
     const [px, py] = viewport.project(x, y);
     const tipX = px + arrowLength * Math.cos(theta);
@@ -656,7 +700,19 @@ function buildSegmentedLineCoords(referencePoints, solutionPoints) {
     return { xs, ys };
 }
 
-function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, lineWidth = 1.4) {
+function buildEndpointMarkerColors(points, defaultColor) {
+    return points.map((_point, index) => {
+        if (index === 0) {
+            return START_ARROW_COLOR;
+        }
+        if (index === points.length - 1) {
+            return END_ARROW_COLOR;
+        }
+        return defaultColor;
+    });
+}
+
+function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, lineWidth = 1.4, arrowSize = 1.0, arrowHead = 3) {
     return {
         x: x + arrowLength * Math.cos(theta),
         y: y + arrowLength * Math.sin(theta),
@@ -666,22 +722,67 @@ function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, line
         ayref: 'y',
         text: '',
         showarrow: true,
-        arrowhead: 2,
-        arrowsize: 1,
+        arrowhead: arrowHead,
+        arrowsize: arrowSize,
         arrowwidth: lineWidth,
         arrowcolor: color,
         opacity,
     };
 }
 
-function buildHeadingAnnotations(points, headings, color, step, opacity, arrowLength, lineWidth = 1.4) {
+function buildHeadingAnnotations(points, headings, step, arrowLength, lineWidth = 1.4) {
     const annotations = [];
     for (let index = 0; index < points.length; index += step) {
-        annotations.push(buildPathArrowAnnotation(points[index][0], points[index][1], headings[index], color, opacity, arrowLength, lineWidth));
+        if (index === 0 || index === points.length - 1) {
+            continue;
+        }
+        annotations.push(
+            buildPathArrowAnnotation(
+                points[index][0],
+                points[index][1],
+                headings[index],
+                MID_ARROW_COLOR,
+                0.3,
+                arrowLength * 1.45,
+                Math.max(lineWidth, 3.0),
+                1.55,
+            ),
+        );
     }
+    return annotations;
+}
+
+function buildEndpointHeadingAnnotations(points, headings, arrowLength, lineWidth = 5.2) {
+    const annotations = [];
+    if (!points.length) {
+        return annotations;
+    }
+    annotations.push(
+        buildPathArrowAnnotation(
+            points[0][0],
+            points[0][1],
+            headings[0],
+            START_ARROW_COLOR,
+            ENDPOINT_POSE_ARROW_OPACITY,
+            arrowLength,
+            lineWidth,
+            1.15,
+        ),
+    );
     if (points.length > 1) {
         const last = points.length - 1;
-        annotations.push(buildPathArrowAnnotation(points[last][0], points[last][1], headings[last], color, opacity, arrowLength, lineWidth));
+        annotations.push(
+            buildPathArrowAnnotation(
+                points[last][0],
+                points[last][1],
+                headings[last],
+                END_ARROW_COLOR,
+                ENDPOINT_POSE_ARROW_OPACITY,
+                arrowLength,
+                lineWidth,
+                1.15,
+            ),
+        );
     }
     return annotations;
 }
@@ -691,12 +792,16 @@ function bindPathPlotInteractions() {
     if (pathPlot.__interactionTarget !== nextTarget) {
         if (pathPlot.__interactionTarget) {
             pathPlot.__interactionTarget.removeEventListener('mousemove', handleCanvasMove, true);
-            pathPlot.__interactionTarget.removeEventListener('mousedown', beginInitialStateDrag, true);
+            pathPlot.__interactionTarget.removeEventListener('mousedown', handlePathMouseDown, true);
             pathPlot.__interactionTarget.removeEventListener('mouseleave', clearCanvasHover, true);
+            pathPlot.__interactionTarget.removeEventListener('wheel', handlePathWheelZoom, true);
+            pathPlot.__interactionTarget.removeEventListener('contextmenu', preventPathContextMenu, true);
         }
         nextTarget.addEventListener('mousemove', handleCanvasMove, true);
-        nextTarget.addEventListener('mousedown', beginInitialStateDrag, true);
+        nextTarget.addEventListener('mousedown', handlePathMouseDown, true);
         nextTarget.addEventListener('mouseleave', clearCanvasHover, true);
+        nextTarget.addEventListener('wheel', handlePathWheelZoom, { capture: true, passive: false });
+        nextTarget.addEventListener('contextmenu', preventPathContextMenu, true);
         pathPlot.__interactionTarget = nextTarget;
     }
 }
@@ -745,7 +850,8 @@ function renderPathView(data, activeKey = null) {
             y: correspondenceY,
             mode: 'lines',
             name: '对应关系',
-            line: { color: 'rgba(141, 133, 120, 0.42)', width: 1, dash: 'dot' },
+            line: { color: 'rgba(141, 133, 120, 0.5)', width: 1, dash: 'dot' },
+            opacity: MAIN_VIEW_OPACITY,
             hoverinfo: 'skip',
             showlegend: false,
         });
@@ -760,11 +866,14 @@ function renderPathView(data, activeKey = null) {
             name: '参考路径',
             customdata: referenceKeys,
             hovertemplate: '<extra></extra>',
-            line: { color: 'rgba(15, 118, 110, 0.62)', width: 3.6, dash: 'dash' },
-            marker: { color: '#0f766e', size: 8, symbol: 'x' },
+            line: { color: 'rgba(15, 118, 110, 0.5)', width: 3.6, dash: 'dash' },
+            marker: { color: buildEndpointMarkerColors(referencePoints, '#0f766e'), size: 8, symbol: 'x', opacity: MAIN_VIEW_OPACITY },
             showlegend: false,
         });
-        annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, '#0f766e', 5, 0.45, arrowLength));
+        if (layerVisibility.arrows) {
+            annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, 5, arrowLength));
+            annotations.push(...buildEndpointHeadingAnnotations(referencePoints, displayReference.theta, arrowLength));
+        }
     }
 
     if (stopReferenceActive && layerVisibility.stopReference) {
@@ -776,16 +885,20 @@ function renderPathView(data, activeKey = null) {
             name: '停车参考',
             customdata: stopReferenceKeys,
             hovertemplate: '<extra></extra>',
-            line: { color: 'rgba(217, 119, 6, 0.9)', width: 4.2 },
+            line: { color: 'rgba(217, 119, 6, 0.5)', width: 4.2 },
             marker: {
-                color: 'rgba(217, 119, 6, 0.85)',
+                color: buildEndpointMarkerColors(stopReferencePoints, '#d97706'),
                 size: 8,
                 symbol: 'diamond',
-                line: { color: 'rgba(255, 247, 242, 0.95)', width: 1.2 },
+                opacity: MAIN_VIEW_OPACITY,
+                line: { color: buildEndpointMarkerColors(stopReferencePoints, '#d97706'), width: 1.2 },
             },
             showlegend: false,
         });
-        annotations.push(...buildHeadingAnnotations(stopReferencePoints, reference.theta, '#d97706', 4, 0.72, arrowLength * 0.95, 1.55));
+        if (layerVisibility.arrows) {
+            annotations.push(...buildHeadingAnnotations(stopReferencePoints, reference.theta, 4, arrowLength * 0.95, 1.55));
+            annotations.push(...buildEndpointHeadingAnnotations(stopReferencePoints, reference.theta, arrowLength * 0.95));
+        }
     }
 
     if (layerVisibility.optimized) {
@@ -797,15 +910,20 @@ function renderPathView(data, activeKey = null) {
             name: '优化路径',
             customdata: optimizedKeys,
             hovertemplate: '<extra></extra>',
-            line: { color: 'rgba(202, 90, 52, 0.78)', width: 3.8 },
+            line: { color: 'rgba(202, 90, 52, 0.5)', width: 3.8 },
             marker: {
-                color: 'rgba(202, 90, 52, 0.65)',
-                size: 7,
-                line: { color: 'rgba(255, 247, 242, 0.9)', width: 1 },
+                color: buildEndpointMarkerColors(solutionPoints, '#ca5a34'),
+                size: 9,
+                symbol: 'circle-open',
+                opacity: MAIN_VIEW_OPACITY,
+                line: { color: buildEndpointMarkerColors(solutionPoints, '#ca5a34'), width: 1.8 },
             },
             showlegend: false,
         });
-        annotations.push(...buildHeadingAnnotations(solutionPoints, solution.theta, '#ca5a34', 5, 0.52, arrowLength));
+        if (layerVisibility.arrows) {
+            annotations.push(...buildHeadingAnnotations(solutionPoints, solution.theta, 5, arrowLength));
+            annotations.push(...buildEndpointHeadingAnnotations(solutionPoints, solution.theta, arrowLength));
+        }
     }
 
     if (layerVisibility.initial) {
@@ -817,13 +935,16 @@ function renderPathView(data, activeKey = null) {
             customdata: ['initial-0'],
             hovertemplate: '<extra></extra>',
             marker: {
-                color: '#d97706',
+                color: START_ARROW_COLOR,
                 size: 14,
-                line: { color: 'rgba(255, 247, 242, 0.95)', width: 1.5 },
+                opacity: MAIN_VIEW_OPACITY,
+                line: { color: START_ARROW_COLOR, width: 1.8 },
             },
             showlegend: false,
         });
-        annotations.push(buildPathArrowAnnotation(initialState.x, initialState.y, initialState.theta, '#d97706', 0.9, arrowLength * 1.15, 1.7));
+        if (layerVisibility.arrows) {
+            annotations.push(buildPathArrowAnnotation(initialState.x, initialState.y, initialState.theta, START_ARROW_COLOR, ENDPOINT_POSE_ARROW_OPACITY, arrowLength * 1.15, 5.2, 1.15));
+        }
     }
 
     const highlightTraceIndex = traces.length;
@@ -1094,40 +1215,58 @@ function renderStats(data) {
     ].map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
     updateInitialHeadingControls(initialState);
+    renderCostBreakdown(data.solution);
 }
 
-function renderConfig(data) {
-    const { config } = data;
-    const reference = config.reference;
-    const limits = config.limits;
-    const weights = config.weights;
-    const solver = config.solver;
+function renderCostBreakdown(solution) {
+    if (!statsEls.costBreakdown) {
+        return;
+    }
 
-    statsEls.referenceConfig.innerHTML = `
-        <div class="config-stack">ds = ${formatNumber(reference.ds, 2)} m, cruise = ${formatNumber(reference.cruise_speed, 2)} m/s, dt_ref = ${formatNumber(reference.dt_ref, 2)} s</div>
-        <div class="config-stack">segments (${reference.segment_count})</div>
-        ${reference.segment_descriptions.map((segment) => `<div class="config-stack">${segment}</div>`).join('')}
+    const costItems = Array.isArray(solution.cost_items) && solution.cost_items.length > 0
+        ? solution.cost_items
+        : [
+            { label: '终点项', residual: null, unit: '', weight: null, cost: solution.costs?.terminal },
+            { label: '控制项', residual: null, unit: '', weight: null, cost: solution.costs?.control },
+            { label: '时间项', residual: null, unit: '', weight: null, cost: solution.costs?.time },
+        ];
+    const totalCost = Number(solution.costs?.total);
+
+    statsEls.costBreakdown.innerHTML = `
+        <div class="cost-row cost-head">
+            <span>项目</span>
+            <span>残差</span>
+            <span>权重</span>
+            <span>代价</span>
+            <span>占比</span>
+        </div>
+        ${costItems.map((item) => {
+            const label = COST_ITEM_LABELS[item.key] || item.label || item.key || '--';
+            const residual = item.residual === null || item.residual === undefined
+                ? '--'
+                : `${formatMetric(item.residual, 3)}${item.unit ? ` ${item.unit}` : ''}`;
+            const weight = item.weight === null || item.weight === undefined ? '--' : formatMetric(item.weight, 2);
+            const itemCost = Number(item.cost);
+            const cost = Number.isFinite(itemCost) ? formatMetric(itemCost, 3) : '--';
+            const ratioValue = Number.isFinite(itemCost) && Number.isFinite(totalCost) && Math.abs(totalCost) > 1e-12
+                ? Math.max(0, (itemCost / totalCost) * 100)
+                : null;
+            const ratio = ratioValue === null ? '--' : `${formatMetric(ratioValue, 1)}%`;
+            const ratioWidth = ratioValue === null ? 0 : Math.min(ratioValue, 100);
+            return `
+                <div class="cost-row">
+                    <span>${label}</span>
+                    <strong>${residual}</strong>
+                    <strong>${weight}</strong>
+                    <strong>${cost}</strong>
+                    <div class="cost-share" aria-label="${ratio}">
+                        <span class="cost-share-track"><span class="cost-share-fill" style="width: ${ratioWidth}%;"></span></span>
+                        <strong>${ratio}</strong>
+                    </div>
+                </div>
+            `;
+        }).join('')}
     `;
-
-    statsEls.limitsConfig.innerHTML = [
-        ['dt', `[${formatNumber(limits.dt_min, 2)}, ${formatNumber(limits.dt_max, 2)}] s`],
-        ['max_speed', `${formatNumber(limits.max_speed, 2)} m/s`],
-        ['max_accel', `${formatNumber(limits.max_accel, 2)} m/s²`],
-        ['max_lat_accel', `${formatNumber(limits.max_lat_accel, 2)} m/s²`],
-        ['max_jerk', `${formatNumber(limits.max_jerk, 2)} m/s³`],
-        ['max_kappa', `${formatNumber(limits.max_kappa, 2)} 1/m`],
-        ['max_dkappa', `${formatNumber(limits.max_dkappa, 2)} 1/(m*s)`],
-    ].map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
-
-    statsEls.weightsConfig.innerHTML = Object.entries(weights)
-        .map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${formatNumber(value, 2)}</strong></div>`)
-        .join('');
-
-    statsEls.solverConfig.innerHTML = [
-        ['ipopt_max_iter', solver.ipopt_max_iter],
-        ['ipopt_tol', Number(solver.ipopt_tol).toExponential(1)],
-        ['ipopt_print_level', solver.ipopt_print_level],
-    ].map(([label, value]) => `<div class="config-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 }
 
 function findNearestHover(event) {
@@ -1212,7 +1351,150 @@ function projectPlotItemToPixels(item) {
     };
 }
 
+function isFiniteRange(range) {
+    return Array.isArray(range)
+        && range.length === 2
+        && Number.isFinite(range[0])
+        && Number.isFinite(range[1])
+        && range[0] !== range[1];
+}
+
+function zoomRangeAround(range, anchor, factor) {
+    const nextRange = [
+        anchor - (anchor - range[0]) * factor,
+        anchor + (range[1] - anchor) * factor,
+    ];
+    const span = Math.abs(nextRange[1] - nextRange[0]);
+    if (span >= PATH_MIN_ZOOM_SPAN) {
+        return nextRange;
+    }
+
+    const halfSpan = PATH_MIN_ZOOM_SPAN * 0.5;
+    return [anchor - halfSpan, anchor + halfSpan];
+}
+
+function getPathPlotPixelPosition(event, axes) {
+    return {
+        plotX: event.clientX - axes.rect.left - axes.xaxis._offset,
+        plotY: event.clientY - axes.rect.top - axes.yaxis._offset,
+    };
+}
+
+function isInsidePathPlotArea(plotPosition, axes) {
+    return plotPosition.plotX >= 0
+        && plotPosition.plotX <= axes.xaxis._length
+        && plotPosition.plotY >= 0
+        && plotPosition.plotY <= axes.yaxis._length;
+}
+
+function handlePathWheelZoom(event) {
+    if (isDraggingInitialState) {
+        return;
+    }
+
+    const axes = getPathPlotAxes();
+    const cursor = getCanvasCursorPosition(event);
+    if (!axes || !cursor || !isFiniteRange(axes.xaxis.range) || !isFiniteRange(axes.yaxis.range)) {
+        return;
+    }
+
+    if (!isInsidePathPlotArea(getPathPlotPixelPosition(event, axes), axes)) {
+        return;
+    }
+
+    const zoomFactor = event.deltaY < 0 ? PATH_WHEEL_ZOOM_IN_FACTOR : PATH_WHEEL_ZOOM_OUT_FACTOR;
+    event.preventDefault();
+    Plotly.relayout(pathPlot, {
+        'xaxis.range': zoomRangeAround(axes.xaxis.range, cursor.cursorX, zoomFactor),
+        'yaxis.range': zoomRangeAround(axes.yaxis.range, cursor.cursorY, zoomFactor),
+    });
+}
+
+function handlePathMouseDown(event) {
+    if (event.button === 2) {
+        beginPathPan(event);
+        return;
+    }
+
+    beginInitialStateDrag(event);
+}
+
+function preventPathContextMenu(event) {
+    if (pathPlot.contains(event.target)) {
+        event.preventDefault();
+    }
+}
+
+function beginPathPan(event) {
+    if (isDraggingInitialState) {
+        return;
+    }
+
+    const axes = getPathPlotAxes();
+    if (!axes || !isFiniteRange(axes.xaxis.range) || !isFiniteRange(axes.yaxis.range)) {
+        return;
+    }
+
+    if (!isInsidePathPlotArea(getPathPlotPixelPosition(event, axes), axes)) {
+        return;
+    }
+
+    isPanningPath = true;
+    pathPanStart = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        xRange: [...axes.xaxis.range],
+        yRange: [...axes.yaxis.range],
+        xLength: axes.xaxis._length,
+        yLength: axes.yaxis._length,
+    };
+    activeHoverKey = null;
+    renderHoverDetails(null);
+    updatePathHighlight(null);
+    updateCanvasCursor();
+    event.preventDefault();
+}
+
+function updatePathPan(event) {
+    if (!isPanningPath || !pathPanStart) {
+        return;
+    }
+
+    const dx = event.clientX - pathPanStart.clientX;
+    const dy = event.clientY - pathPanStart.clientY;
+    const xSpan = pathPanStart.xRange[1] - pathPanStart.xRange[0];
+    const ySpan = pathPanStart.yRange[1] - pathPanStart.yRange[0];
+    const xDelta = dx * xSpan / Math.max(pathPanStart.xLength, 1);
+    const yDelta = -dy * ySpan / Math.max(pathPanStart.yLength, 1);
+
+    Plotly.relayout(pathPlot, {
+        'xaxis.range': [
+            pathPanStart.xRange[0] - xDelta,
+            pathPanStart.xRange[1] - xDelta,
+        ],
+        'yaxis.range': [
+            pathPanStart.yRange[0] - yDelta,
+            pathPanStart.yRange[1] - yDelta,
+        ],
+    });
+    event.preventDefault();
+}
+
+function finishPathPan() {
+    if (!isPanningPath) {
+        return;
+    }
+
+    isPanningPath = false;
+    pathPanStart = null;
+    updateCanvasCursor();
+}
+
 function updateCanvasCursor(nearest = null) {
+    if (isPanningPath) {
+        pathPlot.style.cursor = 'grabbing';
+        return;
+    }
     if (isDraggingInitialState) {
         pathPlot.style.cursor = 'grabbing';
         return;
@@ -1250,6 +1532,12 @@ function updateDraggedInitialState(event) {
 }
 
 function beginInitialStateDrag(event) {
+    if (event.button !== 0) {
+        return;
+    }
+    if (isPanningPath) {
+        return;
+    }
     if (!currentData || !layerVisibility.initial) {
         return;
     }
@@ -1278,12 +1566,20 @@ function finishInitialStateDrag() {
 }
 
 function handleWindowMouseMove(event) {
+    if (isPanningPath) {
+        updatePathPan(event);
+        return;
+    }
     if (isDraggingInitialState) {
         handleCanvasMove(event);
     }
 }
 
 function handleCanvasMove(event) {
+    if (isPanningPath) {
+        updatePathPan(event);
+        return;
+    }
     if (isDraggingInitialState) {
         updateDraggedInitialState(event);
         updateCanvasCursor();
@@ -1335,7 +1631,7 @@ function handleInitialHeadingInput() {
 }
 
 function clearCanvasHover() {
-    if (isDraggingInitialState) {
+    if (isDraggingInitialState || isPanningPath) {
         return;
     }
     activeHoverKey = null;
@@ -1404,7 +1700,6 @@ async function runRandomDemo(options = {}) {
         renderPathView(data);
         renderPlotlyCharts(data);
         renderStats(data);
-        renderConfig(data);
         applyConfigToForm(data.config);
         if (!defaultParameterSnapshot) {
             defaultParameterSnapshot = clonePlainObject(data.config);
@@ -1438,19 +1733,21 @@ async function runRandomDemo(options = {}) {
 }
 
 randomizeBtn.addEventListener('click', runRandomDemo);
-applyParamsBtn.addEventListener('click', () => runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) }));
-resetParamsBtn.addEventListener('click', resetParameterForm);
 paramForm.addEventListener('submit', (event) => {
     event.preventDefault();
     runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) });
 });
 window.addEventListener('mousemove', handleWindowMouseMove);
 window.addEventListener('mouseup', finishInitialStateDrag);
+window.addEventListener('mouseup', finishPathPan);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
 });
 axisButtons.forEach((button) => {
     button.addEventListener('click', () => setChartAxisMode(button.dataset.axisMode));
+});
+vizTabButtons.forEach((button) => {
+    button.addEventListener('click', () => setVizTab(button.dataset.vizTab));
 });
 if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
@@ -1460,6 +1757,7 @@ paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input)
 });
 updateLegendToggleStyles();
 updateAxisButtonStyles();
+setVizTab(activeVizTab);
 initParameterTooltips();
 updateInitialHeadingControls(null);
 runRandomDemo();

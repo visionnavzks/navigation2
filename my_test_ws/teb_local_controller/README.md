@@ -168,27 +168,39 @@ $$
 总代价由三部分组成：
 
 $$
-J = J_{track} + J_{control} + J_{terminal}
+J = J_{terminal} + J_{control} + J_{time}
 $$
 
-### 1. 跟踪代价
+### 1. 终端代价
 
-对每个节点 $i$：
+中间参考点不进入代价，只约束动力学连续性。末端位置误差会先投影到参考终点航向坐标系：
 
 $$
-J_{track} = \sum_i \Big[
-w_{pos}((x_i-x_{ref,i})^2 + (y_i-y_{ref,i})^2)
-+ w_{speed}(v_i-v_{ref,i})^2
-\Big]
+e_{lon} = \cos(\theta_{ref,N})(x_N-x_{ref,N}) + \sin(\theta_{ref,N})(y_N-y_{ref,N})
+$$
+
+$$
+e_{lat} = -\sin(\theta_{ref,N})(x_N-x_{ref,N}) + \cos(\theta_{ref,N})(y_N-y_{ref,N})
+$$
+
+终端代价为：
+
+$$
+J_{terminal} =
+w_{lat}e_{lat}^2 + w_{lon}e_{lon}^2
++ w_{\theta}e_{\theta}^2
++ w_{speed}(v_N-v_{ref,N})^2
++ w_{accel}(a_N-a_{ref,N})^2
 $$
 
 解释：
 
-- 位置误差使用二次项
-- 中间节点只跟踪位置和速度
-- 航向误差不在中间阶段跟踪，而是只放到终端代价中
+- `w_lat` 控制终点横向误差，通常应大于纵向误差权重
+- `w_lon` 控制终点纵向误差
+- `w_theta` 控制终点角度误差
+- `w_speed` 和 `w_accel` 只约束终点速度、加速度
 
-### 2. 控制代价
+### 2. 控制和时间代价
 
 对每段控制量 $i$：
 
@@ -200,25 +212,16 @@ w_{dt}(dt_i-dt_{ref})^2
 \Big]
 $$
 
+$$
+J_{time} = w_{time}\sum_i dt_i
+$$
+
 解释：
 
-- `w_dt` 控制时间弹性大小
+- `w_time` 越大，优化越倾向缩短总时间
+- `w_dt` 控制每段 `dt` 偏离 `dt_ref` 的程度
 - `w_jerk` 抑制过大的加加速度
 - `w_dkappa` 抑制曲率变化过快
-
-### 3. 终端代价
-
-末端节点额外加重：
-
-$$
-J_{terminal} = w_{terminal} \cdot \Big[
-(x_N-x_{ref,N})^2 + (y_N-y_{ref,N})^2
-+ (v_N-v_{ref,N})^2
-+ (1-\cos(\theta_N-\theta_{ref,N}))
-\Big]
-$$
-
-这样可以防止优化只顾中间过程而末端对不齐。
 
 ## 约束条件
 
@@ -268,15 +271,15 @@ $$
 
 ### 权重
 
-- `w_pos = 30.0`
-- `w_theta = 15.0`
-- `w_speed = 4.0`
-- `w_accel = 1.5`
-- `w_kappa = 2.0`
-- `w_dt = 10.0`
+- `w_lat = 300.0`
+- `w_lon = 100.0`
+- `w_theta = 60.0`
+- `w_speed = 10.0`
+- `w_accel = 2.0`
+- `w_time = 2.0`
+- `w_dt = 1.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
-- `w_terminal = 60.0`
 
 ### IPOPT
 
@@ -302,7 +305,7 @@ $$
 - `v, a, kappa`
 - `dt, jerk, dkappa`
 - `time`：由 `dt` 累加得到的时间轴
-- `costs`：`track / control / terminal / total`
+- `costs`：`terminal / control / time / total`，并包含终点横向、纵向、角度、速度、加速度误差
 
 ## demo 说明
 
@@ -311,14 +314,22 @@ $$
 运行：
 
 ```bash
-source .venv/bin/activate
-python my/teb_local_controller/app.py
+./my_test_ws/teb_local_controller/run.sh
 ```
 
 访问：
 
 ```text
 http://127.0.0.1:5002
+```
+
+也可以用脚本管理后台服务：
+
+```bash
+./my_test_ws/teb_local_controller/run.sh start
+./my_test_ws/teb_local_controller/run.sh restart
+./my_test_ws/teb_local_controller/run.sh stop
+./my_test_ws/teb_local_controller/run.sh status
 ```
 
 ## 当前局限

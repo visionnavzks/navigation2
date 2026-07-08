@@ -43,15 +43,6 @@ namespace kinematic_smoother
 class SmootherValidator
 {
 public:
-  static Eigen::Vector2d normalizedDirection(const Eigen::Vector2d & dir)
-  {
-    const double norm = dir.norm();
-    if (norm <= EPSILON) {
-      return Eigen::Vector2d(1.0, 0.0);
-    }
-    return dir / norm;
-  }
-
   /// 运动学版后验校验所需的状态视图。
   struct KinematicRequest
   {
@@ -121,16 +112,6 @@ public:
 
 private:
   // ---- Shared numeric helpers ----
-
-  static double normalizeAngle(double angle)
-  {
-    return std::atan2(std::sin(angle), std::cos(angle));
-  }
-
-  static double angleDifference(double a, double b)
-  {
-    return normalizeAngle(a - b);
-  }
 
   static double radiansToDegrees(double radians)
   {
@@ -377,6 +358,40 @@ private:
           goal_angle_tol),
         static_cast<int>(request.state_count - 1));
     }
+    if (request.params.keep_goal_orientation && request.state_count >= 2) {
+      const size_t segment_index = request.state_count - 2;
+      const bool is_cusp_segment =
+        segment_index < request.is_cusp_segment.size() && request.is_cusp_segment[segment_index];
+      if (!is_cusp_segment) {
+        // 只依据优化后解的末段运动方向来判断终点朝向是否自相矛盾。
+        // 不能拿输入参考路径的末段几何方向做判据:keep_goal_orientation 的语义
+        // 恰恰允许请求朝向与参考末段方向明显不同(让平滑器把末段弯到请求朝向),
+        // 否则夹角≥90°(或垂直)的合法请求会被误判为冲突而拒绝。
+        const double * previous_state = KinematicStateLayout::data(request.variables, segment_index);
+        const double terminal_dx =
+          goal_state[KinematicStateLayout::X] - previous_state[KinematicStateLayout::X];
+        const double terminal_dy =
+          goal_state[KinematicStateLayout::Y] - previous_state[KinematicStateLayout::Y];
+        if (std::hypot(terminal_dx, terminal_dy) > tol.min_segment_displacement_m) {
+          const double goal_heading_x = std::cos(goal_state[KinematicStateLayout::Theta]);
+          const double goal_heading_y = std::sin(goal_state[KinematicStateLayout::Theta]);
+          const double terminal_projection =
+            terminal_dx * goal_heading_x + terminal_dy * goal_heading_y;
+          const double terminal_gear =
+            segment_index < request.gears.size() ? request.gears[segment_index] : 1.0;
+          if (
+            (terminal_gear >= 0.0 && terminal_projection <= 0.0) ||
+            (terminal_gear < 0.0 && terminal_projection >= 0.0))
+          {
+            return throwOrStoreSmoothingFailure(
+              failure,
+              SmoothingFailureReason::GoalOrientationConstraint,
+              "Kinematic smoother fixed goal orientation conflicts with the terminal motion direction",
+              static_cast<int>(request.state_count - 1));
+          }
+        }
+      }
+    }
 
     return true;
   }
@@ -444,6 +459,13 @@ private:
       const double signed_projection = dx * heading.x() + dy * heading.y();
       const double gear = request.gears[index];
       if ((gear >= 0.0 && signed_projection <= 0.0) || (gear < 0.0 && signed_projection >= 0.0)) {
+        if (request.params.keep_goal_orientation && index + 2 == request.state_count) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::GoalOrientationConstraint,
+            "Kinematic smoother fixed goal orientation conflicts with the terminal motion direction",
+            static_cast<int>(request.state_count - 1));
+        }
         return throwOrStoreSmoothingFailure(
           failure,
           SmoothingFailureReason::MotionDirectionConstraint,

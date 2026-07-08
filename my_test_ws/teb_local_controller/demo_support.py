@@ -5,7 +5,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from my.teb_local_controller.teb_mpc import (
+from teb_mpc import (
     ArcSegment,
     LineSegment,
     ReferenceTrajectory,
@@ -37,12 +37,10 @@ DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
 DEMO_SAMPLING_DEFAULTS: Dict[str, float] = {
     "x_offset_range": 1.5,
     "y_offset_range": 2.0,
-    "theta_offset_range": 0.7,
     "speed_min": 0.1,
     "speed_max": 1.2,
     "accel_min": -0.5,
     "accel_max": 0.5,
-    "kappa_offset_range": 0.08,
     "kappa_min": -0.2,
     "kappa_max": 0.2,
 }
@@ -124,15 +122,16 @@ def describe_demo_configuration(
             "max_dkappa": controller.max_dkappa,
         },
         "weights": {
-            "w_pos": controller.w_pos,
+            "w_lat": controller.w_lat,
+            "w_lon": controller.w_lon,
             "w_theta": controller.w_theta,
             "w_speed": controller.w_speed,
             "w_accel": controller.w_accel,
-            "w_kappa": controller.w_kappa,
+            "w_time": controller.w_time,
             "w_dt": controller.w_dt,
+            "w_dt_uniform": controller.w_dt_uniform,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
-            "w_terminal": controller.w_terminal,
         },
         "solver": {
             "ipopt_max_iter": controller.ipopt_max_iter,
@@ -152,22 +151,14 @@ def sample_random_initial_state(
     reference = reference or default_demo_reference()
     base_x = float(reference.x[0])
     base_y = float(reference.y[0])
-    base_theta = float(reference.theta[0])
-    base_kappa = float(reference.kappa[0])
 
     return VehicleState(
         x=base_x + float(rng.uniform(-config["x_offset_range"], config["x_offset_range"])),
         y=base_y + float(rng.uniform(-config["y_offset_range"], config["y_offset_range"])),
-        theta=_normalize_angle(base_theta + float(rng.uniform(-config["theta_offset_range"], config["theta_offset_range"]))),
+        theta=_normalize_angle(float(rng.uniform(-math.pi, math.pi))),
         v=float(rng.uniform(config["speed_min"], config["speed_max"])),
         a=float(rng.uniform(config["accel_min"], config["accel_max"])),
-        kappa=float(
-            np.clip(
-                base_kappa + rng.uniform(-config["kappa_offset_range"], config["kappa_offset_range"]),
-                config["kappa_min"],
-                config["kappa_max"],
-            )
-        ),
+        kappa=float(rng.uniform(config["kappa_min"], config["kappa_max"])),
     )
 
 

@@ -28,38 +28,14 @@
 
 #include "kinematic_smoother/costmap2d.hpp"
 #include "kinematic_smoother/options.hpp"
+#include "kinematic_smoother/utils.hpp"
 
 namespace kinematic_smoother
 {
 namespace kinematic_smoother_detail
 {
 
-// ---- 共享数学辅助函数 ----
-// 这些封装通过 `using std::xxx;` 触发 ADL，使同一套实现既适用于普通 double，
-// 也适用于 Ceres 自动微分的 Jet 类型；集中放在此处避免各 functor 重复定义。
-
-/**
- * @brief 将角度归一化到 (-pi, pi] 区间
- *        使用 atan2(sin, cos) 实现，保证可微性（适用于自动微分）
- */
-template<typename T>
-inline T normalizeAngle(T angle)
-{
-  using std::atan2;
-  using std::cos;
-  using std::sin;
-  return atan2(sin(angle), cos(angle));
-}
-
-/**
- * @brief 计算两角度之差并归一化到 (-pi, pi]
- * @return a - b 的归一化角度差
- */
-template<typename T>
-inline T angleDiff(T a, T b)
-{
-  return normalizeAngle(a - b);
-}
+// These wrappers use ADL so the same implementation works for double and Ceres Jet values.
 
 template<typename T>
 inline T sinValue(T value)
@@ -212,7 +188,7 @@ public:
     if (is_cusp_segment_) {
       residual[0] = T(fix_weight_) * (next_x - x);                      // 强制 x 不变
       residual[1] = T(fix_weight_) * (next_y - y);                      // 强制 y 不变
-      residual[2] = T(fix_weight_) * angleDiff(next_theta, theta);      // 强制朝向不变
+      residual[2] = T(fix_weight_) * angleDifference(next_theta, theta);  // 强制朝向不变
       // 用 fix_weight（与位置/朝向同级的硬约束权重）强惩罚非零步长，强制车辆在
       // 换向点静止。原先用 spacing_weight_，但其默认值为 0，会让该约束失效。
       residual[5] = T(fix_weight_) * ds;
@@ -244,7 +220,7 @@ public:
     // 残差[0][1][2]：运动学模型约束——预测位置/朝向与实际下一点的偏差
     residual[0] = T(model_weight_) * (next_x - x_pred);
     residual[1] = T(model_weight_) * (next_y - y_pred);
-    residual[2] = T(model_weight_) * angleDiff(next_theta, theta_pred);
+    residual[2] = T(model_weight_) * angleDifference(next_theta, theta_pred);
 
     // 残差[3]：平均曲率惩罚——除以 max_curvature 归一化为无量纲比例
     residual[3] = T(curvature_weight_) * (kappa + next_kappa) * T(0.5) / T(max_curvature_);
@@ -362,7 +338,7 @@ public:
 
     // 残差[2]：若启用朝向约束，只在超出允许朝向容差时惩罚
     if (keep_orientation_) {
-      const T heading_error = abs(angleDiff(state[2], T(target_theta_)));
+      const T heading_error = abs(angleDifference(state[2], T(target_theta_)));
       const T heading_violation = heading_error - T(orientation_tolerance_);
       residuals[2] = heading_violation > T(0.0) ? T(fix_weight_) * heading_violation : T(0.0);
     } else {

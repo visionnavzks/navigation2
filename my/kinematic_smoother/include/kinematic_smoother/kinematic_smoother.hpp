@@ -232,6 +232,12 @@ private:
     {
       throw InvalidPath(std::string(smoother_name) + ": Start or goal direction is non-finite");
     }
+    if (
+      request.start_dir.norm() <= KinematicStateLayout::EnabledEpsilon ||
+      request.end_dir.norm() <= KinematicStateLayout::EnabledEpsilon)
+    {
+      throw InvalidPath(std::string(smoother_name) + ": Start or goal direction has near-zero norm");
+    }
   }
 
   static void validateFiniteParams(
@@ -250,6 +256,13 @@ private:
           throw std::invalid_argument(
                   std::string(smoother_name) +
                   ": SmootherParams." + field_name + " must be finite and positive");
+        }
+      };
+    auto require_nonnegative = [&](double value, const char * field_name) {
+        if (!std::isfinite(value) || value < 0.0) {
+          throw std::invalid_argument(
+                  std::string(smoother_name) +
+                  ": SmootherParams." + field_name + " must be finite and non-negative");
         }
       };
 
@@ -278,16 +291,16 @@ private:
     require_finite(params.goal_orientation_tolerance, "goal_orientation_tolerance");
 
     // 后验验收容差表（ValidationTolerances）：非有限值会让 ">" 比较恒为 false，
-    // 把校验静默旁路，因此同样要求有限。
-    require_finite(params.validation.start_position_m, "validation.start_position_m");
-    require_finite(params.validation.goal_position_m, "validation.goal_position_m");
-    require_finite(params.validation.cusp_position_m, "validation.cusp_position_m");
-    require_finite(
+    // 负容差会让合法解无条件失败，或旁路最小位移检查，因此要求非负有限。
+    require_nonnegative(params.validation.start_position_m, "validation.start_position_m");
+    require_nonnegative(params.validation.goal_position_m, "validation.goal_position_m");
+    require_nonnegative(params.validation.cusp_position_m, "validation.cusp_position_m");
+    require_nonnegative(
       params.validation.min_segment_displacement_m, "validation.min_segment_displacement_m");
-    require_finite(params.validation.start_orientation_rad, "validation.start_orientation_rad");
-    require_finite(params.validation.goal_orientation_rad, "validation.goal_orientation_rad");
-    require_finite(params.validation.cusp_orientation_rad, "validation.cusp_orientation_rad");
-    require_finite(params.validation.curvature_tolerance, "validation.curvature_tolerance");
+    require_nonnegative(params.validation.start_orientation_rad, "validation.start_orientation_rad");
+    require_nonnegative(params.validation.goal_orientation_rad, "validation.goal_orientation_rad");
+    require_nonnegative(params.validation.cusp_orientation_rad, "validation.cusp_orientation_rad");
+    require_nonnegative(params.validation.curvature_tolerance, "validation.curvature_tolerance");
 
     if (!params.cost_check_points.empty() && params.cost_check_points.size() % 3 != 0) {
       throw std::invalid_argument(
