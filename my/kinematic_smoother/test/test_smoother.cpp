@@ -208,6 +208,91 @@ TEST(KinematicSmootherCostTest, TransitionCostUsesExplicitLengthPenalty)
   EXPECT_DOUBLE_EQ(residuals[6], 3.0);
 }
 
+TEST(KinematicSmootherCostTest, ObstacleCostKeepsClearancePenaltyAcrossInterpolationBoundary)
+{
+  kinematic_smoother::Costmap2D costmap(10, 10, 1.0, 0.0, 0.0);
+  std::vector<double> esdf_values(100, 0.0);
+  auto esdf_grid = std::make_shared<ceres::Grid2D<double>>(
+    esdf_values.data(), 0, 10, 0, 10);
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_safe_distance = 0.5;
+  params.cost_check_radius = 0.0;
+  params.costmap_boundary_margin = 0.0;
+  params.cost_check_points.clear();
+  kinematic_smoother::kinematic_smoother_detail::ObstacleCostFunctor obstacle_cost(
+    1.0, &costmap, params, esdf_grid);
+
+  const double inside_state[5] = {1.5, 5.0, 0.0, 0.0, 0.0};
+  const double outside_state[5] = {1.49, 5.0, 0.0, 0.0, 0.0};
+  const double * inside_parameters[] = {inside_state};
+  const double * outside_parameters[] = {outside_state};
+  double inside_residual = 0.0;
+  double outside_residual = 0.0;
+
+  ASSERT_TRUE(obstacle_cost(inside_parameters, &inside_residual));
+  ASSERT_TRUE(obstacle_cost(outside_parameters, &outside_residual));
+
+  EXPECT_GT(inside_residual, 0.9);
+  EXPECT_GE(outside_residual, inside_residual);
+  EXPECT_LT(outside_residual - inside_residual, 1e-3);
+}
+
+TEST(KinematicSmootherCostTest, ObstacleCostAppliesConservativeCellSurfaceOffset)
+{
+  kinematic_smoother::Costmap2D costmap(10, 10, 1.0, 0.0, 0.0);
+  costmap.setCost(5, 5, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+  std::vector<double> esdf_values = kinematic_smoother::ESDF::ComputeExactESDF(
+    &costmap, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+  auto esdf_grid = std::make_shared<ceres::Grid2D<double>>(
+    esdf_values.data(), 0, 10, 0, 10);
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_safe_distance = 0.5;
+  params.cost_check_radius = 0.0;
+  params.cost_check_points.clear();
+  kinematic_smoother::kinematic_smoother_detail::ObstacleCostFunctor obstacle_cost(
+    1.0, &costmap, params, esdf_grid);
+
+  const double state[5] = {4.5, 5.5, 0.0, 0.0, 0.0};
+  const double * parameters[] = {state};
+  double residual = 0.0;
+  ASSERT_TRUE(obstacle_cost(parameters, &residual));
+
+  const double expected_surface_distance = 1.0 - std::sqrt(0.5);
+  const double expected_residual = (0.5 - expected_surface_distance) / 0.5;
+  EXPECT_NEAR(residual, expected_residual, 1e-12);
+}
+
+TEST(KinematicSmootherCostTest, ObstacleCostUsesNonOvershootingBilinearInterpolation)
+{
+  kinematic_smoother::Costmap2D costmap(10, 10, 1.0, 0.0, 0.0);
+  std::vector<double> esdf_values(100, 0.0);
+  for (int row = 0; row < 10; ++row) {
+    esdf_values[static_cast<size_t>(row) * 10 + 1] = 1.0;
+    esdf_values[static_cast<size_t>(row) * 10 + 2] = 1.0;
+  }
+  auto esdf_grid = std::make_shared<ceres::Grid2D<double>>(
+    esdf_values.data(), 0, 10, 0, 10);
+
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_safe_distance = 1.05;
+  params.cost_check_radius = 0.0;
+  params.cost_check_points.clear();
+  kinematic_smoother::kinematic_smoother_detail::ObstacleCostFunctor obstacle_cost(
+    1.0, &costmap, params, esdf_grid);
+
+  // sample_x = grid_x - 0.5 = 1.5, exactly halfway between the two 1.0 samples.
+  // Catmull-Rom interpolation of [0, 1, 1, 0] overshoots to 1.125 here;
+  // bilinear interpolation stays at 1.0.
+  const double state[5] = {2.0, 5.5, 0.0, 0.0, 0.0};
+  const double * parameters[] = {state};
+  double residual = 0.0;
+  ASSERT_TRUE(obstacle_cost(parameters, &residual));
+
+  EXPECT_NEAR(residual, (1.05 - 1.0) / 1.05, 1e-12);
+}
+
 TEST(KinematicSmootherCostTest, BoundaryCostUsesGoalFrameTolerances)
 {
   kinematic_smoother::kinematic_smoother_detail::BoundaryCostFunctor goal_cost(
@@ -469,6 +554,65 @@ TEST(KinematicSmootherProblemBuilderTest, KinematicSpacingCostSkipsCuspSegments)
   double cost = 0.0;
   ASSERT_TRUE(problem.Evaluate(options, &cost, nullptr, nullptr, nullptr));
   EXPECT_NEAR(cost, 0.0, 1e-9);
+}
+
+TEST(KinematicSmootherProblemBuilderTest, PathLengthCostIsInvariantToUniformKnotDensity)
+{
+  kinematic_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+
+  auto evaluate_length_cost = [&](const std::vector<Eigen::Vector3d> & path) {
+      kinematic_smoother::SmootherParams params;
+      params.model_weight = 0.0;
+      params.obstacle_weight = 0.0;
+      params.reference_path_weight = 0.0;
+      params.kinematic_curvature_weight = 0.0;
+      params.kinematic_curvature_rate_weight = 0.0;
+      params.kinematic_spacing_weight = 0.0;
+      params.path_length_weight = 2.0;
+      params.fix_weight = 0.0;
+      params.keep_start_orientation = false;
+      params.keep_goal_orientation = false;
+      params.goal_longitudinal_tolerance = 2.0;
+      params.goal_lateral_tolerance = 2.0;
+
+      std::vector<double> esdf_values;
+      kinematic_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
+      builder.initializeEsdfValues(&costmap, params, nullptr);
+      const auto processed =
+        kinematic_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+        path,
+        Eigen::Vector2d(1.0, 0.0),
+        Eigen::Vector2d(1.0, 0.0),
+        params,
+        &costmap);
+
+      std::vector<double> variables = processed.initial_variables;
+      ceres::Problem problem;
+      builder.buildProblem(processed, &costmap, params, variables, problem);
+
+      ceres::Problem::EvaluateOptions options;
+      double cost = 0.0;
+      EXPECT_TRUE(problem.Evaluate(options, &cost, nullptr, nullptr, nullptr));
+      return cost;
+    };
+
+  const std::vector<Eigen::Vector3d> coarse_path = {
+    {0.0, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+  };
+  const std::vector<Eigen::Vector3d> dense_path = {
+    {0.0, 0.0, 1.0},
+    {0.25, 0.0, 1.0},
+    {0.5, 0.0, 1.0},
+    {0.75, 0.0, 1.0},
+    {1.0, 0.0, 1.0},
+  };
+
+  const double coarse_cost = evaluate_length_cost(coarse_path);
+  const double dense_cost = evaluate_length_cost(dense_path);
+  EXPECT_NEAR(coarse_cost, 1.0, 1e-9);
+  EXPECT_NEAR(dense_cost, coarse_cost, 1e-9);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, ApplyBoundsOnlyCapsUsedNonCuspDs)

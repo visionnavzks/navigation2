@@ -21,6 +21,7 @@ using esdf_core::ESDFAlgorithm;
 namespace
 {
 constexpr double kResolution = 0.5;  // meters / cell
+constexpr double kCellExtent = 0.3535533905932738;  // half cell diagonal
 constexpr unsigned int kSizeX = 40;
 constexpr unsigned int kSizeY = 40;
 
@@ -89,23 +90,23 @@ TEST(ESDFTest, DistanceMatchesEuclideanFromObstacleEdge)
   Costmap2D costmap = makeRectangularObstacleCostmap();
   auto esdf = ESDF::ComputeExactESDF(&costmap, Costmap2D::LETHAL_OBSTACLE);
 
-  // Cell (10, 20) is 4 cells to the left of the obstacle edge at x=14.
-  // Expected distance: 4 * 0.5 = 2.0 m.
+  // Raw center distance is 4 * 0.5 = 2.0 m; the published field subtracts
+  // half a cell diagonal to conservatively represent occupied-cell geometry.
   double d = esdfAt(esdf, 10, 20);
-  EXPECT_NEAR(d, 2.0, kResolution * 1.05);
+  EXPECT_NEAR(d, 2.0 - kCellExtent, 1e-6);
 
   // Cell (30, 20) is 5 cells to the right of the obstacle edge at x=25.
   // Expected distance: 5 * 0.5 = 2.5 m.
   d = esdfAt(esdf, 30, 20);
-  EXPECT_NEAR(d, 2.5, kResolution * 1.05);
+  EXPECT_NEAR(d, 2.5 - kCellExtent, 1e-6);
 
   // Cell (20, 30) is 5 cells above the obstacle edge at y=25.
   d = esdfAt(esdf, 20, 30);
-  EXPECT_NEAR(d, 2.5, kResolution * 1.05);
+  EXPECT_NEAR(d, 2.5 - kCellExtent, 1e-6);
 
   // Cell (20, 5) is 9 cells below the obstacle edge at y=14.
   d = esdfAt(esdf, 20, 5);
-  EXPECT_NEAR(d, 4.5, kResolution * 1.05);
+  EXPECT_NEAR(d, 4.5 - kCellExtent, 1e-6);
 }
 
 TEST(ESDFTest, CornerOfObstacleHasEuclideanCornerDistance)
@@ -117,7 +118,7 @@ TEST(ESDFTest, CornerOfObstacleHasEuclideanCornerDistance)
   // Cell (10, 10) is at the diagonal: dx=4, dy=4 in cells = 2.0 m, 2.0 m.
   // Euclidean distance to the corner: sqrt(2^2 + 2^2) = sqrt(8) ≈ 2.828 m.
   double d = esdfAt(esdf, 10, 10);
-  EXPECT_NEAR(d, std::sqrt(2.0 * 2.0 + 2.0 * 2.0), kResolution * 1.05);
+  EXPECT_NEAR(d, std::sqrt(2.0 * 2.0 + 2.0 * 2.0) - kCellExtent, 1e-6);
 }
 
 TEST(ESDFTest, NullCostmapThrows)
@@ -140,7 +141,7 @@ TEST(ESDFTest, ApproximateInteriorIsNegative)
 TEST(ESDFTest, ObstacleFreeMapClampsToGridDiagonal)
 {
   // A costmap with no lethal cells at all: every cell's distance-to-obstacle is
-  // undefined and must be clamped to the grid diagonal, not an unbounded
+  // undefined and must be clamped below the grid diagonal, not an unbounded
   // sentinel (~1e19 for the exact path, +inf for the approximate path).
   Costmap2D costmap(kSizeX, kSizeY, kResolution, 0.0, 0.0);
   const double diagonal =
@@ -154,8 +155,8 @@ TEST(ESDFTest, ObstacleFreeMapClampsToGridDiagonal)
   for (size_t i = 0; i < exact.size(); ++i) {
     ASSERT_TRUE(std::isfinite(exact[i]));
     ASSERT_TRUE(std::isfinite(approx[i]));
-    EXPECT_NEAR(exact[i], diagonal, 1e-6);
-    EXPECT_NEAR(approx[i], diagonal, 1e-6);
+    EXPECT_NEAR(exact[i], diagonal - kCellExtent, 1e-6);
+    EXPECT_NEAR(approx[i], diagonal - kCellExtent, 1e-6);
   }
 }
 

@@ -92,7 +92,7 @@ smooth()
 | `kinematic_curvature_rate_weight` | `double` | `0.0` | 曲率变化率项的权重（传入平方后的值，内部自动开方） |
 | `kinematic_spacing_weight` | `double` | `20.0` | 相邻有效弧长步长 `ds` 差分的正则权重（传入平方后的值，内部自动开方）；鼓励轨迹点间距均匀 |
 | `kinematic_max_spacing` | `double` | `0.0` | 弧长步长 `ds` 的上界（米）；<= 0 表示不启用上界 |
-| `path_length_weight` | `double` | `0.0` | 总路径长度惩罚的权重（传入平方后的值，内部自动开方）；值越大越倾向于压缩总弧长 |
+| `path_length_weight` | `double` | `1.0` | 按参考间距归一化的总路径长度惩罚权重；代价尺度不随优化结点密度变化 |
 | `fix_weight` | `double` | `100.0` | cusp 保持段与起终点边界残差共用的直接约束权重；不会做 sqrt 变换 |
 | `max_curvature` | `double` | `0.0` | 最大曲率约束（`1/m`） |
 | `max_time` | `double` | `10.0` | 传给 Ceres 的最大墙钟时间（秒） |

@@ -42,12 +42,16 @@ enum class ESDFAlgorithm
  * @brief 2D Euclidean Signed Distance Field computation.
  *
  * Given a Costmap2D, produces a flat double array (row-major, length size_x * size_y)
- * where each entry is the signed distance to the nearest obstacle boundary, in meters:
- *   - positive values: outside obstacles, distance to the nearest obstacle cell
- *   - negative values: inside obstacles, distance to the nearest free cell
+ * where each entry is a conservative signed distance to occupied-cell geometry, in meters:
+ *   - positive values: outside obstacles, conservative clearance to obstacle cells
+ *   - negative values: inside obstacles, conservative penetration into occupied cells
+ * The underlying distance transform measures between cell centers. CombineSigned()
+ * subtracts half a cell diagonal before publishing the field, treating each seed cell
+ * as its circumscribed disk so consumers do not overestimate physical clearance.
  *
- * Magnitudes are clamped to the grid diagonal: a map with no obstacle (or no
- * free) cell at all reports that maximum instead of an unbounded sentinel.
+ * Raw transform magnitudes are clamped to the grid diagonal before the cell-extent
+ * correction: a map with no obstacle (or no free) cell reports a finite conservative
+ * maximum instead of an unbounded sentinel.
  *
  * Two algorithms are provided:
  *   - Exact: uses Felipe Barriga's 2D L2 distance transform (multi-threaded)
@@ -108,8 +112,8 @@ private:
   }
 
   /**
-   * @brief Merge the outside/inside unsigned fields into one signed field:
-   *        distances inside obstacles are negated.
+   * @brief Merge center-to-center unsigned fields into a conservative signed
+   *        distance to cell geometry. Distances inside obstacles are negated.
    */
   static std::vector<double> CombineSigned(
     const Costmap2D * costmap,
@@ -119,12 +123,15 @@ private:
   {
     const size_t size_x = costmap->getSizeInCellsX();
     const size_t size_y = costmap->getSizeInCellsY();
+    const double cell_extent = std::sqrt(0.5) * costmap->getResolution();
 
     for (size_t my = 0; my < size_y; ++my) {
       for (size_t mx = 0; mx < size_x; ++mx) {
+        const size_t index = toIndex(mx, my, size_x);
         if (isObstacle(costmap, mx, my, lethal_cost)) {
-          const size_t index = toIndex(mx, my, size_x);
-          outside[index] = -inside[index];
+          outside[index] = -std::max(inside[index] - cell_extent, 0.0);
+        } else {
+          outside[index] = std::max(outside[index] - cell_extent, 0.0);
         }
       }
     }

@@ -58,6 +58,17 @@ inline T sqrtValue(T value)
   return sqrt(value);
 }
 
+inline double scalarValue(double value)
+{
+  return value;
+}
+
+template<typename Scalar, int Dimension>
+inline double scalarValue(const ceres::Jet<Scalar, Dimension> & value)
+{
+  return static_cast<double>(value.a);
+}
+
 /**
  * @brief 相邻路径点之间的运动学过渡代价函数
  *
@@ -79,7 +90,7 @@ inline T sqrtValue(T value)
  *   [3] 平均曲率惩罚（鼓励路径趋向直行）
  *   [4] 曲率变化率惩罚（鼓励曲率平滑，以弧长归一化）
  *   [5] 步长差分（约束相邻有效路径段的间距保持均匀）
- *   [6] 总长度惩罚（直接压缩 ds，鼓励整条路径更短）
+ *   [6] 密度归一化总长度惩罚（鼓励整条路径更短）
  *
  * 尖点（cusp）段特殊处理：
  *   尖点处为前进/倒退切换点，此段强制相邻点保持相同位置和朝向，
@@ -95,7 +106,7 @@ public:
    * @param curvature_weight     曲率大小惩罚权重（鼓励路径趋直）
    * @param curvature_rate_weight 曲率变化率惩罚权重（鼓励曲率连续平滑）
    * @param spacing_weight       相邻步长差分惩罚权重
-   * @param length_weight        总长度惩罚权重（直接压缩 ds）
+   * @param length_weight        按参考间距归一化的总长度惩罚权重
    * @param fix_weight           尖点段强固定约束权重
    * @param max_curvature        允许的最大曲率（1/m），用于归一化残差[3]
    * @param target_spacing       步长差分的归一化参考尺度（米）
@@ -188,6 +199,8 @@ public:
     const T next_theta = next[2];
     const T next_kappa = next[3];
     const T next_ds = next[4];
+    const T spacing_ref = T(std::max(target_spacing_, 1e-3));
+    const T length_normalizer = sqrtValue(spacing_ref);
 
     // ---- 尖点段特殊处理 ----
     // 前进/倒退切换处，强制相邻点静止（位置/朝向不变，步长为零）
@@ -198,7 +211,7 @@ public:
       // 用 fix_weight（与位置/朝向同级的硬约束权重）强惩罚非零步长，强制车辆在
       // 换向点静止。原先用 spacing_weight_，但其默认值为 0，会让该约束失效。
       residual[5] = T(fix_weight_) * ds;
-      residual[6] = T(length_weight_) * ds;                             // 直接压缩总长度
+      residual[6] = T(length_weight_) * ds / length_normalizer;         // 密度归一化长度项
       return true;
     }
 
@@ -237,13 +250,13 @@ public:
     // 残差[5]：相邻有效路径段的步长差分，归一化后无量纲。
     // 末状态的 ds 不代表路径段；cusp 段的 ds 则应为 0。这两类情况由问题
     // 构建器通过 compare_next_spacing_ 排除，避免把正常路径段错误拉向 0。
-    const T spacing_ref = T(std::max(target_spacing_, 1e-3));
     if (compare_next_spacing_) {
       residual[5] = T(spacing_weight_) * (ds - next_ds) / spacing_ref;
     }
 
-    // 残差[6]：长度惩罚——对每一段 ds 直接施加代价，使总路径长度更短
-    residual[6] = T(length_weight_) * ds;
+    // 残差[6]：密度归一化长度惩罚。Ceres 平方后为 weight * ds^2 / spacing_ref；
+    // 当 ds 接近参考间距时，求和近似 weight * 总弧长，不随 knot 密度改变。
+    residual[6] = T(length_weight_) * ds / length_normalizer;
     return true;
   }
 
@@ -254,7 +267,7 @@ private:
   double curvature_weight_;      ///< 曲率大小惩罚权重
   double curvature_rate_weight_; ///< 曲率变化率惩罚权重
   double spacing_weight_;        ///< 相邻步长差分惩罚权重
-  double length_weight_;         ///< 总长度惩罚权重
+  double length_weight_;         ///< 密度归一化总长度惩罚权重
   double fix_weight_;            ///< 尖点段固定约束权重
   double max_curvature_;         ///< 最大曲率（1/m），用于归一化曲率残差
   double target_spacing_;        ///< 步长差分归一化参考尺度（米）
@@ -450,14 +463,12 @@ public:
    * @param costmap         代价地图指针，提供地图元数据（原点、分辨率、尺寸）
    * @param params          平滑器参数（障碍物权重、安全距离、检测点等）
    * @param esdf_grid       共享的 ESDF Grid2D 存储，保证插值器引用的底层网格生命周期
-   * @param esdf_interpolator 共享的 ESDF 双三次插值器
    */
   ObstacleCostFunctor(
     double obstacle_weight,
     const Costmap2D * costmap,
     const SmootherParams & params,
-    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
-    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator)
+    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid)
   : costmap_origin_(costmap->getOriginX(), costmap->getOriginY()),
     costmap_resolution_(costmap->getResolution()),
     size_x_(costmap->getSizeInCellsX()),
@@ -475,8 +486,7 @@ public:
     cost_check_radius_(std::max(params.cost_check_radius, 0.0)),
     obstacle_weight_(std::max(obstacle_weight, 0.0)),
     cost_check_points_(params.cost_check_points),
-    esdf_grid_(esdf_grid),
-    esdf_interpolator_(esdf_interpolator)
+    esdf_grid_(esdf_grid)
   {
     if (!cost_check_points_.empty() && cost_check_points_.size() % 3 != 0) {
       throw std::invalid_argument("cost_check_points size must be a multiple of 3");
@@ -500,11 +510,10 @@ public:
     double obstacle_weight,
     const Costmap2D * costmap,
     const SmootherParams & params,
-    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid,
-    const std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> & esdf_interpolator)
+    const std::shared_ptr<ceres::Grid2D<double>> & esdf_grid)
   {
     auto * functor = new ObstacleCostFunctor(
-      obstacle_weight, costmap, params, esdf_grid, esdf_interpolator);
+      obstacle_weight, costmap, params, esdf_grid);
     auto * cost_function = new ceres::DynamicAutoDiffCostFunction<ObstacleCostFunctor>(functor);
     cost_function->AddParameterBlock(5);  // 状态向量维度为 5
     cost_function->SetNumResiduals(functor->numResiduals());
@@ -570,19 +579,29 @@ private:
     const T grid_y = (world_y - T(costmap_origin_.y())) / T(costmap_resolution_);
     const T boundary_penalty = boundaryPenalty(grid_x, grid_y);
 
-    // 若超出可插值边界，直接返回带梯度的边界残差，避免越界访问 ESDF 插值器。
-    if (grid_x < T(1.5) || grid_y < T(1.5) ||
-      grid_x >= T(static_cast<double>(size_x_) - 1.5) || grid_y >= T(static_cast<double>(size_y_) - 1.5))
-    {
-      return boundary_penalty;
+    // 越过可查询区域时，将 ESDF 查询点夹到边界，但仍保留该边界处的障碍净空代价。
+    // 边界项另外提供指向地图内部的梯度，避免旧实现中净空代价在边界处突然消失。
+    T query_grid_x = grid_x;
+    T query_grid_y = grid_y;
+    const T min_query = T(1.5);
+    const T max_query_x = T(static_cast<double>(size_x_) - 1.5);
+    const T max_query_y = T(static_cast<double>(size_y_) - 1.5);
+    if (query_grid_x < min_query) {
+      query_grid_x = min_query;
+    } else if (query_grid_x > max_query_x) {
+      query_grid_x = max_query_x;
+    }
+    if (query_grid_y < min_query) {
+      query_grid_y = min_query;
+    } else if (query_grid_y > max_query_y) {
+      query_grid_y = max_query_y;
     }
 
-    // 通过双三次插值查询该格坐标处的 ESDF 距离值（单位：米）
-    // 注意：插值器的坐标约定为 (row, col)，且原点偏移 0.5 格
-    T distance = T(0.0);
-    esdf_interpolator_->Evaluate(grid_y - T(0.5), grid_x - T(0.5), &distance);
+    // 使用双线性插值避免 Catmull-Rom 双三次样条在障碍边界附近过冲。
+    // 共享 ESDF 在生成时已扣除半个格子对角线，此处不再重复修正。
+    const T distance = bilinearEsdfDistance(query_grid_x, query_grid_y);
 
-    // 减去机器人半径（cost_check_radius_），得到到障碍物表面的真实距离
+    // 再减去机器人半径，得到机器人足迹表面到障碍格表面的保守净空。
     const T surface_distance = distance - T(cost_check_radius_);
 
     // 若到障碍物表面距离已满足安全要求，惩罚为零
@@ -603,6 +622,31 @@ private:
     }
     return sqrtValue(
       clearance_penalty * clearance_penalty + boundary_penalty * boundary_penalty);
+  }
+
+  template<typename T>
+  T bilinearEsdfDistance(T grid_x, T grid_y) const
+  {
+    // Grid2D 的样本位于栅格中心，因此世界格坐标需要减去 0.5。
+    const T sample_x = grid_x - T(0.5);
+    const T sample_y = grid_y - T(0.5);
+    const int col = static_cast<int>(std::floor(scalarValue(sample_x)));
+    const int row = static_cast<int>(std::floor(scalarValue(sample_y)));
+    const T tx = sample_x - T(static_cast<double>(col));
+    const T ty = sample_y - T(static_cast<double>(row));
+
+    double value_00 = 0.0;
+    double value_01 = 0.0;
+    double value_10 = 0.0;
+    double value_11 = 0.0;
+    esdf_grid_->GetValue(row, col, &value_00);
+    esdf_grid_->GetValue(row, col + 1, &value_01);
+    esdf_grid_->GetValue(row + 1, col, &value_10);
+    esdf_grid_->GetValue(row + 1, col + 1, &value_11);
+
+    const T top = (T(1.0) - tx) * T(value_00) + tx * T(value_01);
+    const T bottom = (T(1.0) - tx) * T(value_10) + tx * T(value_11);
+    return (T(1.0) - ty) * top + ty * bottom;
   }
 
   template<typename T>
@@ -639,7 +683,7 @@ private:
     }
 
     // With a configured margin, the residual reaches 1.0 at the interpolatable map edge.
-    // Without a margin, each cell outside the map adds one unit of residual.
+    // Without a margin, each cell outside the clamped ESDF query region adds one unit.
     const T scale = margin_cells > T(1.0) ? margin_cells : T(1.0);
     return sqrtValue(squared_violation) / scale;
   }
@@ -653,8 +697,7 @@ private:
   double cost_check_radius_;         ///< 机器人检测半径（米），从 ESDF 距离中减去
   double obstacle_weight_;           ///< 当前路径点解析后的障碍物惩罚权重（平方根形式）
   std::vector<double> cost_check_points_; ///< 多检测点列表，格式：[lx,ly,w, lx,ly,w, ...]
-  std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< 保持插值器底层网格存活
-  std::shared_ptr<ceres::BiCubicInterpolator<ceres::Grid2D<double>>> esdf_interpolator_; ///< 双三次插值器
+  std::shared_ptr<ceres::Grid2D<double>> esdf_grid_;  ///< ESDF 网格及其底层数据的共享生命周期
 };
 
 }  // namespace kinematic_smoother_detail

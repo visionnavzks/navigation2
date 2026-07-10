@@ -224,7 +224,7 @@ reference:   ...  P    P'     P'   ...
 
 **目的**：为障碍物残差和后验校验提供距离场。
 
-**ESDF（Euclidean Signed Distance Field）**：对 costmap 中每个栅格 $(i,j)$，计算到最近障碍物表面的有符号欧几里得距离。正表示在自由空间，负表示在障碍物内部。
+**ESDF（Euclidean Signed Distance Field）**：底层距离变换先计算栅格中心距离，再统一减去半个栅格对角线，输出到障碍格几何的保守有符号净空。正表示在自由空间，负表示在障碍物内部。
 
 ```
 function initialize_esdf_values(costmap, params, precomputed_esdf):
@@ -237,9 +237,8 @@ function initialize_esdf_values(costmap, params, precomputed_esdf):
     else:
         esdf_values = compute_esdf(costmap, obstacle_threshold=LETHAL_OBSTACLE)
 
-    # 构建 Ceres Grid2D + BiCubicInterpolator 供残差使用
+    # 构建 Ceres Grid2D，障碍残差使用保守双线性查询
     esdf_grid = Grid2D(esdf_values, rows=costmap.size_y, cols=costmap.size_x)
-    esdf_interpolator = BiCubicInterpolator(esdf_grid)
 ```
 
 **注意**：ESDF 的坐标约定是 `(row, col)`，即 `(y, x)`。插值时需要偏移 0.5 格以对齐栅格中心。
@@ -303,7 +302,7 @@ $$
 | [3] | $w_c \cdot \frac{\kappa + \kappa'}{2}$ | 曲率大小惩罚 | `curvature_weight` |
 | [4] | $w_{cr} \cdot \frac{\kappa' - \kappa}{\sqrt{ds}}$ | 曲率变化率 | `curvature_rate_weight` |
 | [5] | $w_s \cdot \frac{ds_i - ds_{i+1}}{ds_{\text{ref}}}$ | 相邻有效步长差分（归一化） | `spacing_weight` |
-| [6] | $w_l \cdot ds$ | 长度惩罚 | `length_weight` |
+| [6] | $w_l \cdot \frac{ds}{\sqrt{ds_{\text{ref}}}}$ | 密度归一化长度惩罚 | `length_weight` |
 
 其中：
 - $\text{angle\_diff}(a, b) = \text{normalize\_angle}(a - b)$，归一化到 $(-\pi, \pi]$
@@ -322,7 +321,7 @@ $$
 | [3] | 0 | — |
 | [4] | 0 | — |
 | [5] | $w_s \cdot 10 \cdot ds$ | 强惩罚非零步长 |
-| [6] | $w_l \cdot ds$ | 长度惩罚 |
+| [6] | $w_l \cdot \frac{ds}{\sqrt{ds_{\text{ref}}}}$ | 密度归一化长度惩罚 |
 
 `fix_weight` $w_f$ 是直接权重（不取平方根），默认值 100。
 
@@ -406,22 +405,19 @@ function obstacle_penalty(world_x, world_y):
     grid_x = (world_x - origin_x) / resolution
     grid_y = (world_y - origin_y) / resolution
 
-    # 越界检查
-    if grid_x < 1.5 or grid_y < 1.5 or grid_x >= size_x - 1.5 or grid_y >= size_y - 1.5:
-        return 1.0   # 常数边界残差
+    # 查询坐标夹到可查区域，边界外仍保留边缘净空代价
+    query_x = clamp(grid_x, 1.5, size_x - 1.5)
+    query_y = clamp(grid_y, 1.5, size_y - 1.5)
 
-    # ESDF 双三次插值（注意 row/col 顺序和 0.5 偏移）
-    distance = esdf_interpolator.Evaluate(grid_y - 0.5, grid_x - 0.5)
+    # 双线性插值不会像 Catmull-Rom 双三次样条那样过冲
+    distance = bilinear(esdf_grid, query_y - 0.5, query_x - 0.5)
 
     # 减去机器人半径
     surface_distance = distance - cost_check_radius
 
-    # 安全距离检查
-    if surface_distance >= obstacle_safe_distance:
-        return 0.0
-
-    # hinge residual（Ceres 会平方形成二次代价）
-    return (obstacle_safe_distance - surface_distance) / obstacle_safe_distance
+    # hinge residual 与边界回推残差合并，越界时不丢失障碍净空代价
+    clearance_penalty = max(0, (obstacle_safe_distance - surface_distance) / obstacle_safe_distance)
+    return hypot(clearance_penalty, boundary_penalty(grid_x, grid_y))
 ```
 
 **多点检测的坐标变换**：
@@ -473,7 +469,7 @@ options.num_threads = 1;                               // 小规模问题线程�
 | 方面 | C++ | Python |
 |------|-----|--------|
 | 自动微分 | Ceres AutoDiff (`Jet<double,N>`) | `scipy.optimize.least_squares` (数值差分) |
-| ESDF 插值 | `ceres::BiCubicInterpolator<Grid2D<double>>` | 手写双三次插值 |
+| ESDF 插值 | 保守双线性插值 + 半格对角线补偿 | 手写双线性插值 |
 | 求解器 | Ceres Solver | scipy L-BFGS-B / Trust Region |
 | 障碍物残差 | `DynamicAutoDiffCostFunction` (动态残差数) | NumPy 向量化计算 |
 
@@ -584,7 +580,7 @@ for each segment (i, i+1):
 | `kinematic_curvature_weight` | double | 0.0 | 曲率大小惩罚权重 |
 | `kinematic_curvature_rate_weight` | double | 0.0 | 曲率变化率惩罚权重 |
 | `kinematic_spacing_weight` | double | 20.0 | 相邻有效步长差分的正则权重，鼓励间距均匀 |
-| `path_length_weight` | double | 0.0 | 总长度惩罚权重 |
+| `path_length_weight` | double | 1.0 | 按参考间距归一化的总长度惩罚权重 |
 | `reference_path_weight` | double | 0.0 | 参考路径吸附权重 |
 | `reference_point_max_deviation_m` | double | 0.0 | 每个优化点相对参考点的最大偏移（≤0 关闭） |
 | `fix_weight` | double | 100.0 | 起终点边界和 cusp 约束的直接权重（不取平方根） |
@@ -790,7 +786,7 @@ make -j$(nproc)
 
 2. **`fix_weight` 不取平方根**：边界约束需要强锚定，直接用大数更直观。
 
-3. **双三次插值用于 ESDF**：Ceres AutoDiff 需要可微的 ESDF 查询。双三次插值提供 $C^1$ 连续性和解析梯度。
+3. **保守双线性插值用于 ESDF**：避免双三次样条在障碍边界附近过冲。半个格子对角线的补偿在共享 ESDF 生成阶段完成，A*、smoother 和 validator 使用同一净空口径。
 
 4. **Header-only 库**：所有模板代码在头文件中，避免链接问题。代价是编译时间较长。
 
@@ -805,7 +801,7 @@ make -j$(nproc)
 | `max_curvature` 约束半径 | 约束曲率（$1/m$），不是半径 |
 | 成功返回即可用 | 还需通过后验硬校验 |
 | `kinematic_max_spacing` 是软约束 | 是 `ds` 的显式硬上界 |
-| `path_length_weight` 约束总长度 | 直接压缩每段 `ds` |
+| `path_length_weight` 约束总长度 | 按 `ds_ref` 归一化后压缩每段 `ds`，代价尺度不随结点密度变化 |
 | 参考路径残差约束朝向 | 只约束 $(x, y)$ 位置 |
 
 ---

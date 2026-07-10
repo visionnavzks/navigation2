@@ -143,13 +143,13 @@
 - `[3]` 平均曲率惩罚（鼓励路径趋向直行，乘 `curvature_weight`）
 - `[4]` 曲率变化率惩罚（以弧长平方根归一化，乘 `curvature_rate_weight`）
 - `[5]` 相邻有效步长差分（约束 `ds_i` 接近 `ds_{i+1}`，归一化后无量纲，乘 `spacing_weight`）
-- `[6]` 总长度惩罚（直接压缩 `ds`，使路径更短，乘 `length_weight`）
+- `[6]` 密度归一化长度惩罚（残差为 `ds / sqrt(ds_ref)`，使代价不随结点密度变化，乘 `length_weight`）
 
 对于 cusp 段：
 
 - `[0]` `[1]` `[2]` 强约束位置和朝向不变（乘 `fix_weight`）。
 - `[5]` 强惩罚非零步长（乘 `fix_weight`）。cusp 及其相邻段不参与均匀间距差分。
-- `[6]` 直接压缩长度（乘 `length_weight`）。
+- `[6]` 按 `ds_ref` 归一化后压缩长度（乘 `length_weight`）。
 
 涉及的权重参数：
 
@@ -279,7 +279,7 @@ C++ 版本会为每个状态连接一个障碍物净空残差：
 - `max_curvature` 约束的是曲率（`1/m`），不是半径。
 - C++ 版成功返回前还有一步独立的后验校验。
 - `kinematic_max_spacing` 是 `ds` 的硬上界，不是软约束。
-- `path_length_weight` 直接压缩每段 `ds`，不是约束总长度。
+- `path_length_weight` 按 `ds_ref` 归一化后压缩每段 `ds`；在间距近似均匀时，其平方和等价于总弧长代价。
 - `reference_point_max_deviation_m` 是显式参数边界，不是参考路径残差的一部分。
 
 ## 常见误改点

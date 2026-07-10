@@ -99,7 +99,8 @@ struct SmootherParams
   double kinematic_spacing_weight{20.0};
   /// 运动学版显式弧长步长 ds 的上界，单位米；<= 0 表示不启用上界。
   double kinematic_max_spacing{0.0};
-  /// 总长度惩罚的权重（传入的是平方后的值，内部自动开方）；值越大，越倾向于压缩整条路径的总弧长。
+  /// 按参考间距归一化的总长度惩罚权重（传入的是平方后的值，内部自动开方）。
+  /// 归一化后代价在相同几何路径上不随优化结点密度变化。
   double path_length_weight{1.0};
   /// cusp 保持段和起终点边界残差共用的直接约束权重。
   /// 与 `*_sqrt` 参数不同，这个值不会再开方，直接乘到残差上。

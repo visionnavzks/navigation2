@@ -83,7 +83,6 @@ class KinematicSmootherProblemBuilder
 {
 public:
   using EsdfGrid = ceres::Grid2D<double>;
-  using EsdfInterpolator = ceres::BiCubicInterpolator<EsdfGrid>;
 
   explicit KinematicSmootherProblemBuilder(std::vector<double> & esdf_values)
   : esdf_values_(esdf_values)
@@ -98,7 +97,6 @@ public:
     if (!params.obstacleTermsEnabled()) {
       esdf_values_.clear();
       esdf_grid_.reset();
-      esdf_interpolator_.reset();
       return;
     }
 
@@ -120,7 +118,6 @@ public:
 
     esdf_grid_ = std::make_shared<EsdfGrid>(
       esdf_values_.data(), 0, costmap->getSizeInCellsY(), 0, costmap->getSizeInCellsX());
-    esdf_interpolator_ = std::make_shared<EsdfInterpolator>(*esdf_grid_);
   }
 
   static KinematicProcessedPath buildProcessedPath(
@@ -335,7 +332,7 @@ public:
         catalog.obstacle_blocks.push_back(
           problem.AddResidualBlock(
             kinematic_smoother_detail::ObstacleCostFunctor::Create(
-              obstacle_weight, costmap, params, esdf_grid_, esdf_interpolator_),
+              obstacle_weight, costmap, params, esdf_grid_),
             nullptr,
             KinematicStateLayout::data(variables, index)));
       }
@@ -786,7 +783,6 @@ private:
 
   std::vector<double> & esdf_values_;
   std::shared_ptr<EsdfGrid> esdf_grid_{};
-  std::shared_ptr<EsdfInterpolator> esdf_interpolator_{};
 };
 
 }  // namespace kinematic_smoother
