@@ -105,8 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'weights.kinematicCurvatureWeightHint': '惩罚运动学平滑器里的显式 kappa 状态。调高后会更偏向较小的平均转向曲率，而不只是减少超过最大曲率阈值的片段。',
     'weights.kinematicCurvatureRateWeightLabel': '运动学曲率变化率权重: <span id="val_kinematic_curvature_rate_weight">5.0</span>',
     'weights.kinematicCurvatureRateWeightHint': '惩罚相邻状态之间显式 kappa 的变化率。这和几何平滑器里的四点 D3 代理项不是同一个残差。',
-    'weights.kinematicSpacingWeightLabel': '运动学间距权重: <span id="val_kinematic_spacing_weight">0.0</span>',
-    'weights.kinematicSpacingWeightHint': '惩罚每段 ds 偏离目标间距，帮助优化点间距保持近似均匀并提升数值稳定性。',
+    'weights.kinematicSpacingWeightLabel': '运动学间距均匀权重: <span id="val_kinematic_spacing_weight">20.0</span>',
+    'weights.kinematicSpacingWeightHint': '惩罚相邻有效路径段的 ds 差值，使优化结点间距更均匀。不再把每段 ds 直接拉向目标间距；末状态和 cusp 换向段不参与差分。',
     'weights.pathLengthWeightLabel': '路径长度权重: <span id="val_path_length_weight">1.0</span>',
     'weights.pathLengthWeightHint': '为每一段 ds 增加显式长度惩罚。其它代价接近时，它会更偏向更短的路径。',
     'weights.maxCurvatureLabel': '最大曲率 (1/m): <span id="val_max_curvature">2.5</span>',
@@ -149,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'solver.linearSolver': '线性求解器',
     'solver.debugLogging': '在 Flask 服务端启用逐迭代求解日志',
     'solver.referenceSpacingLabel': '参考路径目标间距 (m): <span id="val_reference_spacing_target_m">0.30</span>',
-    'solver.referenceSpacingHint': '控制 C++ 平滑器从原始参考路径生成优化结点的目标间距。间距越大，优化问题通常越小。',
+    'solver.referenceSpacingHint': '控制 C++ 平滑器从原始参考路径生成优化结点的采样间距，并作为 ds 差分残差的归一化尺度。它不会把优化后的每段 ds 强制拉回该值。',
     'solver.outputSpacingLabel': '输出路径目标间距 (m): <span id="val_output_spacing_target_m">0.10</span>',
     'solver.outputSpacingHint': '控制优化后返回路径的采样密度。更小的间距会生成更密的后验校验和显示采样，但不会增加优化结点数。',
     'solver.maxIterationsLabel': '最大迭代次数: <span id="val_max_iterations">50</span>',
@@ -216,7 +216,7 @@ document.addEventListener('DOMContentLoaded', () => {
     'run.kinematicMaxTime': '最大求解时间',
     'run.kinematicMaxCurvature': '最大曲率',
     'run.kinematicCurvatureRateWeight': '曲率变化率权重',
-    'run.kinematicTargetSpacing': '目标间距',
+    'run.kinematicTargetSpacing': '结点 / 输出间距',
     'run.kinematicCeresTolerances': 'Ceres 容差',
     'toolbar.runPlanning': '执行规划',
     'toolbar.resetScene': '重置场景',
@@ -309,13 +309,13 @@ document.addEventListener('DOMContentLoaded', () => {
       'weights.modelWeightHint': 'Raw weight for the kinematic state-transition consistency residuals. Higher values keep each state transition closer to the predicted bicycle-model motion.',
       'weights.fixWeightLabel': 'Fix Weight: <span id="val_fix_weight">100</span>',
       'weights.fixWeightHint': 'Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.',
-      'solver.referenceSpacingHint': 'Controls the C++ smoother target spacing for optimizer knots sampled from the raw reference path. Larger spacing usually means a smaller optimization problem.',
+      'solver.referenceSpacingHint': 'Controls optimizer-knot sampling from the raw reference path and provides the normalization scale for the ds-difference residual. It does not pull every optimized ds back to this value.',
       'solver.outputSpacingLabel': 'Output Spacing Target (m): <span id="val_output_spacing_target_m">0.10</span>',
       'solver.outputSpacingHint': 'Controls the final returned path density after optimization. Smaller spacing gives denser validation and display samples without increasing optimizer knot count.',
       'weights.obstacleWeightLabel': 'Obstacle Weight: <span id="val_obstacle_weight">1.000</span>',
       'weights.obstacleWeightHint': 'Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.',
-      'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">0.0</span>',
-      'weights.kinematicSpacingWeightHint': 'Penalizes ds deviation from the target spacing so optimized knot spacing stays near-uniform and numerically stable.',
+      'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Uniformity Weight: <span id="val_kinematic_spacing_weight">20.0</span>',
+      'weights.kinematicSpacingWeightHint': 'Penalizes differences between adjacent valid segment lengths ds so optimizer knots stay near-uniform. It no longer pulls each ds directly toward the target spacing; terminal and cusp segments are excluded.',
       'weights.pathLengthWeightLabel': 'Path Length Weight: <span id="val_path_length_weight">1.0</span>',
       'weights.pathLengthWeightHint': 'Adds an explicit penalty on each segment length ds so the optimizer can prefer shorter paths when other costs are comparable.',
       'weights.referencePathWeightLabel': 'Reference Path Weight: <span id="val_reference_path_weight">0.0</span>',
@@ -392,14 +392,14 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.kinematicMaxTime': 'Max Solver Time',
       'run.kinematicMaxCurvature': 'Max Curvature',
       'run.kinematicCurvatureRateWeight': 'Curvature Rate Weight',
-      'run.kinematicTargetSpacing': 'Target Spacing',
+      'run.kinematicTargetSpacing': 'Knot / Output Spacing',
       'run.kinematicCeresTolerances': 'Ceres Tolerances',
       'run.costTermsPending': 'Per-term Ceres costs appear after the optimizer runs.',
       'run.costTermTotal': 'Total',
       'run.costTerm.kinematic_model': 'Kinematic Model',
       'run.costTerm.curvature': 'Curvature',
       'run.costTerm.curvature_rate': 'Curvature Rate',
-      'run.costTerm.spacing': 'Spacing',
+      'run.costTerm.spacing': 'Spacing Uniformity',
       'run.costTerm.path_length': 'Path Length',
       'run.costTerm.start_boundary': 'Start Boundary',
       'run.costTerm.goal_boundary': 'Goal Boundary',
@@ -521,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
       'run.costTerm.kinematic_model': '运动学模型',
       'run.costTerm.curvature': '曲率',
       'run.costTerm.curvature_rate': '曲率变化率',
-      'run.costTerm.spacing': '间距',
+      'run.costTerm.spacing': '间距均匀性',
       'run.costTerm.path_length': '路径长度',
       'run.costTerm.start_boundary': '起点约束',
       'run.costTerm.goal_boundary': '终点约束',
@@ -1415,7 +1415,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ].forEach(id => setText(id, '--'));
     setText(
       'kinematic-spacing-target-hint',
-      currentLanguage === 'zh' ? '当前优化目标间距：--' : 'Current optimizer target spacing: --'
+      currentLanguage === 'zh' ? '当前结点采样间距 / 差分归一化尺度：--' : 'Current knot sampling / ds-difference normalization scale: --'
     );
   }
 
@@ -1453,8 +1453,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setText(
       'kinematic-spacing-target-hint',
       currentLanguage === 'zh'
-        ? `当前优化目标间距：${targetSpacingText}；输出目标间距：${outputSpacingText}。输出采样不会增加优化结点数。`
-        : `Current optimizer target spacing: ${targetSpacingText}; output target spacing: ${outputSpacingText}. Output sampling does not increase optimizer knot count.`
+        ? `结点采样间距 / ds 差分归一化尺度：${targetSpacingText}；输出目标间距：${outputSpacingText}。均匀代价只惩罚相邻有效段的 ds 差值。`
+        : `Knot sampling / ds-difference normalization scale: ${targetSpacingText}; output target spacing: ${outputSpacingText}. The uniformity cost only penalizes ds differences between adjacent valid segments.`
     );
     setText(
       'kinematic-param-ceres-tolerances',

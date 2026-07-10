@@ -203,10 +203,10 @@
                 <p class="param-hint" data-i18n="weights.kinematicCurvatureRateWeightHint">Penalizes changes in the explicit kappa state between transitions along the optimized state chain.</p>
               </div>
               <div class="param-group">
-                <label data-i18n-html="weights.kinematicSpacingWeightLabel">Kinematic Spacing Weight: <span id="val_kinematic_spacing_weight">0.0</span></label>
-                <input type="range" id="kinematic_spacing_weight" min="0.0" max="20.0" step="0.1" value="0.0">
-                <p class="param-hint" data-i18n="weights.kinematicSpacingWeightHint">Penalizes deviation of ds from the target segment spacing so knot spacing remains numerically stable and near-uniform.</p>
-                <p id="kinematic-spacing-target-hint" class="param-hint">Current optimizer target spacing: --</p>
+                <label data-i18n-html="weights.kinematicSpacingWeightLabel">Kinematic Spacing Uniformity Weight: <span id="val_kinematic_spacing_weight">20.0</span></label>
+                <input type="range" id="kinematic_spacing_weight" min="0.0" max="20.0" step="0.1" value="20.0">
+                <p class="param-hint" data-i18n="weights.kinematicSpacingWeightHint">Penalizes differences between adjacent valid segment lengths ds so optimizer knots stay near-uniform. It does not pull every ds directly toward the target spacing.</p>
+                <p id="kinematic-spacing-target-hint" class="param-hint">Current knot sampling / ds-difference normalization scale: --</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="weights.pathLengthWeightLabel">Path Length Weight: <span id="val_path_length_weight">1.0</span></label>
@@ -302,7 +302,7 @@
               <div class="param-group">
                 <label data-i18n-html="solver.referenceSpacingLabel">Reference Spacing Target (m): <span id="val_reference_spacing_target_m">0.30</span></label>
                 <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
-                <p class="param-hint" data-i18n="solver.referenceSpacingHint">Controls how aggressively the dense A* path is downsampled before it becomes the Reference Path / optimizer input. Larger spacing usually means fewer reference points.</p>
+                <p class="param-hint" data-i18n="solver.referenceSpacingHint">Controls optimizer-knot sampling and provides the normalization scale for the ds-difference residual. It does not pull every optimized ds back to this value.</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="solver.outputSpacingLabel">Output Spacing Target (m): <span id="val_output_spacing_target_m">0.10</span></label>
@@ -845,7 +845,7 @@
                       <td><strong id="kinematic-param-curvature-rate-weight">--</strong></td>
                     </tr>
                     <tr>
-                      <th scope="row" data-i18n="run.kinematicTargetSpacing">Target Spacing</th>
+                      <th scope="row" data-i18n="run.kinematicTargetSpacing">Knot / Output Spacing</th>
                       <td><strong id="kinematic-param-resampling">--</strong></td>
                     </tr>
                     <tr>

@@ -142,13 +142,13 @@
 - `[2]` `theta` 朝向误差（预测与实际偏差，乘 `model_weight`）
 - `[3]` 平均曲率惩罚（鼓励路径趋向直行，乘 `curvature_weight`）
 - `[4]` 曲率变化率惩罚（以弧长平方根归一化，乘 `curvature_rate_weight`）
-- `[5]` 步长误差（约束 `ds` 接近目标步长，归一化后无量纲，乘 `spacing_weight`）
+- `[5]` 相邻有效步长差分（约束 `ds_i` 接近 `ds_{i+1}`，归一化后无量纲，乘 `spacing_weight`）
 - `[6]` 总长度惩罚（直接压缩 `ds`，使路径更短，乘 `length_weight`）
 
 对于 cusp 段：
 
 - `[0]` `[1]` `[2]` 强约束位置和朝向不变（乘 `fix_weight`）。
-- `[5]` 强惩罚非零步长（乘 `spacing_weight * 10`）。
+- `[5]` 强惩罚非零步长（乘 `fix_weight`）。cusp 及其相邻段不参与均匀间距差分。
 - `[6]` 直接压缩长度（乘 `length_weight`）。
 
 涉及的权重参数：

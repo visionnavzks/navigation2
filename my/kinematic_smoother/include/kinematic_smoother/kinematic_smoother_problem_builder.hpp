@@ -250,10 +250,16 @@ public:
     const double reference_weight = std::sqrt(std::max(params.reference_path_weight, 0.0));
     const bool has_obstacle_cost = params.obstacleTermsEnabled();
 
-    // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与期望间距。
+    // 邻接状态过渡残差：约束运动学一致性、曲率、曲率变化率与间距均匀性。
     catalog.transition_blocks.reserve(
       processed.state_count > 0 ? processed.state_count - 1 : 0);
     for (size_t index = 0; index + 1 < processed.state_count; ++index) {
+      // 均匀间距需要比较两个真实路径段 ds[index] 和 ds[index + 1]。
+      // 末状态没有对应路径段，cusp 段的 ds 则固定为 0，都不参与差分。
+      const bool compare_next_spacing =
+        index + 1 < processed.is_cusp_segment.size() &&
+        !processed.is_cusp_segment[index] &&
+        !processed.is_cusp_segment[index + 1];
       catalog.transition_blocks.push_back(
         problem.AddResidualBlock(
           kinematic_smoother_detail::TransitionCostFunctor::Create(
@@ -266,7 +272,8 @@ public:
             length_weight,
             fix_weight,
             params.max_curvature,
-            processed.target_spacing),
+            processed.target_spacing,
+            compare_next_spacing),
           nullptr,
           KinematicStateLayout::data(variables, index),
           KinematicStateLayout::data(variables, index + 1)));

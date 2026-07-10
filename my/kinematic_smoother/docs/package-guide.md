@@ -90,7 +90,7 @@ smooth()
 | `reference_point_max_deviation_m` | `double` | `0.0` | 每个优化点相对对应参考点的最大 x/y 偏移半径（米）；<= 0 表示关闭 |
 | `kinematic_curvature_weight` | `double` | `0.0` | 显式曲率状态 `kappa` 的正则权重（传入平方后的值，内部自动开方） |
 | `kinematic_curvature_rate_weight` | `double` | `0.0` | 曲率变化率项的权重（传入平方后的值，内部自动开方） |
-| `kinematic_spacing_weight` | `double` | `1.0` | 弧长步长 `ds` 贴近目标间距的正则权重（传入平方后的值，内部自动开方）；避免步长变量在无约束时完全漂移 |
+| `kinematic_spacing_weight` | `double` | `20.0` | 相邻有效弧长步长 `ds` 差分的正则权重（传入平方后的值，内部自动开方）；鼓励轨迹点间距均匀 |
 | `kinematic_max_spacing` | `double` | `0.0` | 弧长步长 `ds` 的上界（米）；<= 0 表示不启用上界 |
 | `path_length_weight` | `double` | `0.0` | 总路径长度惩罚的权重（传入平方后的值，内部自动开方）；值越大越倾向于压缩总弧长 |
 | `fix_weight` | `double` | `100.0` | cusp 保持段与起终点边界残差共用的直接约束权重；不会做 sqrt 变换 |

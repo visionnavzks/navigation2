@@ -302,13 +302,14 @@ $$
 | [2] | $w_m \cdot \text{angle\_diff}(\theta', \theta_{\text{pred}})$ | 朝向误差 | `model_weight` |
 | [3] | $w_c \cdot \frac{\kappa + \kappa'}{2}$ | 曲率大小惩罚 | `curvature_weight` |
 | [4] | $w_{cr} \cdot \frac{\kappa' - \kappa}{\sqrt{ds}}$ | 曲率变化率 | `curvature_rate_weight` |
-| [5] | $w_s \cdot \frac{ds - ds_{\text{target}}}{ds_{\text{target}}}$ | 步长误差（归一化） | `spacing_weight` |
+| [5] | $w_s \cdot \frac{ds_i - ds_{i+1}}{ds_{\text{ref}}}$ | 相邻有效步长差分（归一化） | `spacing_weight` |
 | [6] | $w_l \cdot ds$ | 长度惩罚 | `length_weight` |
 
 其中：
 - $\text{angle\_diff}(a, b) = \text{normalize\_angle}(a - b)$，归一化到 $(-\pi, \pi]$
 - $\text{normalize\_angle}(\alpha) = \text{atan2}(\sin(\alpha), \cos(\alpha))$
-- 残差 [4] 的分母在 $ds < 10^{-3}$ 时用 $0.03$ 代替，避免除零
+- 残差 [4] 的分母使用 $\sqrt{\max(ds, 10^{-3})}$，避免除零
+- 残差 [5] 不比较末状态的未使用 `ds`，也不跨 cusp 段比较
 - Ceres 的目标函数是 $\frac{1}{2}\sum r_i^2$，所以权重 $w$ 实际效果是 $\frac{1}{2} w^2 \cdot (\text{物理量})^2$
 
 **Cusp 段残差**（`is_cusp_segment = true`）：
@@ -582,7 +583,7 @@ for each segment (i, i+1):
 | `model_weight` | double | 0.0 | 运动学一致性残差权重（传入平方后的值，内部自动开方） |
 | `kinematic_curvature_weight` | double | 0.0 | 曲率大小惩罚权重 |
 | `kinematic_curvature_rate_weight` | double | 0.0 | 曲率变化率惩罚权重 |
-| `kinematic_spacing_weight` | double | 1.0 | 步长接近目标间距的正则权重 |
+| `kinematic_spacing_weight` | double | 20.0 | 相邻有效步长差分的正则权重，鼓励间距均匀 |
 | `path_length_weight` | double | 0.0 | 总长度惩罚权重 |
 | `reference_path_weight` | double | 0.0 | 参考路径吸附权重 |
 | `reference_point_max_deviation_m` | double | 0.0 | 每个优化点相对参考点的最大偏移（≤0 关闭） |

@@ -94,9 +94,9 @@ struct SmootherParams
   double kinematic_curvature_weight{1.0};
   /// 运动学版显式曲率变化率项的权重（传入的是平方后的值，内部自动开方）。
   double kinematic_curvature_rate_weight{1.0};
-  /// 运动学版显式弧长步长 ds 贴近目标间距的正则权重（传入的是平方后的值，内部自动开方）。
-  /// 默认关闭；需要近似等间距 knot 时由调用方显式启用。
-  double kinematic_spacing_weight{0.0};
+  /// 运动学版相邻有效弧长步长 ds 差分的正则权重（传入的是平方后的值，内部自动开方）。
+  /// 默认为 20；设为 0 可关闭间距均匀代价。
+  double kinematic_spacing_weight{20.0};
   /// 运动学版显式弧长步长 ds 的上界，单位米；<= 0 表示不启用上界。
   double kinematic_max_spacing{0.0};
   /// 总长度惩罚的权重（传入的是平方后的值，内部自动开方）；值越大，越倾向于压缩整条路径的总弧长。
@@ -131,7 +131,7 @@ struct SmootherParams
   // --- Path resampling and direction semantics ---
 
   /// 在连接残差块之前按目标间距重采样路径，单位米；<= 0 时使用旧的倍率下采样。
-  /// 该值同时作为运动学 spacing residual 的目标步长。
+  /// 该值同时作为运动学 spacing 差分残差的归一化参考尺度。
   double path_target_spacing{0.0};
   /// 在连接残差块之前应用的路径下采样步长。
   /// 值越大，参与求解的状态数越少；仅在 path_target_spacing <= 0 时生效。

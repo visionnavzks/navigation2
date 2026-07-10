@@ -78,7 +78,7 @@ inline T sqrtValue(T value)
  *   [2] 朝向角误差（运动学模型约束）
  *   [3] 平均曲率惩罚（鼓励路径趋向直行）
  *   [4] 曲率变化率惩罚（鼓励曲率平滑，以弧长归一化）
- *   [5] 步长误差（约束相邻点间距接近目标步长）
+ *   [5] 步长差分（约束相邻有效路径段的间距保持均匀）
  *   [6] 总长度惩罚（直接压缩 ds，鼓励整条路径更短）
  *
  * 尖点（cusp）段特殊处理：
@@ -94,11 +94,12 @@ public:
    * @param model_weight         运动学模型约束权重（位置/朝向残差的系数）
    * @param curvature_weight     曲率大小惩罚权重（鼓励路径趋直）
    * @param curvature_rate_weight 曲率变化率惩罚权重（鼓励曲率连续平滑）
-   * @param spacing_weight       步长误差惩罚权重
+   * @param spacing_weight       相邻步长差分惩罚权重
    * @param length_weight        总长度惩罚权重（直接压缩 ds）
    * @param fix_weight           尖点段强固定约束权重
    * @param max_curvature        允许的最大曲率（1/m），用于归一化残差[3]
-   * @param target_spacing       期望的相邻点弧长步长（米）
+   * @param target_spacing       步长差分的归一化参考尺度（米）
+   * @param compare_next_spacing 是否将当前 ds 与下一有效路径段的 ds 比较
    * @note 所有权重均为「代价权重的平方根」形式：Ceres 对残差 r 平方后
    *       实际代价为 weight²·r²。调用方应在传入前对用户参数做 sqrt()。
    *       fix_weight 是例外——它直接作为残差系数，不做开方。
@@ -113,7 +114,8 @@ public:
     double length_weight,
     double fix_weight,
     double max_curvature,
-    double target_spacing)
+    double target_spacing,
+    bool compare_next_spacing = true)
   : gear_(gear),
     is_cusp_segment_(is_cusp_segment),
     model_weight_(model_weight),
@@ -123,7 +125,8 @@ public:
     length_weight_(length_weight),
     fix_weight_(fix_weight),
     max_curvature_(std::max(max_curvature, 1e-6)),
-    target_spacing_(target_spacing)
+    target_spacing_(target_spacing),
+    compare_next_spacing_(compare_next_spacing)
   {
   }
 
@@ -141,7 +144,8 @@ public:
     double length_weight,
     double fix_weight,
     double max_curvature,
-    double target_spacing)
+    double target_spacing,
+    bool compare_next_spacing)
   {
     return new ceres::AutoDiffCostFunction<TransitionCostFunctor, 7, 5, 5>(
       new TransitionCostFunctor(
@@ -154,13 +158,14 @@ public:
         length_weight,
         fix_weight,
         max_curvature,
-        target_spacing));
+        target_spacing,
+        compare_next_spacing));
   }
 
   /**
    * @brief 计算相邻两点的运动学过渡残差
    * @param current  当前点状态 [x, y, theta, kappa, ds]
-   * @param next     下一点状态 [x, y, theta, kappa, ds]（ds 分量不使用）
+   * @param next     下一点状态 [x, y, theta, kappa, ds]
    * @param residuals 输出残差数组，长度为 7
    */
   template<typename T>
@@ -177,11 +182,12 @@ public:
     const T kappa = current[3];  // 当前点曲率
     const T ds = current[4];     // 当前点到下一点的弧长步长
 
-    // 解包下一点状态（ds 不参与计算）
+    // 解包下一点状态
     const T next_x = next[0];
     const T next_y = next[1];
     const T next_theta = next[2];
     const T next_kappa = next[3];
+    const T next_ds = next[4];
 
     // ---- 尖点段特殊处理 ----
     // 前进/倒退切换处，强制相邻点静止（位置/朝向不变，步长为零）
@@ -228,10 +234,13 @@ public:
     // 残差[4]：曲率变化率惩罚——使曲率沿弧长平滑变化（避免急剧转向）
     residual[4] = T(curvature_rate_weight_) * (next_kappa - kappa) / denom;
 
-    // 残差[5]：步长误差——约束相邻点间距接近目标步长，归一化后无量纲
-    // 对目标步长做下限保护，避免极端配置导致除零或梯度异常放大。
+    // 残差[5]：相邻有效路径段的步长差分，归一化后无量纲。
+    // 末状态的 ds 不代表路径段；cusp 段的 ds 则应为 0。这两类情况由问题
+    // 构建器通过 compare_next_spacing_ 排除，避免把正常路径段错误拉向 0。
     const T spacing_ref = T(std::max(target_spacing_, 1e-3));
-    residual[5] = T(spacing_weight_) * (ds - spacing_ref) / spacing_ref;
+    if (compare_next_spacing_) {
+      residual[5] = T(spacing_weight_) * (ds - next_ds) / spacing_ref;
+    }
 
     // 残差[6]：长度惩罚——对每一段 ds 直接施加代价，使总路径长度更短
     residual[6] = T(length_weight_) * ds;
@@ -244,11 +253,12 @@ private:
   double model_weight_;          ///< 运动学模型约束权重
   double curvature_weight_;      ///< 曲率大小惩罚权重
   double curvature_rate_weight_; ///< 曲率变化率惩罚权重
-  double spacing_weight_;        ///< 步长误差惩罚权重
+  double spacing_weight_;        ///< 相邻步长差分惩罚权重
   double length_weight_;         ///< 总长度惩罚权重
   double fix_weight_;            ///< 尖点段固定约束权重
   double max_curvature_;         ///< 最大曲率（1/m），用于归一化曲率残差
-  double target_spacing_;        ///< 期望相邻点弧长（米）
+  double target_spacing_;        ///< 步长差分归一化参考尺度（米）
+  bool compare_next_spacing_;    ///< 当前段与下一段均有效时才比较 ds
 };
 
 /**

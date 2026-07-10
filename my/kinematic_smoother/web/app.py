@@ -1060,7 +1060,7 @@ class PlanRequestConfig:
             ),
             kinematic_curvature_weight=float(req.get("kinematic_curvature_weight", 1.0)),
             kinematic_curvature_rate_weight=float(req.get("kinematic_curvature_rate_weight", 5.0)),
-            kinematic_spacing_weight=max(0.0, float(req.get("kinematic_spacing_weight", 0.0))),
+            kinematic_spacing_weight=max(0.0, float(req.get("kinematic_spacing_weight", 20.0))),
             kinematic_max_spacing_m=max(0.0, float(req.get("kinematic_max_spacing_m", 0.0))),
             path_length_weight=float(req.get("path_length_weight", 1.0)),
             fix_weight=max(0.0, float(req.get("fix_weight", DEFAULT_FIX_WEIGHT))),

@@ -377,9 +377,10 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
   const std::vector<Eigen::Vector3d> path = {
     {0.0, 0.0, 1.0},
     {1.0, 0.0, 1.0},
+    {2.0, 0.0, 1.0},
   };
 
-  auto evaluate_cost = [&](double spacing_weight) {
+  auto evaluate_cost = [&](double spacing_weight, double first_ds, double second_ds) {
     kinematic_smoother::SmootherParams params;
     params.model_weight = 0.0;
     params.obstacle_weight = 0.0;
@@ -404,12 +405,8 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
       &costmap);
 
     std::vector<double> variables = processed.initial_variables;
-    variables[4] = 2.0;
-    variables[5] = 2.0;
-    variables[6] = 0.0;
-    variables[7] = 0.0;
-    variables[8] = 0.0;
-    variables[9] = 0.0;
+    variables[4] = first_ds;
+    variables[9] = second_ds;
 
     ceres::Problem problem;
     builder.buildProblem(processed, &costmap, params, variables, problem);
@@ -420,8 +417,58 @@ TEST(KinematicSmootherProblemBuilderTest, BuildProblemUsesDedicatedKinematicSpac
     return cost;
   };
 
-  EXPECT_NEAR(evaluate_cost(0.0), 0.0, 1e-9);
-  EXPECT_NEAR(evaluate_cost(3.0), 1.5, 1e-9);
+  EXPECT_NEAR(evaluate_cost(0.0, 2.0, 1.0), 0.0, 1e-9);
+  EXPECT_NEAR(evaluate_cost(3.0, 2.0, 1.0), 1.5, 1e-9);
+  EXPECT_NEAR(evaluate_cost(3.0, 2.0, 2.0), 0.0, 1e-9);
+}
+
+TEST(KinematicSmootherProblemBuilderTest, KinematicSpacingCostSkipsCuspSegments)
+{
+  kinematic_smoother::Costmap2D costmap(40, 40, 0.05, 0.0, 0.0);
+  const std::vector<Eigen::Vector3d> path = {
+    {0.0, 0.0, 1.0},
+    {1.0, 0.0, -1.0},
+    {0.5, 0.0, -1.0},
+  };
+
+  kinematic_smoother::SmootherParams params;
+  params.model_weight = 0.0;
+  params.obstacle_weight = 0.0;
+  params.reference_path_weight = 0.0;
+  params.kinematic_curvature_weight = 0.0;
+  params.kinematic_curvature_rate_weight = 0.0;
+  params.kinematic_spacing_weight = 3.0;
+  params.path_length_weight = 0.0;
+  params.fix_weight = 0.0;
+  params.keep_start_orientation = false;
+  params.keep_goal_orientation = false;
+  params.goal_longitudinal_tolerance = 2.0;
+  params.goal_lateral_tolerance = 2.0;
+
+  std::vector<double> esdf_values;
+  kinematic_smoother::KinematicSmootherProblemBuilder builder(esdf_values);
+  builder.initializeEsdfValues(&costmap, params, nullptr);
+  const auto processed = kinematic_smoother::KinematicSmootherProblemBuilder::buildProcessedPath(
+    path,
+    Eigen::Vector2d(1.0, 0.0),
+    Eigen::Vector2d(-1.0, 0.0),
+    params,
+    &costmap);
+
+  ASSERT_EQ(processed.state_count, 4u);
+  ASSERT_EQ(processed.is_cusp_segment, std::vector<bool>({false, true, false}));
+  std::vector<double> variables = processed.initial_variables;
+  variables[4] = 2.0;
+  variables[9] = 0.0;
+  variables[14] = 3.0;
+
+  ceres::Problem problem;
+  builder.buildProblem(processed, &costmap, params, variables, problem);
+
+  ceres::Problem::EvaluateOptions options;
+  double cost = 0.0;
+  ASSERT_TRUE(problem.Evaluate(options, &cost, nullptr, nullptr, nullptr));
+  EXPECT_NEAR(cost, 0.0, 1e-9);
 }
 
 TEST(KinematicSmootherProblemBuilderTest, ApplyBoundsOnlyCapsUsedNonCuspDs)
