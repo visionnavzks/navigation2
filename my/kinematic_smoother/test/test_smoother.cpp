@@ -19,6 +19,7 @@
 #include <cmath>
 #include <string>
 
+#include "kinematic_smoother/astar_esdf.hpp"
 #include "kinematic_smoother/kinematic_smoother_problem_builder.hpp"
 #include "kinematic_smoother/kinematic_smoother.hpp"
 #include "kinematic_smoother/smoother_validator.hpp"
@@ -1337,7 +1338,7 @@ TEST(KinematicSmootherTest, ObstacleCostCheckPointsDoNotThrow)
   EXPECT_GT(result.optimized_knot_count, 0u);
 }
 
-TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
+TEST(KinematicSmootherTest, IncompatibleGoalOrientationCannotBeAccepted)
 {
   kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
 
@@ -1371,7 +1372,7 @@ TEST(KinematicSmootherTest, GoalOrientationCannotSilentlyFlipIntoReverse)
   const std::string error_message = expectFailedToSmoothPath(
     [&]() {(void)smoother.smooth({path, start_dir, end_dir, &costmap, params, nullptr, nullptr});});
 
-  EXPECT_NE(error_message.find("goal_orientation_constraint@"), std::string::npos);
+  EXPECT_NE(error_message.find("curvature_constraint@"), std::string::npos);
 }
 
 TEST(SmootherValidatorTest, KinematicGoalOrientationUsesGoalStateHeading)
@@ -1685,10 +1686,10 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceRejectsOutsideGoalBand
   EXPECT_NEAR(failure.goal_lateral_tolerance, 0.1, 1e-9);
 }
 
-// 注意：本用例 keep_goal_orientation=true 且 end_dir 与路径朝向相反，终点朝向校验
-// 会先于运动方向校验失败，因此实际触发的是 GoalOrientationConstraint。
-// MotionDirectionConstraint 目前仍缺少专门覆盖。
-TEST(KinematicSmootherTest, GoalOrientationViolationStoresFailureInfoWithoutThrowing)
+// The requested terminal heading requires a U-turn whose geometric curvature
+// exceeds max_curvature.  The solution must be rejected and preserve the
+// structured curvature diagnostics instead of being accepted as a reverse leg.
+TEST(KinematicSmootherTest, IncompatibleGoalOrientationStoresCurvatureFailureWithoutThrowing)
 {
   kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);
 
@@ -1726,9 +1727,48 @@ TEST(KinematicSmootherTest, GoalOrientationViolationStoresFailureInfoWithoutThro
   EXPECT_FALSE(result.success);
   EXPECT_FALSE(result.candidate_path.empty());
   expectPathsNear(path, input_path);
-  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::GoalOrientationConstraint);
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::CurvatureConstraint);
   EXPECT_GE(failure.failed_index, 0);
-  EXPECT_NE(failure.message.find("goal orientation"), std::string::npos);
+  EXPECT_NE(failure.message.find("maximum curvature"), std::string::npos);
+  EXPECT_GT(failure.actual_curvature, failure.max_curvature);
+}
+
+TEST(KinematicSmootherTest, SweptOutputCollisionFailsPostValidation)
+{
+  kinematic_smoother::Costmap2D costmap(120, 30, 0.1, 0.0, 0.0);
+  for (unsigned int y = 8; y < 13; ++y) {
+    for (unsigned int x = 49; x < 52; ++x) {
+      costmap.setCost(x, y, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+    }
+  }
+
+  const std::vector<Eigen::Vector3d> path = {
+    {1.0, 1.0, 1.0},
+    {9.0, 1.0, 1.0},
+  };
+  kinematic_smoother::SmootherParams params;
+  params.obstacle_weight = 1.0;
+  params.obstacle_safe_distance = 0.2;
+  params.cost_check_radius = 0.05;
+  params.reference_path_weight = 1.0;
+  params.path_output_spacing = 0.1;
+  params.max_time = 1.0;
+
+  kinematic_smoother::OptimizerParams opt_params;
+  opt_params.max_iterations = 50;
+  kinematic_smoother::KinematicSmoother smoother;
+  smoother.initialize(opt_params);
+
+  kinematic_smoother::SmoothingFailureInfo failure;
+  const auto result = smoother.smooth(
+    {path, Eigen::Vector2d(1.0, 0.0), Eigen::Vector2d(1.0, 0.0),
+      &costmap, params, nullptr, &failure});
+
+  EXPECT_FALSE(result.success);
+  EXPECT_FALSE(result.candidate_path.empty());
+  EXPECT_TRUE(result.smoothed_path.empty());
+  EXPECT_EQ(failure.reason, kinematic_smoother::SmoothingFailureReason::FootprintCollision);
+  EXPECT_NE(failure.message.find("between optimized knots"), std::string::npos);
 }
 
 TEST(KinematicSmootherTest, FootprintCollisionFailsPostValidation)
@@ -2069,6 +2109,43 @@ TEST(FootprintTest, WeightIsNormalizedBySqrtN)
   };
   EXPECT_NEAR(sum_of_squared_weights(model_sparse), 1.0, 1e-9);
   EXPECT_NEAR(sum_of_squared_weights(model_dense), 1.0, 1e-9);
+}
+
+// ---- A* safety regressions ----
+
+TEST(AStarPlannerTest, RejectsDiagonalCornerCutting)
+{
+  kinematic_smoother::Costmap2D costmap(2, 2, 1.0, 0.0, 0.0);
+  costmap.setCost(1, 0, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+  costmap.setCost(0, 1, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+
+  kinematic_smoother::AStarPlanner planner;
+  kinematic_smoother::AStarPlannerParams params;
+  const auto path = planner.plan(&costmap, 0.5, 0.5, 1.5, 1.5, params);
+  EXPECT_TRUE(path.empty());
+}
+
+TEST(AStarPlannerTest, RectangularFootprintRotatesWithTraversalHeading)
+{
+  kinematic_smoother::Costmap2D costmap(8, 8, 1.0, 0.0, 0.0);
+  // This obstacle intersects a 3 m long rectangle at the start only when the
+  // rectangle is oriented vertically.
+  costmap.setCost(3, 2, kinematic_smoother::Costmap2D::LETHAL_OBSTACLE);
+
+  kinematic_smoother::AStarPlannerParams params;
+  params.use_rectangular_footprint = true;
+  params.rectangular_length = 3.0;
+  params.rectangular_width = 0.8;
+
+  kinematic_smoother::AStarPlanner horizontal_planner;
+  const auto horizontal_path = horizontal_planner.plan(
+    &costmap, 3.5, 3.5, 4.5, 3.5, params);
+  EXPECT_FALSE(horizontal_path.empty());
+
+  kinematic_smoother::AStarPlanner vertical_planner;
+  const auto vertical_path = vertical_planner.plan(
+    &costmap, 3.5, 3.5, 3.5, 4.5, params);
+  EXPECT_TRUE(vertical_path.empty());
 }
 
 // ---- Basic costmap sanity test ----

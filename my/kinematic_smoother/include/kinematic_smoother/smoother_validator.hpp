@@ -110,6 +110,106 @@ public:
     return true;
   }
 
+  /// Validate the path that is actually returned to the caller, including the
+  /// motion between adjacent output samples.  The optimizer only attaches
+  /// obstacle residuals to knots, so checking knots alone can miss a thin
+  /// obstacle crossed by a long segment.
+  bool validateKinematicOutputPath(
+    const std::vector<Eigen::Vector3d> & path,
+    const Costmap2D * costmap,
+    const SmootherParams & params,
+    const std::vector<double> & esdf_values,
+    SmoothingFailureInfo * failure) const
+  {
+    if (!params.obstacleTermsEnabled() || costmap == nullptr) {
+      return true;
+    }
+
+    const double radius = std::max(params.cost_check_radius, 0.0);
+    if (radius <= KinematicStateLayout::EnabledEpsilon && params.cost_check_points.empty()) {
+      return true;
+    }
+    if (path.empty()) {
+      return throwOrStoreSmoothingFailure(
+        failure,
+        SmoothingFailureReason::InvalidStateVector,
+        "Kinematic smoother returned an empty output path");
+    }
+
+    double max_checkpoint_offset = 0.0;
+    for (size_t offset = 0; offset + 2 < params.cost_check_points.size(); offset += 3) {
+      max_checkpoint_offset = std::max(
+        max_checkpoint_offset,
+        std::hypot(params.cost_check_points[offset], params.cost_check_points[offset + 1]));
+    }
+
+    // Translation and footprint rotation are both sampled.  Bounding the
+    // swept motion of the furthest checkpoint by half a cell prevents a
+    // segment from jumping across a lethal cell between two output poses.
+    const double max_sweep_step = std::max(0.5 * costmap->getResolution(), 1e-3);
+
+    auto validate_pose = [&](double x, double y, double theta, size_t segment_index) {
+        const double cos_theta = std::cos(theta);
+        const double sin_theta = std::sin(theta);
+        auto validate_checkpoint = [&](double local_x, double local_y) {
+            const double world_x = x + cos_theta * local_x - sin_theta * local_y;
+            const double world_y = y + sin_theta * local_x + cos_theta * local_y;
+            const double clearance = clearanceAtWorldPoint(
+              costmap, esdf_values, world_x, world_y);
+            if (!std::isfinite(clearance)) {
+              return throwOrStoreSmoothingFailure(
+                failure,
+                SmoothingFailureReason::PathOutOfBounds,
+                "Kinematic smoother output path leaves the map bounds during swept footprint validation",
+                static_cast<int>(segment_index));
+            }
+            if (clearance < radius) {
+              return throwOrStoreSmoothingFailure(
+                failure,
+                SmoothingFailureReason::FootprintCollision,
+                "Kinematic smoother output path collides with obstacles between optimized knots",
+                static_cast<int>(segment_index));
+            }
+            return true;
+          };
+
+        if (params.cost_check_points.empty()) {
+          return validate_checkpoint(0.0, 0.0);
+        }
+        for (size_t offset = 0; offset + 2 < params.cost_check_points.size(); offset += 3) {
+          if (!validate_checkpoint(
+              params.cost_check_points[offset], params.cost_check_points[offset + 1]))
+          {
+            return false;
+          }
+        }
+        return true;
+      };
+
+    if (!validate_pose(path.front().x(), path.front().y(), path.front().z(), 0)) {
+      return false;
+    }
+    for (size_t index = 0; index + 1 < path.size(); ++index) {
+      const Eigen::Vector3d & current = path[index];
+      const Eigen::Vector3d & next = path[index + 1];
+      const double distance = (next.head<2>() - current.head<2>()).norm();
+      const double delta_theta = angleDifference(next.z(), current.z());
+      const double swept_distance = distance + max_checkpoint_offset * std::abs(delta_theta);
+      const size_t steps = std::max<size_t>(
+        1u, static_cast<size_t>(std::ceil(swept_distance / max_sweep_step)));
+      for (size_t step = 1; step <= steps; ++step) {
+        const double ratio = static_cast<double>(step) / static_cast<double>(steps);
+        const double x = current.x() + ratio * (next.x() - current.x());
+        const double y = current.y() + ratio * (next.y() - current.y());
+        const double theta = normalizeAngle(current.z() + ratio * delta_theta);
+        if (!validate_pose(x, y, theta, index)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
 private:
   // ---- Shared numeric helpers ----
 

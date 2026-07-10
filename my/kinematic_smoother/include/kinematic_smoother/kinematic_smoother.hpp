@@ -182,6 +182,15 @@ public:
       variables,
       processed,
       request.params);
+    if (!validator_.validateKinematicOutputPath(
+        output_profile.path,
+        request.costmap,
+        request.params,
+        esdf_values_,
+        request.failure))
+    {
+      return result;
+    }
     result.smoothed_path = output_profile.path;
     result.smoothed_curvatures = output_profile.curvatures;
     result.smoothed_curvature_rates = output_profile.curvature_rates;

@@ -155,6 +155,16 @@ public:
         {
           continue;
         }
+        // A diagonal edge crosses the corner shared by two cardinal cells.
+        // Requiring both side poses to be traversable prevents a point or
+        // footprint from slipping diagonally between touching obstacles.
+        if (
+          neighbor.dx != 0 && neighbor.dy != 0 &&
+          (!isTraversable(costmap, cx + neighbor.dx, cy, traversal_yaw, params) ||
+          !isTraversable(costmap, cx, cy + neighbor.dy, traversal_yaw, params)))
+        {
+          continue;
+        }
 
         const int next_index = toIndex(nx, ny, size_x);
         const double step_cost = neighbor.distance * costmap->getResolution();
@@ -246,7 +256,7 @@ private:
     }
 
     if (params.use_rectangular_footprint) {
-      return isAxisAlignedRectangleTraversable(costmap, mx, my, params);
+      return isOrientedRectangleTraversable(costmap, mx, my, yaw, params);
     }
 
     return isPointRobotTraversable(costmap, mx, my, params);
@@ -297,9 +307,48 @@ private:
     return clearance - radius;
   }
 
-  bool isAxisAlignedRectangleTraversable(
+  static bool orientedRectangleIntersectsCell(
+    double rectangle_x,
+    double rectangle_y,
+    double half_length,
+    double half_width,
+    double yaw,
+    double cell_x,
+    double cell_y,
+    double cell_half_extent)
+  {
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    const double dx = cell_x - rectangle_x;
+    const double dy = cell_y - rectangle_y;
+
+    // Separating-axis test for an oriented rectangle against an axis-aligned
+    // costmap cell.  The four candidate axes are the two world axes and the
+    // two local rectangle axes.
+    const double rectangle_extent_x =
+      std::abs(cos_yaw) * half_length + std::abs(sin_yaw) * half_width;
+    const double rectangle_extent_y =
+      std::abs(sin_yaw) * half_length + std::abs(cos_yaw) * half_width;
+    if (std::abs(dx) > rectangle_extent_x + cell_half_extent ||
+      std::abs(dy) > rectangle_extent_y + cell_half_extent)
+    {
+      return false;
+    }
+
+    const double cell_projection_radius =
+      cell_half_extent * (std::abs(cos_yaw) + std::abs(sin_yaw));
+    const double local_x = cos_yaw * dx + sin_yaw * dy;
+    if (std::abs(local_x) > half_length + cell_projection_radius) {
+      return false;
+    }
+    const double local_y = -sin_yaw * dx + cos_yaw * dy;
+    return std::abs(local_y) <= half_width + cell_projection_radius;
+  }
+
+  bool isOrientedRectangleTraversable(
     const Costmap2D * costmap,
     int mx, int my,
+    double yaw,
     const AStarPlannerParams & params) const
   {
     const double half_length = std::max(params.rectangular_length, 0.0) * 0.5;
@@ -309,17 +358,23 @@ private:
     }
 
     const auto center = gridToWorld(costmap, mx, my);
-    if (!isFootprintInsideMapBounds(costmap, center.x(), center.y(), half_length, half_width)) {
+    const double cos_yaw = std::cos(yaw);
+    const double sin_yaw = std::sin(yaw);
+    const double extent_x =
+      std::abs(cos_yaw) * half_length + std::abs(sin_yaw) * half_width;
+    const double extent_y =
+      std::abs(sin_yaw) * half_length + std::abs(cos_yaw) * half_width;
+    if (!isFootprintInsideMapBounds(costmap, center.x(), center.y(), extent_x, extent_y)) {
       return false;
     }
 
     const double resolution = costmap->getResolution();
     const double origin_x = costmap->getOriginX();
     const double origin_y = costmap->getOriginY();
-    const int min_mx = static_cast<int>(std::floor((center.x() - half_length - origin_x) / resolution));
-    const int max_mx = static_cast<int>(std::ceil((center.x() + half_length - origin_x) / resolution)) - 1;
-    const int min_my = static_cast<int>(std::floor((center.y() - half_width - origin_y) / resolution));
-    const int max_my = static_cast<int>(std::ceil((center.y() + half_width - origin_y) / resolution)) - 1;
+    const int min_mx = static_cast<int>(std::floor((center.x() - extent_x - origin_x) / resolution));
+    const int max_mx = static_cast<int>(std::ceil((center.x() + extent_x - origin_x) / resolution)) - 1;
+    const int min_my = static_cast<int>(std::floor((center.y() - extent_y - origin_y) / resolution));
+    const int max_my = static_cast<int>(std::ceil((center.y() + extent_y - origin_y) / resolution)) - 1;
 
     const int size_x = static_cast<int>(costmap->getSizeInCellsX());
     const int size_y = static_cast<int>(costmap->getSizeInCellsY());
@@ -329,7 +384,14 @@ private:
 
     for (int check_my = min_my; check_my <= max_my; ++check_my) {
       for (int check_mx = min_mx; check_mx <= max_mx; ++check_mx) {
-        if (costmap->getCost(check_mx, check_my) >= params.lethal_cost) {
+        if (costmap->getCost(check_mx, check_my) < params.lethal_cost) {
+          continue;
+        }
+        const auto cell_center = gridToWorld(costmap, check_mx, check_my);
+        if (orientedRectangleIntersectsCell(
+            center.x(), center.y(), half_length, half_width, yaw,
+            cell_center.x(), cell_center.y(), 0.5 * resolution))
+        {
           return false;
         }
       }
