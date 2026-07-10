@@ -1002,7 +1002,6 @@ class PlanRequestConfig:
     output_spacing_target_m: float
     max_iterations: int
     optimizer_type: str
-    linear_solver_type: str
     parameter_tolerance: float
     function_tolerance: float
     gradient_tolerance: float
@@ -1016,10 +1015,6 @@ class PlanRequestConfig:
         if footprint_mode not in {"point", "capsule"}:
             footprint_mode = "capsule"
         capsule_mode = _normalize_capsule_mode(req.get("capsule_mode", "conservative"))
-
-        linear_solver_type = str(req.get("linear_solver_type", "SPARSE_NORMAL_CHOLESKY")).strip().upper()
-        if linear_solver_type not in {"DENSE_QR", "SPARSE_NORMAL_CHOLESKY"}:
-            linear_solver_type = "SPARSE_NORMAL_CHOLESKY"
 
         return cls(
             manual_reference_path=_parse_manual_reference_path(req.get("manual_reference_path")),
@@ -1082,7 +1077,6 @@ class PlanRequestConfig:
             ),
             max_iterations=max(1, int(req.get("max_iterations", 50))),
             optimizer_type="kinematic_smoother",
-            linear_solver_type=linear_solver_type,
             parameter_tolerance=max(0.0, float(req.get("param_tol", 1e-8))),
             function_tolerance=max(0.0, float(req.get("fn_tol", 1e-6))),
             gradient_tolerance=max(0.0, float(req.get("gradient_tol", 1e-10))),
@@ -1154,7 +1148,6 @@ class PlanRequestConfig:
     def build_optimizer_params(self):
         optimizer_params = pks.OptimizerParams()
         optimizer_params.debug = self.optimizer_debug
-        optimizer_params.linear_solver_type = self.linear_solver_type
         optimizer_params.max_iterations = self.max_iterations
         optimizer_params.parameter_tolerance = self.parameter_tolerance
         optimizer_params.function_tolerance = self.function_tolerance

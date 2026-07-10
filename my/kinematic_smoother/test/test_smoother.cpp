@@ -1546,6 +1546,52 @@ TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsGoalSlack)
       &failure));
 }
 
+TEST(SmootherValidatorTest, KinematicGoalPositionToleranceAllowsNumericalBoundarySlack)
+{
+  kinematic_smoother::Costmap2D costmap(100, 100, 0.05, 0.0, 0.0);
+
+  // 终点横向误差比声明的 1.1 m 只多 0.1 mm。这是软 hinge 在有限迭代后
+  // 常见的边界残差，应由独立的数值余量吸收，而不是扩大业务目标容差。
+  const std::vector<double> variables = {
+    1.0, 1.0, 0.0, 0.0, 0.5,
+    1.5, 1.0, 0.0, 0.0, 0.5,
+    3.0, 2.1001, 0.0, 0.0, 0.0,
+  };
+  const std::vector<Eigen::Vector2d> reference_points = {
+    {1.0, 1.0},
+    {1.5, 1.0},
+    {2.0, 1.0},
+  };
+  const std::vector<double> gears = {1.0, 1.0};
+  const std::vector<bool> is_cusp_segment = {false, false};
+
+  kinematic_smoother::SmootherParams params;
+  params.keep_goal_orientation = true;
+  params.keep_start_orientation = true;
+  params.goal_longitudinal_tolerance = 1.0;
+  params.goal_lateral_tolerance = 1.1;
+  params.max_curvature = 10.0;
+
+  const std::vector<double> esdf_values(costmap.getSizeInCellsX() * costmap.getSizeInCellsY(), 1.0);
+  kinematic_smoother::SmoothingFailureInfo failure;
+  kinematic_smoother::SmootherValidator validator;
+
+  EXPECT_TRUE(validator.validateKinematicSolution(
+      {
+        variables,
+        reference_points,
+        gears,
+        is_cusp_segment,
+        3,
+        0.0,
+        0.0,
+        &costmap,
+        params,
+        esdf_values,
+      },
+      &failure));
+}
+
 TEST(SmootherValidatorTest, KinematicGoalPositionToleranceUsesReferenceGoalFrameWhenOrientationDisabled)
 {
   kinematic_smoother::Costmap2D costmap(80, 80, 0.05, 0.0, 0.0);

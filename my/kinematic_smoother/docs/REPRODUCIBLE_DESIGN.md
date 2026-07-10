@@ -320,7 +320,7 @@ $$
 | [2] | $w_f \cdot \text{angle\_diff}(\theta', \theta)$ | 强制朝向不变 |
 | [3] | 0 | — |
 | [4] | 0 | — |
-| [5] | $w_s \cdot 10 \cdot ds$ | 强惩罚非零步长 |
+| [5] | $w_f \cdot ds$ | 强惩罚非零步长（直接用 `fix_weight`，不经 sqrt 变换） |
 | [6] | $w_l \cdot \frac{ds}{\sqrt{ds_{\text{ref}}}}$ | 密度归一化长度惩罚 |
 
 `fix_weight` $w_f$ 是直接权重（不取平方根），默认值 100。
@@ -418,6 +418,20 @@ function obstacle_penalty(world_x, world_y):
     # hinge residual 与边界回推残差合并，越界时不丢失障碍净空代价
     clearance_penalty = max(0, (obstacle_safe_distance - surface_distance) / obstacle_safe_distance)
     return hypot(clearance_penalty, boundary_penalty(grid_x, grid_y))
+
+function boundary_penalty(grid_x, grid_y):
+    # 允许区域：[1.5 + margin, size - 1.5 - margin]（每轴独立）
+    # margin = costmap_boundary_margin / resolution（单位：格）
+    v1 = max(0, (1.5 + margin) - grid_x)
+    v2 = max(0, grid_x - (size_x - 1.5 - margin))
+    v3 = max(0, (1.5 + margin) - grid_y)
+    v4 = max(0, grid_y - (size_y - 1.5 - margin))
+    squared = v1^2 + v2^2 + v3^2 + v4^2
+    if squared == 0:
+        return 0.0
+    # 配置了 margin（> 1 格）时，残差在可插值地图边缘恰好达到 1.0；
+    # 未配置时，越界每格贡献 1 个单位残差。
+    return sqrt(squared) / max(margin, 1.0)
 ```
 
 **多点检测的坐标变换**：
@@ -455,7 +469,7 @@ for each (local_x, local_y, point_weight) in cost_check_points:
 
 ```cpp
 Solver::Options options;
-options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;  // 默认
+options.linear_solver_type = SPARSE_NORMAL_CHOLESKY;  // 实现内部固定
 options.max_num_iterations = 50;                       // OptimizerParams.max_iterations
 options.function_tolerance = 1e-6;
 options.gradient_tolerance = 1e-10;
@@ -576,9 +590,9 @@ for each segment (i, i+1):
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `model_weight` | double | 0.0 | 运动学一致性残差权重（传入平方后的值，内部自动开方） |
-| `kinematic_curvature_weight` | double | 0.0 | 曲率大小惩罚权重 |
-| `kinematic_curvature_rate_weight` | double | 0.0 | 曲率变化率惩罚权重 |
+| `model_weight` | double | 20.0 | 运动学一致性残差权重（传入平方后的值，内部自动开方） |
+| `kinematic_curvature_weight` | double | 1.0 | 曲率大小惩罚权重 |
+| `kinematic_curvature_rate_weight` | double | 1.0 | 曲率变化率惩罚权重 |
 | `kinematic_spacing_weight` | double | 20.0 | 相邻有效步长差分的正则权重，鼓励间距均匀 |
 | `path_length_weight` | double | 1.0 | 按参考间距归一化的总长度惩罚权重 |
 | `reference_path_weight` | double | 0.0 | 参考路径吸附权重 |
@@ -622,7 +636,6 @@ for each segment (i, i+1):
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `debug` | bool | false | 是否输出逐迭代日志 |
-| `linear_solver` | enum | `SparseNormalCholesky` | Ceres 线性求解器 |
 | `max_iterations` | int | 50 | 最大非线性迭代次数 |
 | `parameter_tolerance` | double | 1e-8 | 参数步长收敛阈值 |
 | `function_tolerance` | double | 1e-6 | 目标函数收敛阈值 |

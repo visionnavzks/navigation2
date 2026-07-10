@@ -673,7 +673,7 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
     .def_readonly_static("FREE_SPACE", &kinematic_smoother::Costmap2D::FREE_SPACE);
 
   // --- ValidationTolerances ---
-  // 求解后硬验收的容差表；默认接受起终点 1cm 位置偏差、0.5° 终点朝向偏差。
+  // 求解后硬验收的容差表；默认接受起终点 2 cm 位置偏差、1° 终点朝向偏差。
   py::class_<kinematic_smoother::ValidationTolerances>(m, "ValidationTolerances")
     .def(py::init<>())
     .def_readwrite(
@@ -682,6 +682,9 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
     .def_readwrite(
     "goal_position_m",
     &kinematic_smoother::ValidationTolerances::goal_position_m)
+    .def_readwrite(
+    "goal_position_numerical_slack_m",
+    &kinematic_smoother::ValidationTolerances::goal_position_numerical_slack_m)
     .def_readwrite(
     "cusp_position_m",
     &kinematic_smoother::ValidationTolerances::cusp_position_m)
@@ -779,16 +782,6 @@ PYBIND11_MODULE(py_kinematic_smoother, m)
   py::class_<kinematic_smoother::OptimizerParams>(m, "OptimizerParams")
     .def(py::init<>())
     .def_readwrite("debug", &kinematic_smoother::OptimizerParams::debug)
-    .def_property(
-    "linear_solver_type",
-    [](const kinematic_smoother::OptimizerParams & params) {
-      return std::string(
-        kinematic_smoother::OptimizerParams::linearSolverToString(params.linear_solver));
-    },
-    [](kinematic_smoother::OptimizerParams & params, const std::string & solver_name) {
-      params.linear_solver =
-        kinematic_smoother::OptimizerParams::linearSolverFromString(solver_name);
-    })
     .def_readwrite("max_iterations", &kinematic_smoother::OptimizerParams::max_iterations)
     .def_readwrite("parameter_tolerance", &kinematic_smoother::OptimizerParams::parameter_tolerance)
     .def_readwrite("function_tolerance", &kinematic_smoother::OptimizerParams::function_tolerance)

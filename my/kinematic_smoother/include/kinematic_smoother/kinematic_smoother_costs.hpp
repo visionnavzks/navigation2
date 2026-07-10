@@ -209,7 +209,7 @@ public:
       residual[1] = T(fix_weight_) * (next_y - y);                      // 强制 y 不变
       residual[2] = T(fix_weight_) * angleDifference(next_theta, theta);  // 强制朝向不变
       // 用 fix_weight（与位置/朝向同级的硬约束权重）强惩罚非零步长，强制车辆在
-      // 换向点静止。原先用 spacing_weight_，但其默认值为 0，会让该约束失效。
+      // 换向点静止。spacing_weight 只承担相邻段差分的软均匀化，不适合做硬约束。
       residual[5] = T(fix_weight_) * ds;
       residual[6] = T(length_weight_) * ds / length_normalizer;         // 密度归一化长度项
       return true;

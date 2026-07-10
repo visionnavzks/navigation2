@@ -136,7 +136,6 @@ smooth()
 | 参数 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `debug` | `bool` | `false` | 开启逐迭代详细日志和最终摘要输出 |
-| `linear_solver` | `LinearSolver` | `SparseNormalCholesky` | 线性求解器选择：`SparseNormalCholesky`（默认，适合当前稀疏结构）或 `DenseQr`（适合小型稠密问题） |
 | `max_iterations` | `int` | `50` | 最大非线性迭代次数 |
 | `parameter_tolerance` | `double` | `1e-8` | 参数步长收敛阈值 |
 | `function_tolerance` | `double` | `1e-6` | 目标函数值收敛阈值 |

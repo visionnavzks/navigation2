@@ -41,12 +41,8 @@ public:
   {
     validateOptimizerParams(params);
     debug_ = params.debug;
-    // 当前仅公开两种线性求解器：DenseQr（小规模稠密）与
-    // SparseNormalCholesky（当前默认，适合本问题稀疏结构）。
-    solver_options_.linear_solver_type =
-      params.linear_solver == OptimizerParams::LinearSolver::DenseQr
-      ? ceres::DENSE_QR
-      : ceres::SPARSE_NORMAL_CHOLESKY;
+    // 本问题具有稀疏块结构，固定使用稀疏正规方程 Cholesky 后端。
+    solver_options_.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
     solver_options_.max_num_iterations = params.max_iterations;
     solver_options_.function_tolerance = params.function_tolerance;
     solver_options_.gradient_tolerance = params.gradient_tolerance;
@@ -294,6 +290,9 @@ private:
     // 负容差会让合法解无条件失败，或旁路最小位移检查，因此要求非负有限。
     require_nonnegative(params.validation.start_position_m, "validation.start_position_m");
     require_nonnegative(params.validation.goal_position_m, "validation.goal_position_m");
+    require_nonnegative(
+      params.validation.goal_position_numerical_slack_m,
+      "validation.goal_position_numerical_slack_m");
     require_nonnegative(params.validation.cusp_position_m, "validation.cusp_position_m");
     require_nonnegative(
       params.validation.min_segment_displacement_m, "validation.min_segment_displacement_m");

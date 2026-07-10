@@ -108,23 +108,22 @@ public:
   /**
    * @brief Signed clearance to the nearest obstacle at a continuous world point.
    *
-   * Positive when the point is in free space (clearance is the distance, in
-   * meters, from the point to the nearest lethal cell center, minus a
-   * conservative half-cell offset to approximate the distance to the cell
-   * boundary instead of the cell center). Zero on the obstacle boundary.
+   * Positive when the point is in free space (clearance is the conservative
+   * distance, in meters, from the point to occupied-cell geometry: esdf_core
+   * already subtracts half a cell diagonal from the center-to-center
+   * transform at generation time). Zero on the obstacle boundary.
    * Negative when the point is inside a lethal cell (with magnitude
    * `resolution`).
    *
    * Returns -infinity if the point is outside the costmap.
    *
-   * Implementation note: the cached ESDF stores per-cell-center distances
-   * (the distance transform gives the distance from each cell's center to
-   * the nearest lethal cell's center). Bilinear interpolation of those
-   * values gives a smooth field but is not a correct signed-distance field
-   * for points that straddle a lethal / free boundary. We instead do a
-   * nearest-cell lookup of the costmap to decide inside/outside and a
-   * nearest-cell lookup of the ESDF for the distance, with a half-cell
-   * correction to convert cell-center distance to boundary distance.
+   * Implementation note: the cached ESDF stores conservative boundary
+   * clearances (esdf_core::ESDF::CombineSigned treats each occupied cell as
+   * its circumscribed disk). Bilinear interpolation of those values gives a
+   * smooth field but is not a correct signed-distance field for points that
+   * straddle a lethal / free boundary. We instead do a nearest-cell lookup
+   * of the costmap to decide inside/outside and a nearest-cell lookup of
+   * the ESDF for the clearance, used as-is with no further correction.
    */
   double clearanceAtWorld(double wx, double wy) const
   {
@@ -153,12 +152,11 @@ public:
       return -resolution_;
     }
 
-    // Outside: nearest-cell-center ESDF distance, then subtract half a
-    // cell to convert from "center-to-center" to "boundary-to-point".
-    // This is an approximation; the true error is up to `resolution/2`
-    // for axial neighbors and down to 0 for diagonal neighbors.
-    const double d_center = esdf_[idx];
-    const double d_boundary = d_center - 0.5 * resolution_;
+    // Outside: nearest-cell ESDF lookup. The cached field already holds a
+    // conservative boundary clearance (esdf_core subtracts half a cell
+    // diagonal at generation), so applying another center-to-boundary
+    // correction here would double-count the offset.
+    const double d_boundary = esdf_[idx];
     return d_boundary > 0.0 ? d_boundary : 0.0;
   }
 

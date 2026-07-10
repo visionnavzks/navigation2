@@ -111,17 +111,16 @@ TEST(EsdfCollisionTest, MinClearanceMatchesExpectedDistance)
   // capsule offsets of +/- 0.3 m along x, the front checkpoint sits in
   // cell 6 (range x in [3.0, 3.5]).
   //
-  // The ESDF stores the distance from each cell *center* to the nearest
-  // lethal cell *center*. Cell 6 center is 1.0 m from cell 8 center. After
-  // the half-cell correction to convert to cell-boundary distance, the
-  // expected front-checkpoint clearance is 1.0 - 0.25 = 0.75 m.
+  // The ESDF stores a conservative boundary clearance: esdf_core subtracts
+  // half a cell diagonal from the center-to-center transform. Cell 6 center
+  // is 1.0 m from cell 8 center, so the expected front-checkpoint clearance
+  // is 1.0 - sqrt(0.5) * 0.5 ≈ 0.646 m.
   // (The continuous model would predict 0.95 m, but that would require
   //  a sub-cell distance transform, which we do not implement.)
   const double wx = cellCenterWorldX(5);
   const double wy = cellCenterWorldY(10);
   const double min_cl = checker.getMinClearance(wx, wy, 0.0);
-  EXPECT_GT(min_cl, 0.6);
-  EXPECT_LT(min_cl, 0.9);
+  EXPECT_NEAR(min_cl, 1.0 - std::sqrt(0.5) * kResolution, 1e-9);
 }
 
 TEST(EsdfCollisionTest, SoftPenaltyIsZeroOutsideSafeBand)
@@ -155,13 +154,13 @@ TEST(EsdfCollisionTest, SoftPenaltyIncreasesAsObstacleIsApproached)
   // offsets of +/- 0.3 m and 0.5 m cells, the front checkpoint of any
   // pose at cell >= 7 falls inside the obstacle. So pose B and pose C
   // have min_clearance < 0 (in collision) and incur the maximum soft
-  // penalty (1.0). Pose A sits one cell further out and the front
-  // checkpoint clearance is 0.25 m, which is inside the safe band.
+  // penalty (1.0). Pose A sits one cell further out; its front checkpoint
+  // clearance falls inside the safe band, giving a partial penalty.
   //   Pose A: cell (6, 10) world (3.25, 5.25).
-  //     front: cell 7 ESDF=0.5 → boundary 0.25 m. surface=0.25. inside
-  //            safe band (0.2): gap = 0.2 - 0.25 = -0.05. clamped to 0.
-  //            normalized = 0.0. penalty = 0.0.  (the front is the min
-  //            of {front 0.25, center 0.75, rear 1.25} = 0.25.)
+  //     front: cell 7 is one cell (0.5 m center-to-center) from the
+  //            obstacle; the conservative ESDF stores
+  //            0.5 - sqrt(0.5)*0.5 ≈ 0.146 m. surface = 0.146 < safe
+  //            (0.2): normalized gap ≈ 0.268, squared penalty ≈ 0.072.
   //   Pose B: cell (7, 10) world (3.75, 5.25).
   //     front: in obstacle → min = -resolution. surface < 0. clamped
   //            gap = safe = 0.2. normalized = 1.0. penalty = 1.0.
@@ -171,7 +170,9 @@ TEST(EsdfCollisionTest, SoftPenaltyIncreasesAsObstacleIsApproached)
   const double penA = checker.getSoftPenalty(cellCenterWorldX(6), wy, 0.0);
   const double penB = checker.getSoftPenalty(cellCenterWorldX(7), wy, 0.0);
   const double penC = checker.getSoftPenalty(cellCenterWorldX(8), wy, 0.0);
-  EXPECT_NEAR(penA, 0.0, 1e-6);
+  const double front_clearance = kResolution - std::sqrt(0.5) * kResolution;
+  const double normalized_gap_a = (0.2 - front_clearance) / 0.2;
+  EXPECT_NEAR(penA, normalized_gap_a * normalized_gap_a, 1e-6);
   EXPECT_NEAR(penB, 1.0, 1e-6);
   EXPECT_NEAR(penC, 1.0, 1e-6);
   EXPECT_LT(penA, penB);

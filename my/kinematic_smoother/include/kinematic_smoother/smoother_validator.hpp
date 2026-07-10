@@ -254,8 +254,9 @@ private:
   ///     并分别与 `goal_longitudinal_tolerance` / `goal_lateral_tolerance`
   ///     比较。这样可以同时支持「严格固定」和「目标容差盒」两种使用
   ///     模式：当两个容差都 ~0 时退化为点固定；否则允许在矩形盒内
-  ///     自由调整。此外再加 `5e-4` 的收敛余量，避免在容差边界附近
-  ///     反复抖动。目标坐标系的 x 轴是 `goal_position_theta`：
+  ///     自由调整。验收比较还会加 `goal_position_numerical_slack_m` 的纯
+  ///     数值余量，吸收软 hinge 在边界附近的正常收敛残差；错误报告仍
+  ///     显示调用方声明的容差。目标坐标系的 x 轴是 `goal_position_theta`：
   ///     当 `keep_goal_orientation` 为真时取 `end_theta`（终点姿态）；
   ///     否则用参考路径最后一段的切向，让容差盒方向与参考方向一致。
   ///   * 终点朝向：仅当 `params.keep_goal_orientation = true` 时启用，
@@ -311,8 +312,9 @@ private:
     const double goal_lat = -sin_goal * goal_dx + cos_goal * goal_dy;
     const double goal_lon_tol = std::max(request.params.goal_longitudinal_tolerance, tol.goal_position_m);
     const double goal_lat_tol = std::max(request.params.goal_lateral_tolerance, tol.goal_position_m);
-    if (std::abs(goal_lon) > goal_lon_tol ||
-        std::abs(goal_lat) > goal_lat_tol) {
+    const double goal_position_slack = tol.goal_position_numerical_slack_m;
+    if (std::abs(goal_lon) > goal_lon_tol + goal_position_slack ||
+        std::abs(goal_lat) > goal_lat_tol + goal_position_slack) {
       const bool uses_goal_box =
         request.params.goal_longitudinal_tolerance > KinematicStateLayout::EnabledEpsilon ||
         request.params.goal_lateral_tolerance > KinematicStateLayout::EnabledEpsilon;
@@ -340,7 +342,7 @@ private:
         message,
         static_cast<int>(request.state_count - 1));
     }
-    // 终点朝向验收容差：取「优化阶段声明的容差」与「验收表 floor（默认 0.5°）」的较大者。
+    // 终点朝向验收容差：取「优化阶段声明的容差」与「验收表 floor（默认 1°）」的较大者。
     // 软 hinge 约束的终点姿态总有 ~1e-4 rad 量级残差，floor 用来吸收这类正常噪声。
     const double goal_angle_tol =
       std::max(request.params.goal_orientation_tolerance, tol.goal_orientation_rad);

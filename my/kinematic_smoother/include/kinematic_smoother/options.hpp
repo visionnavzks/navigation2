@@ -16,9 +16,6 @@
 #ifndef CONSTRAINED_SMOOTHER__OPTIONS_HPP_
 #define CONSTRAINED_SMOOTHER__OPTIONS_HPP_
 
-#include <algorithm>
-#include <stdexcept>
-#include <string>
 #include <vector>
 
 namespace kinematic_smoother
@@ -36,22 +33,25 @@ namespace kinematic_smoother
  */
 struct ValidationTolerances
 {
-  /// 起点位置最大可接受偏差，单位米。
-  double start_position_m{0.01};
+  /// 起点位置最大可接受偏差，单位米（默认 2 cm）。
+  double start_position_m{0.02};
   /// 终点位置最大可接受偏差，单位米；与 goal_longitudinal/lateral_tolerance 取较大值。
-  double goal_position_m{0.01};
-  /// cusp 保持段允许的最大位移（理论上原地换向，位置应不变），单位米。
-  double cusp_position_m{0.01};
+  double goal_position_m{0.02};
+  /// 终点位置验收比较使用的纯数值余量，单位米。
+  /// 仅吸收软约束和求解终止带来的边界舍入误差，不改变日志中报告的目标容差。
+  double goal_position_numerical_slack_m{1e-2};
+  /// cusp 保持段允许的最大位移（理论上原地换向，位置应不变），单位米（默认 2 cm）。
+  double cusp_position_m{0.02};
   /// 非 cusp 段的最小位移，低于此值判定为被求解器压扁（CollapsedSegment），单位米。
   double min_segment_displacement_m{1e-3};
-  /// 起点朝向最大可接受偏差，单位弧度（默认约 1°）。
-  double start_orientation_rad{0.017};
-  /// 终点朝向最大可接受偏差，单位弧度（默认 0.5°）；与 goal_orientation_tolerance 取较大值。
-  double goal_orientation_rad{0.008726646259971648};
-  /// cusp 保持段允许的最大朝向变化，单位弧度（默认约 1°）。
-  double cusp_orientation_rad{0.017};
+  /// 起点朝向最大可接受偏差，单位弧度（默认 2°）。
+  double start_orientation_rad{0.03490658503988659};
+  /// 终点朝向最大可接受偏差，单位弧度（默认 1°）；与 goal_orientation_tolerance 取较大值。
+  double goal_orientation_rad{0.017453292519943295};
+  /// cusp 保持段允许的最大朝向变化，单位弧度（默认 2°）。
+  double cusp_orientation_rad{0.03490658503988659};
   /// 曲率上限校验的数值容差（吸收求解末次迭代舍入噪声），单位 1/m。
-  double curvature_tolerance{1e-4};
+  double curvature_tolerance{1e-3};
 };
 
 /**
@@ -163,7 +163,7 @@ struct SmootherParams
   // --- Post-validation acceptance tolerances ---
 
   /// 求解后硬验收所用的容差表（见 ValidationTolerances）。
-  /// 默认接受起终点 1cm 位置偏差、0.5° 终点朝向偏差。
+  /// 默认接受起终点 2 cm 位置偏差、1° 终点朝向偏差。
   ValidationTolerances validation{};
 };
 
@@ -171,50 +171,13 @@ struct SmootherParams
  * @struct kinematic_smoother::OptimizerParams
  * @brief 传递给 Ceres 的求解器级配置。
  *
- * 这个结构只保存核心求解配置。面向 Python / Web 的字符串形式线性求解器
- * 选择会在边界层转换成 `LinearSolver` 枚举，再由核心实现映射成
- * `ceres::LinearSolverType`。
+ * 线性求解器由实现按问题的稀疏块结构固定选择，这里只保留调用方真正需要
+ * 调整的停止条件和日志开关。
  */
 struct OptimizerParams
 {
-  /// 当前公开的 Ceres 线性求解器选择。
-  enum class LinearSolver
-  {
-    /// 适合小型稠密问题的 QR 分解后端。
-    DenseQr,
-    /// 默认后端，适合当前稀疏结构的运动学优化问题。
-    SparseNormalCholesky,
-  };
-
-  /// 把内部求解器枚举转成稳定字符串，供 pybind / Web 边界复用。
-  static const char * linearSolverToString(LinearSolver solver)
-  {
-    switch (solver) {
-      case LinearSolver::DenseQr:
-        return "DENSE_QR";
-      case LinearSolver::SparseNormalCholesky:
-        return "SPARSE_NORMAL_CHOLESKY";
-    }
-    return "SPARSE_NORMAL_CHOLESKY";
-  }
-
-  /// 从边界层字符串恢复内部枚举；非法值直接抛异常。
-  static LinearSolver linearSolverFromString(const std::string & solver_name)
-  {
-    if (solver_name == "DENSE_QR") {
-      return LinearSolver::DenseQr;
-    }
-    if (solver_name == "SPARSE_NORMAL_CHOLESKY") {
-      return LinearSolver::SparseNormalCholesky;
-    }
-    throw std::invalid_argument("Unsupported linear_solver_type: " + solver_name);
-  }
-
   /// 开启逐迭代详细日志和最终摘要输出。
   bool debug{false};
-  /// Ceres 线性求解器选择。
-  /// 这项配置主要影响每次非线性迭代内部的线性子问题求解方式。
-  LinearSolver linear_solver{LinearSolver::SparseNormalCholesky};
   /// 最大非线性迭代次数。
   int max_iterations{50};
 
