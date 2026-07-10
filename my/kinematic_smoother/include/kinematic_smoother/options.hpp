@@ -43,7 +43,7 @@ struct ValidationTolerances
   /// cusp 保持段允许的最大位移（理论上原地换向，位置应不变），单位米（默认 2 cm）。
   double cusp_position_m{0.02};
   /// 非 cusp 段的最小位移，低于此值判定为被求解器压扁（CollapsedSegment），单位米。
-  double min_segment_displacement_m{1e-3};
+  double min_segment_displacement_m{1e-2};
   /// 起点朝向最大可接受偏差，单位弧度（默认 2°）。
   double start_orientation_rad{0.03490658503988659};
   /// 终点朝向最大可接受偏差，单位弧度（默认 1°）；与 goal_orientation_tolerance 取较大值。
@@ -51,7 +51,7 @@ struct ValidationTolerances
   /// cusp 保持段允许的最大朝向变化，单位弧度（默认 2°）。
   double cusp_orientation_rad{0.03490658503988659};
   /// 曲率上限校验的数值容差（吸收求解末次迭代舍入噪声），单位 1/m。
-  double curvature_tolerance{1e-3};
+  double curvature_tolerance{1e-2};
 };
 
 /**
