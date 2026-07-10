@@ -150,8 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
     'solver.debugLogging': '在 Flask 服务端启用逐迭代求解日志',
     'solver.referenceSpacingLabel': '参考路径目标间距 (m): <span id="val_reference_spacing_target_m">0.30</span>',
     'solver.referenceSpacingHint': '控制 C++ 平滑器从原始参考路径生成优化结点的采样间距，并作为 ds 差分残差的归一化尺度。它不会把优化后的每段 ds 强制拉回该值。',
+    'solver.enableOutputSpacing': '启用输出路径目标间距',
     'solver.outputSpacingLabel': '输出路径目标间距 (m): <span id="val_output_spacing_target_m">0.10</span>',
-    'solver.outputSpacingHint': '控制优化后返回路径的采样密度。更小的间距会生成更密的后验校验和显示采样，但不会增加优化结点数。',
+    'solver.outputSpacingHint': '开启时控制优化后返回路径的采样密度；关闭时不按目标间距重采样，直接返回优化结点。',
     'solver.maxIterationsLabel': '最大迭代次数: <span id="val_max_iterations">50</span>',
     'solver.maxIterationsHint': '优化器停止前允许的迭代上限。',
     'solver.maxSolverTimeLabel': '最大求解时间 (s): <span id="val_max_time">10.0</span>',
@@ -310,8 +311,9 @@ document.addEventListener('DOMContentLoaded', () => {
       'weights.fixWeightLabel': 'Fix Weight: <span id="val_fix_weight">100</span>',
       'weights.fixWeightHint': 'Directly scales the shared hard-constraint residuals used for cusp hold segments and start/goal boundary anchoring. This value is not sqrt-transformed.',
       'solver.referenceSpacingHint': 'Controls optimizer-knot sampling from the raw reference path and provides the normalization scale for the ds-difference residual. It does not pull every optimized ds back to this value.',
+      'solver.enableOutputSpacing': 'Enable output path target spacing',
       'solver.outputSpacingLabel': 'Output Spacing Target (m): <span id="val_output_spacing_target_m">0.10</span>',
-      'solver.outputSpacingHint': 'Controls the final returned path density after optimization. Smaller spacing gives denser validation and display samples without increasing optimizer knot count.',
+      'solver.outputSpacingHint': 'When enabled, controls the final returned path density after optimization. Disable it to return the optimized knots without target-spacing resampling.',
       'weights.obstacleWeightLabel': 'Obstacle Weight: <span id="val_obstacle_weight">1.000</span>',
       'weights.obstacleWeightHint': 'Scales the ESDF-based obstacle penalty used by the smoother. Higher values push the path harder away from obstacles.',
       'weights.kinematicSpacingWeightLabel': 'Kinematic Spacing Uniformity Weight: <span id="val_kinematic_spacing_weight">20.0</span>',
@@ -678,10 +680,14 @@ document.addEventListener('DOMContentLoaded', () => {
   ];
   const optimizerScopedNumericIds = ['param_tol', 'fn_tol', 'gradient_tol'];
   const optimizerScopedSelectIds = [];
-  const optimizerScopedCheckboxIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
+  const optimizerScopedCheckboxIds = [
+    'optimizer_debug', 'enable_reference_point_max_deviation', 'enable_output_spacing_target',
+  ];
   const numericInputs = Object.keys(numericInputConfig);
   const selectParamIds = [];
-  const checkboxParamIds = ['optimizer_debug', 'enable_reference_point_max_deviation'];
+  const checkboxParamIds = [
+    'optimizer_debug', 'enable_reference_point_max_deviation', 'enable_output_spacing_target',
+  ];
 
   const sliders = Object.keys(sliderConfig);
   const layerBindings = {
@@ -873,6 +879,16 @@ document.addEventListener('DOMContentLoaded', () => {
     deviationInput.disabled = !enabledInput.checked;
   }
 
+  function syncOutputSpacingUi() {
+    const enabledInput = document.getElementById('enable_output_spacing_target');
+    const spacingInput = document.getElementById('output_spacing_target_m');
+    if (!enabledInput || !spacingInput) {
+      return;
+    }
+
+    spacingInput.disabled = !enabledInput.checked;
+  }
+
   sliders.forEach(id => {
     const input = document.getElementById(id);
     if (!input || !document.getElementById('val_' + id)) {
@@ -934,11 +950,15 @@ document.addEventListener('DOMContentLoaded', () => {
       if (id === 'enable_reference_point_max_deviation') {
         syncReferenceDeviationUi();
       }
+      if (id === 'enable_output_spacing_target') {
+        syncOutputSpacingUi();
+      }
       scheduleAutoPlan();
     });
   });
 
   syncReferenceDeviationUi();
+  syncOutputSpacingUi();
 
   if (mapDisplayModeSelect) {
     mapDisplayModeSelect.addEventListener('change', () => {
@@ -1443,7 +1463,10 @@ document.addEventListener('DOMContentLoaded', () => {
       optimizerConfig.kinematic_curvature_rate_weight ?? '--'
     );
     const targetSpacingText = formatMeters(optimizerConfig.target_spacing_m, 3);
-    const outputSpacingText = formatMeters(optimizerConfig.output_spacing_target_m, 3);
+    const outputSpacingEnabled = optimizerConfig.enable_output_spacing_target !== false;
+    const outputSpacingText = outputSpacingEnabled
+      ? formatMeters(optimizerConfig.output_spacing_target_m, 3)
+      : (currentLanguage === 'zh' ? '关闭' : 'disabled');
     setText(
       'kinematic-param-resampling',
       currentLanguage === 'zh'

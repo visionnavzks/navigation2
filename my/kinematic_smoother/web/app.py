@@ -999,6 +999,7 @@ class PlanRequestConfig:
     max_curvature: float
     max_time: float
     reference_spacing_target_m: float
+    enable_output_spacing_target: bool
     output_spacing_target_m: float
     max_iterations: int
     optimizer_type: str
@@ -1068,6 +1069,10 @@ class PlanRequestConfig:
                     float(req.get("reference_spacing_target_m", DEFAULT_REFERENCE_SPACING_TARGET_M)),
                 ),
             ),
+            enable_output_spacing_target=_coerce_bool(
+                req.get("enable_output_spacing_target"),
+                True,
+            ),
             output_spacing_target_m=min(
                 2.0,
                 max(
@@ -1097,6 +1102,12 @@ class PlanRequestConfig:
         if not self.enable_reference_point_max_deviation:
             return 0.0
         return self.reference_point_deviation_limit_m
+
+    @property
+    def effective_output_spacing_target_m(self):
+        if not self.enable_output_spacing_target:
+            return 0.0
+        return self.output_spacing_target_m
 
     def heading_vectors(self):
         """Return the unit direction vectors expected by the pybind smoother API."""
@@ -1142,7 +1153,7 @@ class PlanRequestConfig:
         smoother_params.path_target_spacing = self.reference_spacing_target_m
         smoother_params.path_downsampling_factor = 1
         smoother_params.path_upsampling_factor = 1
-        smoother_params.path_output_spacing = self.output_spacing_target_m
+        smoother_params.path_output_spacing = self.effective_output_spacing_target_m
         return smoother_params
 
     def build_optimizer_params(self):
@@ -1665,6 +1676,7 @@ def _build_plan_response_payload(
         "kinematic_curvature_rate_weight": round(config.kinematic_curvature_rate_weight, 3),
         "kinematic_spacing_weight": round(config.kinematic_spacing_weight, 3),
         "target_spacing_m": round(target_spacing_m, 4),
+        "enable_output_spacing_target": bool(config.enable_output_spacing_target),
         "output_spacing_target_m": round(config.output_spacing_target_m, 4),
         "kinematic_max_spacing_m": round(config.kinematic_max_spacing_m, 3),
         "path_length_weight": round(config.path_length_weight, 3),

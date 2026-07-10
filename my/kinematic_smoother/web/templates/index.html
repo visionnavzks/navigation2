@@ -304,10 +304,14 @@
                 <input type="range" id="reference_spacing_target_m" min="0.10" max="2.00" step="0.05" value="0.30">
                 <p class="param-hint" data-i18n="solver.referenceSpacingHint">Controls optimizer-knot sampling and provides the normalization scale for the ds-difference residual. It does not pull every optimized ds back to this value.</p>
               </div>
+              <label class="constraint-toggle" for="enable_output_spacing_target">
+                <input type="checkbox" id="enable_output_spacing_target" checked>
+                <span data-i18n="solver.enableOutputSpacing">Enable output path target spacing</span>
+              </label>
               <div class="param-group">
                 <label data-i18n-html="solver.outputSpacingLabel">Output Spacing Target (m): <span id="val_output_spacing_target_m">0.10</span></label>
                 <input type="range" id="output_spacing_target_m" min="0.025" max="1.00" step="0.025" value="0.10">
-                <p class="param-hint" data-i18n="solver.outputSpacingHint">Controls the final returned path density after optimization. Smaller spacing gives denser validation and display samples without increasing optimizer knot count.</p>
+                <p class="param-hint" data-i18n="solver.outputSpacingHint">When enabled, controls the final returned path density after optimization. Disable it to return the optimized knots without target-spacing resampling.</p>
               </div>
               <div class="param-group">
                 <label data-i18n-html="solver.maxIterationsLabel">Max Iterations: <span id="val_max_iterations">50</span></label>
