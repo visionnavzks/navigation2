@@ -8,6 +8,8 @@ const hoverOverlay = document.getElementById('hover-overlay');
 const legendToggles = Array.from(document.querySelectorAll('.legend-toggle'));
 const vizTabButtons = Array.from(document.querySelectorAll('.viz-tab-btn'));
 const axisButtons = Array.from(document.querySelectorAll('.axis-btn'));
+const plannerModeInputs = Array.from(document.querySelectorAll('input[name="planner-mode"]'));
+const modePanels = Array.from(document.querySelectorAll('[data-mode-panel]'));
 const initialHeadingSlider = document.getElementById('initial-heading-slider');
 const initialHeadingValue = document.getElementById('initial-heading-value');
 const PATH_PLOT_CONFIG = {
@@ -19,10 +21,12 @@ const PATH_WHEEL_ZOOM_IN_FACTOR = 0.82;
 const PATH_WHEEL_ZOOM_OUT_FACTOR = 1.22;
 const PATH_MIN_ZOOM_SPAN = 0.05;
 const MAIN_VIEW_OPACITY = 0.5;
-const ENDPOINT_POSE_ARROW_OPACITY = 0.9;
+const ENDPOINT_POSE_ARROW_OPACITY = 0.3;
+const ENDPOINT_POSE_ARROW_HEAD_SCALE = 0.5;
 const START_ARROW_COLOR = '#2563eb';
 const END_ARROW_COLOR = '#dc2626';
 const MID_ARROW_COLOR = '#7c3aed';
+const LOCAL_GOAL_COLOR = '#f59e0b';
 
 const statsEls = {
     optimizationStatus: document.getElementById('optimization-status'),
@@ -43,7 +47,7 @@ const PARAM_HELP_TEXTS = {
     horizon: 'MPC 局部优化窗口的最大节点数。0 表示不截断，使用从投影点到参考终点的全部剩余点；正数会限制求解规模。',
     ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，跟踪更细，但优化变量更多、求解更慢。',
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
-    dt_ref: '名义时间步长，单位 s。用于初始化优化变量、生成参考时间轴，并作为图表中的参考线。',
+    dt_ref: '名义时间步长，单位 s。用于初始化优化变量、生成参考时间轴、图表参考线；当 w_dt_ref > 0 时，也作为 dt 参考目标。实际用于优化的值会被夹到 dt_min/dt_max 内。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
     arc_1_angle: '第一段圆弧的转角，输入单位 rad。正值表示逆时针，负值表示顺时针。0.785 rad 大约等于 45 deg。',
@@ -51,6 +55,14 @@ const PARAM_HELP_TEXTS = {
     arc_2_radius: '第二段圆弧的半径，单位 m。会影响后半段转弯曲率大小。',
     arc_2_angle: '第二段圆弧的转角，输入单位 rad。负值表示顺时针回转，-0.524 rad 约等于 -30 deg。',
     line_3_length: '最后一段直线的长度，单位 m。决定终点前的收尾距离。',
+    x: '目标点 x 坐标，单位 m。目标点模式下，优化器会生成一条从当前起点到该点的局部轨迹。',
+    y: '目标点 y 坐标，单位 m。',
+    theta: '目标点航向角，单位 rad。留给目标点模式作为终端朝向参考。',
+    v: '目标点终端速度，单位 m/s。通常设为 0 表示到点停车。',
+    sample_count: '目标点模式下的局部优化节点数。0 表示按距离和 goal_ds 自动计算；正数表示手动指定。',
+    goal_ds: '目标点虚拟参考的采样间距，单位 m。',
+    goal_cruise_speed: '目标点模式的名义巡航速度，单位 m/s。',
+    goal_dt_ref: '目标点模式的名义时间步长，单位 s。用于初始化 dt 和图表参考线；w_dt_ref > 0 时会参与 dt 参考代价。实际用于优化的值会被夹到 dt_min/dt_max 内。',
     x_offset_range: '随机初始状态在 x 方向相对参考起点的采样范围，单位 m。实际采样区间是 [-range, +range]。',
     y_offset_range: '随机初始状态在 y 方向相对参考起点的采样范围，单位 m。值越大，初始横向偏差越大。',
     speed_min: '随机初始速度的最小值，单位 m/s。用于生成新的起始状态。',
@@ -74,6 +86,7 @@ const PARAM_HELP_TEXTS = {
     w_accel: '终点加速度误差权重。越大，末端加速度越接近参考终点加速度。',
     w_time: '总时间代价权重。越大，优化越倾向缩短总时长。',
     w_dt_uniform: '相邻时间步长均匀性权重。越大，相邻 dt 之间的跳变越小。',
+    w_dt_ref: 'dt 参考值跟踪权重。0 表示 dt_ref 只用于初值和显示；大于 0 时会惩罚 Σ(dt - dt_ref)²。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
@@ -88,6 +101,7 @@ const COST_ITEM_LABELS = {
     terminal_speed: '终点速度误差',
     terminal_accel: '终点加速度误差',
     dt_uniform: '相邻 dt 跳变',
+    dt_ref: 'dt 参考误差',
     jerk: 'jerk 平滑',
     dkappa: 'dkappa 平滑',
     time: '总时间',
@@ -98,13 +112,13 @@ let currentData = null;
 let activeHoverKey = null;
 let chartAxisMode = 'time';
 let activeVizTab = 'main';
-let defaultParameterSnapshot = null;
 let autoReplanTimer = null;
 let solveInFlight = false;
 let pendingAutoReplanOptions = null;
 let globalParamTooltip = null;
 let activeParamTooltipAnchor = null;
 let isDraggingInitialState = false;
+let isDraggingGoalPoint = false;
 let isPanningPath = false;
 let pathPanStart = null;
 const layerVisibility = {
@@ -158,7 +172,12 @@ function setOptimizationIndicator(succeeded, message) {
 
 function setButtonLoading(isLoading) {
     randomizeBtn.disabled = isLoading;
-    randomizeBtn.textContent = isLoading ? '求解中...' : '随机初始化并求解';
+    const mode = getPlannerMode();
+    randomizeBtn.textContent = isLoading
+        ? '求解中...'
+        : mode === 'goal'
+        ? '按目标点求解'
+        : '随机初始化并求解';
 }
 
 function shouldPreserveInitialStateForInput(input) {
@@ -167,10 +186,6 @@ function shouldPreserveInitialStateForInput(input) {
 
 function formatSigned(value, digits = 3) {
     return `${value >= 0 ? '+' : ''}${formatNumber(value, digits)}`;
-}
-
-function clonePlainObject(value) {
-    return JSON.parse(JSON.stringify(value));
 }
 
 function getControllerConfigFromResponse(config) {
@@ -186,6 +201,7 @@ function applyConfigToForm(config) {
         reference: config?.reference?.params || {},
         sampling: config?.sampling || {},
         controller: getControllerConfigFromResponse(config),
+        goal: config?.goal || {},
     };
 
     paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
@@ -202,11 +218,13 @@ function collectParameterPayload() {
         controller_params: {},
         reference_config: {},
         sampling_config: {},
+        goal_config: {},
     };
     const targetMap = {
         controller: 'controller_params',
         reference: 'reference_config',
         sampling: 'sampling_config',
+        goal: 'goal_config',
     };
 
     paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
@@ -221,6 +239,18 @@ function collectParameterPayload() {
         payload[targetMap[input.dataset.paramGroup]][input.dataset.paramKey] = value;
     });
     return payload;
+}
+
+function getPlannerMode() {
+    return plannerModeInputs.find((input) => input.checked)?.value || 'reference';
+}
+
+function updatePlannerModeUi() {
+    const mode = getPlannerMode();
+    modePanels.forEach((panel) => {
+        panel.classList.toggle('hidden', panel.dataset.modePanel !== mode);
+    });
+    setButtonLoading(solveInFlight);
 }
 
 function updateInitialHeadingControls(initialState) {
@@ -248,7 +278,7 @@ function scheduleInitialHeadingReplan() {
     setStatus('起点朝向已变更，正在等待基于当前状态自动重规划...', 'idle');
     autoReplanTimer = window.setTimeout(() => {
         autoReplanTimer = null;
-        runRandomDemo({ preserveInitialState: true, autoTriggered: true });
+        runPlanner({ preserveInitialState: true, autoTriggered: true });
     }, 220);
 }
 
@@ -314,7 +344,7 @@ function initParameterTooltips() {
         if (!input || !labelSpan) {
             return;
         }
-        const helpText = PARAM_HELP_TEXTS[input.dataset.paramKey];
+        const helpText = PARAM_HELP_TEXTS[labelSpan.textContent] || PARAM_HELP_TEXTS[input.dataset.paramKey];
         if (!helpText || field.querySelector('.param-label-wrap')) {
             return;
         }
@@ -355,12 +385,16 @@ function scheduleAutoReplan(input) {
     }
     const preserveInitialState = shouldPreserveInitialStateForInput(input);
     setStatus(
-        preserveInitialState ? '参数已变更，正在等待基于当前状态自动重规划...' : '采样参数已变更，正在等待自动重新采样并求解...',
+        getPlannerMode() === 'goal'
+            ? '目标点参数已变更，正在等待基于当前起点自动重规划...'
+            : preserveInitialState
+            ? '参数已变更，正在等待基于当前状态自动重规划...'
+            : '采样参数已变更，正在等待自动重新采样并求解...',
         'idle',
     );
     autoReplanTimer = window.setTimeout(() => {
         autoReplanTimer = null;
-        runRandomDemo({ preserveInitialState, autoTriggered: true });
+        runPlanner({ preserveInitialState, autoTriggered: true });
     }, 450);
 }
 
@@ -512,7 +546,7 @@ function setVizTab(tabName) {
     if (activeVizTab === 'main') {
         requestAnimationFrame(() => {
             // 仅对已完成绘制(存在 _fullLayout)的图执行 resize;首屏调用时
-            // runRandomDemo 仍在 await,两个图尚未 Plotly.react,跳过以免未处理的 Promise 拒绝。
+            // runPlanner 仍在 await,两个图尚未 Plotly.react,跳过以免未处理的 Promise 拒绝。
             if (pathPlot && pathPlot._fullLayout) {
                 Plotly.Plots.resize(pathPlot);
             }
@@ -643,6 +677,21 @@ function buildHoverItems(data) {
             headingError: data.initial_state.theta - solverReference.theta[0],
         });
     }
+    if (layerVisibility.optimized && referenceCount > 0) {
+        const last = referenceCount - 1;
+        items.push({
+            key: 'local-goal-0',
+            label: 'Local Goal',
+            index: last,
+            x: solverReference.x[last],
+            y: solverReference.y[last],
+            s: solverReference.s[last],
+            theta: solverReference.theta[last],
+            v: solverReference.v[last],
+            a: solverReference.a[last],
+            kappa: solverReference.kappa[last],
+        });
+    }
     return items;
 }
 
@@ -751,24 +800,27 @@ function buildHeadingAnnotations(points, headings, step, arrowLength, lineWidth 
     return annotations;
 }
 
-function buildEndpointHeadingAnnotations(points, headings, arrowLength, lineWidth = 5.2) {
+function buildEndpointHeadingAnnotations(points, headings, arrowLength, lineWidth = 5.2, options = {}) {
     const annotations = [];
     if (!points.length) {
         return annotations;
     }
-    annotations.push(
-        buildPathArrowAnnotation(
-            points[0][0],
-            points[0][1],
-            headings[0],
-            START_ARROW_COLOR,
-            ENDPOINT_POSE_ARROW_OPACITY,
-            arrowLength,
-            lineWidth,
-            1.15,
-        ),
-    );
-    if (points.length > 1) {
+    const endpointArrowSize = 1.15 * ENDPOINT_POSE_ARROW_HEAD_SCALE;
+    if (!options.skipStart) {
+        annotations.push(
+            buildPathArrowAnnotation(
+                points[0][0],
+                points[0][1],
+                headings[0],
+                START_ARROW_COLOR,
+                ENDPOINT_POSE_ARROW_OPACITY,
+                arrowLength,
+                lineWidth,
+                endpointArrowSize,
+            ),
+        );
+    }
+    if (points.length > 1 && !options.skipEnd) {
         const last = points.length - 1;
         annotations.push(
             buildPathArrowAnnotation(
@@ -779,7 +831,7 @@ function buildEndpointHeadingAnnotations(points, headings, arrowLength, lineWidt
                 ENDPOINT_POSE_ARROW_OPACITY,
                 arrowLength,
                 lineWidth,
-                1.15,
+                endpointArrowSize,
             ),
         );
     }
@@ -821,8 +873,9 @@ function updatePathHighlight(key) {
     );
 }
 
-function renderPathView(data, activeKey = null) {
+function renderPathView(data, activeKey = null, options = {}) {
     const { reference, solution, initial_state: initialState } = data;
+    const preservedPathViewRanges = options.pathViewRanges || (options.preserveView ? getCurrentPathViewRanges() : null);
     const displayReference = data.display_reference || data.reference;
     const stopReferenceActive = Boolean(data.reference_meta?.is_stopping_reference);
     const referencePoints = displayReference.x.map((x, index) => [x, displayReference.y[index]]);
@@ -871,8 +924,8 @@ function renderPathView(data, activeKey = null) {
         });
         if (layerVisibility.arrows) {
             annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, 5, arrowLength));
-            annotations.push(...buildEndpointHeadingAnnotations(referencePoints, displayReference.theta, arrowLength));
         }
+        annotations.push(...buildEndpointHeadingAnnotations(referencePoints, displayReference.theta, arrowLength));
     }
 
     if (stopReferenceActive && layerVisibility.stopReference) {
@@ -896,12 +949,20 @@ function renderPathView(data, activeKey = null) {
         });
         if (layerVisibility.arrows) {
             annotations.push(...buildHeadingAnnotations(stopReferencePoints, reference.theta, 4, arrowLength * 0.95, 1.55));
-            annotations.push(...buildEndpointHeadingAnnotations(stopReferencePoints, reference.theta, arrowLength * 0.95));
         }
+        annotations.push(...buildEndpointHeadingAnnotations(
+            stopReferencePoints,
+            reference.theta,
+            arrowLength * 0.95,
+            5.2,
+            { skipStart: layerVisibility.initial },
+        ));
     }
 
     if (layerVisibility.optimized) {
         const optimizedKeys = solutionPoints.map((_point, index) => `solution-${index}`);
+        const localGoalIndex = solverReferencePoints.length - 1;
+        const localGoalPoint = solverReferencePoints[localGoalIndex];
         traces.push({
             x: solutionPoints.map((point) => point[0]),
             y: solutionPoints.map((point) => point[1]),
@@ -919,10 +980,32 @@ function renderPathView(data, activeKey = null) {
             },
             showlegend: false,
         });
+        traces.push({
+            x: [localGoalPoint[0]],
+            y: [localGoalPoint[1]],
+            mode: 'markers',
+            name: '局部终点',
+            customdata: ['local-goal-0'],
+            hovertemplate: '<extra></extra>',
+            marker: {
+                color: LOCAL_GOAL_COLOR,
+                size: 18,
+                symbol: 'star',
+                opacity: 0.85,
+                line: { color: '#92400e', width: 1.6 },
+            },
+            showlegend: false,
+        });
         if (layerVisibility.arrows) {
             annotations.push(...buildHeadingAnnotations(solutionPoints, solution.theta, 5, arrowLength));
-            annotations.push(...buildEndpointHeadingAnnotations(solutionPoints, solution.theta, arrowLength));
         }
+        annotations.push(...buildEndpointHeadingAnnotations(
+            solutionPoints,
+            solution.theta,
+            arrowLength,
+            5.2,
+            { skipStart: layerVisibility.initial },
+        ));
     }
 
     if (layerVisibility.initial) {
@@ -941,9 +1024,16 @@ function renderPathView(data, activeKey = null) {
             },
             showlegend: false,
         });
-        if (layerVisibility.arrows) {
-            annotations.push(buildPathArrowAnnotation(initialState.x, initialState.y, initialState.theta, START_ARROW_COLOR, ENDPOINT_POSE_ARROW_OPACITY, arrowLength * 1.15, 5.2, 1.15));
-        }
+        annotations.push(buildPathArrowAnnotation(
+            initialState.x,
+            initialState.y,
+            initialState.theta,
+            START_ARROW_COLOR,
+            ENDPOINT_POSE_ARROW_OPACITY,
+            arrowLength * 1.15,
+            5.2,
+            1.15 * ENDPOINT_POSE_ARROW_HEAD_SCALE,
+        ));
     }
 
     const highlightTraceIndex = traces.length;
@@ -981,11 +1071,11 @@ function renderPathView(data, activeKey = null) {
         annotations,
         xaxis: {
             ...axisStyle,
-            range: [Math.min(...xs) - paddingX, Math.max(...xs) + paddingX],
+            range: preservedPathViewRanges?.xRange || [Math.min(...xs) - paddingX, Math.max(...xs) + paddingX],
         },
         yaxis: {
             ...axisStyle,
-            range: [Math.min(...ys) - paddingY, Math.max(...ys) + paddingY],
+            range: preservedPathViewRanges?.yRange || [Math.min(...ys) - paddingY, Math.max(...ys) + paddingY],
             scaleanchor: 'x',
             scaleratio: 1,
         },
@@ -1023,7 +1113,7 @@ function renderPlotlyCharts(data) {
         ? data.reference.s.map((value) => value / Math.max(data.config.reference.cruise_speed, 1e-6))
         : data.reference.s;
     const xTitle = chartAxisMode === 'time' ? 'time [s]' : 'distance [m]';
-    const dtRef = data.reference.dt_ref;
+    const dtRef = data.solution.costs?.dt_ref_used ?? data.reference.dt_ref;
 
     const traces = [
         {
@@ -1312,6 +1402,26 @@ function findInitialDragTarget(event) {
     return distance <= 18 ? initialItem : null;
 }
 
+function findGoalDragTarget(event) {
+    if (getPlannerMode() !== 'goal' || !currentScene || !layerVisibility.optimized) {
+        return null;
+    }
+    const cursor = getCanvasCursorPosition(event);
+    if (!cursor) {
+        return null;
+    }
+    const goalItem = currentScene.hoverItems.find((item) => item.key === 'local-goal-0');
+    if (!goalItem) {
+        return null;
+    }
+    const pixelPosition = projectPlotItemToPixels(goalItem);
+    if (!pixelPosition) {
+        return null;
+    }
+    const distance = Math.hypot(pixelPosition.px - cursor.clientX, pixelPosition.py - cursor.clientY);
+    return distance <= 22 ? goalItem : null;
+}
+
 function getCanvasCursorPosition(event) {
     const axes = getPathPlotAxes();
     if (!axes) {
@@ -1358,6 +1468,18 @@ function isFiniteRange(range) {
         && range[0] !== range[1];
 }
 
+function getCurrentPathViewRanges() {
+    const axes = getPathPlotAxes();
+    if (!axes || !isFiniteRange(axes.xaxis.range) || !isFiniteRange(axes.yaxis.range)) {
+        return null;
+    }
+
+    return {
+        xRange: [...axes.xaxis.range],
+        yRange: [...axes.yaxis.range],
+    };
+}
+
 function zoomRangeAround(range, anchor, factor) {
     const nextRange = [
         anchor - (anchor - range[0]) * factor,
@@ -1387,7 +1509,7 @@ function isInsidePathPlotArea(plotPosition, axes) {
 }
 
 function handlePathWheelZoom(event) {
-    if (isDraggingInitialState) {
+    if (isDraggingInitialState || isDraggingGoalPoint) {
         return;
     }
 
@@ -1416,6 +1538,9 @@ function handlePathMouseDown(event) {
     }
 
     beginInitialStateDrag(event);
+    if (!isDraggingInitialState) {
+        beginGoalPointDrag(event);
+    }
 }
 
 function preventPathContextMenu(event) {
@@ -1425,7 +1550,7 @@ function preventPathContextMenu(event) {
 }
 
 function beginPathPan(event) {
-    if (isDraggingInitialState) {
+    if (isDraggingInitialState || isDraggingGoalPoint) {
         return;
     }
 
@@ -1494,11 +1619,11 @@ function updateCanvasCursor(nearest = null) {
         pathPlot.style.cursor = 'grabbing';
         return;
     }
-    if (isDraggingInitialState) {
+    if (isDraggingInitialState || isDraggingGoalPoint) {
         pathPlot.style.cursor = 'grabbing';
         return;
     }
-    if (nearest?.key === 'initial-0') {
+    if (nearest?.key === 'initial-0' || nearest?.key === 'local-goal-0') {
         pathPlot.style.cursor = 'grab';
         return;
     }
@@ -1520,7 +1645,7 @@ function updateDraggedInitialState(event) {
         y: cursor.cursorY,
     };
     activeHoverKey = 'initial-0';
-    renderPathView(currentData, activeHoverKey);
+    renderPathView(currentData, activeHoverKey, { preserveView: true });
 
     const draggedItem = currentScene?.hoverItems.find((item) => item.key === 'initial-0') || null;
     if (draggedItem) {
@@ -1548,7 +1673,7 @@ function beginInitialStateDrag(event) {
     isDraggingInitialState = true;
     activeHoverKey = 'initial-0';
     pathPlot.style.cursor = 'grabbing';
-    renderPathView(currentData, activeHoverKey);
+    renderPathView(currentData, activeHoverKey, { preserveView: true });
     renderHoverDetails(nearest);
     positionHoverOverlay(event);
     setStatus('拖动起点中，松开鼠标后会基于新的位置重规划。', 'idle');
@@ -1561,7 +1686,104 @@ function finishInitialStateDrag() {
     }
     isDraggingInitialState = false;
     pathPlot.style.cursor = 'default';
-    runRandomDemo({ preserveInitialState: true, dragTriggered: true });
+    runPlanner({ preserveInitialState: true, dragTriggered: true });
+}
+
+function goalPositionInputs() {
+    return {
+        x: paramForm.querySelector('[data-param-group="goal"][data-param-key="x"]'),
+        y: paramForm.querySelector('[data-param-group="goal"][data-param-key="y"]'),
+    };
+}
+
+function updateGoalPositionInputs(x, y) {
+    const inputs = goalPositionInputs();
+    if (inputs.x) {
+        inputs.x.value = formatNumber(x, 3);
+    }
+    if (inputs.y) {
+        inputs.y.value = formatNumber(y, 3);
+    }
+}
+
+function updateGoalPointInScene(x, y) {
+    if (!currentData?.reference?.x?.length) {
+        return;
+    }
+    const referenceLast = currentData.reference.x.length - 1;
+    currentData.reference.x[referenceLast] = x;
+    currentData.reference.y[referenceLast] = y;
+
+    if (currentData.display_reference?.x?.length) {
+        const displayLast = currentData.display_reference.x.length - 1;
+        currentData.display_reference.x[displayLast] = x;
+        currentData.display_reference.y[displayLast] = y;
+    }
+    if (currentData.config?.goal) {
+        currentData.config.goal.x = x;
+        currentData.config.goal.y = y;
+    }
+    if (currentData.reference_meta?.goal) {
+        currentData.reference_meta.goal.x = x;
+        currentData.reference_meta.goal.y = y;
+    }
+}
+
+function updateDraggedGoalPoint(event) {
+    if (!isDraggingGoalPoint || !currentData) {
+        return null;
+    }
+
+    const cursor = getCanvasCursorPosition(event);
+    if (!cursor) {
+        return null;
+    }
+    updateGoalPositionInputs(cursor.cursorX, cursor.cursorY);
+    updateGoalPointInScene(cursor.cursorX, cursor.cursorY);
+    activeHoverKey = 'local-goal-0';
+    renderPathView(currentData, activeHoverKey, { preserveView: true });
+    renderStats(currentData);
+
+    const draggedItem = currentScene?.hoverItems.find((item) => item.key === 'local-goal-0') || null;
+    if (draggedItem) {
+        renderHoverDetails(draggedItem);
+        positionHoverOverlay(event);
+    }
+    return draggedItem;
+}
+
+function beginGoalPointDrag(event) {
+    if (event.button !== 0 || getPlannerMode() !== 'goal') {
+        return;
+    }
+    if (isPanningPath || isDraggingInitialState) {
+        return;
+    }
+    if (!currentData || !layerVisibility.optimized) {
+        return;
+    }
+    const nearest = findGoalDragTarget(event);
+    if (nearest?.key !== 'local-goal-0') {
+        return;
+    }
+
+    isDraggingGoalPoint = true;
+    activeHoverKey = 'local-goal-0';
+    pathPlot.style.cursor = 'grabbing';
+    renderPathView(currentData, activeHoverKey, { preserveView: true });
+    renderHoverDetails(nearest);
+    positionHoverOverlay(event);
+    setStatus('拖动目标点中，松开鼠标后会基于新的目标点重规划。', 'idle');
+    event.preventDefault();
+}
+
+function finishGoalPointDrag() {
+    if (!isDraggingGoalPoint) {
+        return;
+    }
+    isDraggingGoalPoint = false;
+    pathPlot.style.cursor = 'default';
+    runPlanner({ preserveInitialState: true, goalDragTriggered: true });
 }
 
 function handleWindowMouseMove(event) {
@@ -1569,7 +1791,7 @@ function handleWindowMouseMove(event) {
         updatePathPan(event);
         return;
     }
-    if (isDraggingInitialState) {
+    if (isDraggingInitialState || isDraggingGoalPoint) {
         handleCanvasMove(event);
     }
 }
@@ -1584,7 +1806,12 @@ function handleCanvasMove(event) {
         updateCanvasCursor();
         return;
     }
-    const nearest = findInitialDragTarget(event) || findNearestHover(event);
+    if (isDraggingGoalPoint) {
+        updateDraggedGoalPoint(event);
+        updateCanvasCursor();
+        return;
+    }
+    const nearest = findInitialDragTarget(event) || findGoalDragTarget(event) || findNearestHover(event);
     updateCanvasCursor(nearest);
     if (!nearest) {
         if (activeHoverKey !== null) {
@@ -1618,7 +1845,7 @@ function handleInitialHeadingInput() {
         theta: normalizeAngle(degreesToRadians(sliderDegrees)),
     };
     activeHoverKey = 'initial-0';
-    renderPathView(currentData, activeHoverKey);
+    renderPathView(currentData, activeHoverKey, { preserveView: true });
     renderStats(currentData);
 
     const currentInitialItem = currentScene?.itemMap.get('initial-0') || null;
@@ -1630,7 +1857,7 @@ function handleInitialHeadingInput() {
 }
 
 function clearCanvasHover() {
-    if (isDraggingInitialState || isPanningPath) {
+    if (isDraggingInitialState || isDraggingGoalPoint || isPanningPath) {
         return;
     }
     activeHoverKey = null;
@@ -1658,32 +1885,51 @@ function setChartAxisMode(mode) {
     }
 }
 
-async function runRandomDemo(options = {}) {
-    const { preserveInitialState = false, autoTriggered = false, dragTriggered = false } = options;
+async function runPlanner(options = {}) {
+    const {
+        preserveInitialState = false,
+        autoTriggered = false,
+        dragTriggered = false,
+        goalDragTriggered = false,
+        pathViewRanges = null,
+    } = options;
+    const plannerMode = getPlannerMode();
+    const preservedPathViewRanges = pathViewRanges || (dragTriggered || goalDragTriggered ? getCurrentPathViewRanges() : null);
     if (solveInFlight) {
-        pendingAutoReplanOptions = { preserveInitialState, autoTriggered, dragTriggered };
+        pendingAutoReplanOptions = {
+            preserveInitialState,
+            autoTriggered,
+            dragTriggered,
+            goalDragTriggered,
+            pathViewRanges: preservedPathViewRanges,
+        };
         return;
     }
     solveInFlight = true;
     setButtonLoading(true);
-    setStatus(
-        dragTriggered
-            ? '正在基于拖拽后的起点位置重规划...'
-            : autoTriggered
-            ? preserveInitialState
-                ? '参数变化后，正在基于当前状态自动重规划...'
-                : '参数变化后，正在自动重新采样并求解...'
-            : preserveInitialState
-            ? '正在基于当前起点重规划 TEB-MPC...'
-            : '正在随机生成起点并求解 TEB-MPC...',
-        'loading',
-    );
+    let solvingMessage = '正在随机生成起点并求解 TEB-MPC...';
+    if (dragTriggered) {
+        solvingMessage = '正在基于拖拽后的起点位置重规划...';
+    } else if (goalDragTriggered) {
+        solvingMessage = '正在基于拖拽后的目标点重规划...';
+    } else if (autoTriggered && plannerMode === 'goal') {
+        solvingMessage = '目标点参数变化后，正在基于当前起点自动重规划...';
+    } else if (autoTriggered && preserveInitialState) {
+        solvingMessage = '参数变化后，正在基于当前状态自动重规划...';
+    } else if (autoTriggered) {
+        solvingMessage = '参数变化后，正在自动重新采样并求解...';
+    } else if (plannerMode === 'goal') {
+        solvingMessage = '正在求解当前起点到目标点的局部 TEB-MPC...';
+    } else if (preserveInitialState) {
+        solvingMessage = '正在基于当前起点重规划 TEB-MPC...';
+    }
+    setStatus(solvingMessage, 'loading');
     try {
         const payload = collectParameterPayload();
-        if (preserveInitialState && currentData?.initial_state) {
+        if ((preserveInitialState || plannerMode === 'goal') && currentData?.initial_state) {
             payload.initial_state_override = currentData.initial_state;
         }
-        const response = await fetch('/api/random_demo', {
+        const response = await fetch(plannerMode === 'goal' ? '/api/goal_demo' : '/api/random_demo', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1696,22 +1942,25 @@ async function runRandomDemo(options = {}) {
         }
         currentData = data;
         activeHoverKey = null;
-        renderPathView(data);
+        renderPathView(data, null, { pathViewRanges: preservedPathViewRanges });
         renderPlotlyCharts(data);
         renderStats(data);
         applyConfigToForm(data.config);
-        if (!defaultParameterSnapshot) {
-            defaultParameterSnapshot = clonePlainObject(data.config);
-        }
         renderHoverDetails(null);
         updateCanvasCursor();
         setStatus(
             dragTriggered
                 ? '已按拖拽后的起点位置完成重规划。'
+                : goalDragTriggered
+                ? '已按拖拽后的目标点完成重规划。'
                 : autoTriggered
-                ? preserveInitialState
+                ? plannerMode === 'goal'
+                    ? '已根据目标点参数自动重规划。'
+                    : preserveInitialState
                     ? '已根据新的参数自动重规划，当前初始状态保持不变。'
                     : '已根据新的采样参数自动重新采样并完成求解。'
+                : plannerMode === 'goal'
+                ? '目标点局部规划完成。可拖动起点或修改目标点继续重规划。'
                 : preserveInitialState
                 ? '已基于当前起点完成重规划。'
                 : '随机初始化完成。可以在画布上悬停查看点信息，再次点击按钮可重新采样。',
@@ -1726,18 +1975,19 @@ async function runRandomDemo(options = {}) {
         if (pendingAutoReplanOptions) {
             const nextOptions = pendingAutoReplanOptions;
             pendingAutoReplanOptions = null;
-            runRandomDemo(nextOptions);
+            runPlanner(nextOptions);
         }
     }
 }
 
-randomizeBtn.addEventListener('click', runRandomDemo);
+randomizeBtn.addEventListener('click', runPlanner);
 paramForm.addEventListener('submit', (event) => {
     event.preventDefault();
-    runRandomDemo({ preserveInitialState: Boolean(currentData?.initial_state) });
+    runPlanner({ preserveInitialState: Boolean(currentData?.initial_state) });
 });
 window.addEventListener('mousemove', handleWindowMouseMove);
 window.addEventListener('mouseup', finishInitialStateDrag);
+window.addEventListener('mouseup', finishGoalPointDrag);
 window.addEventListener('mouseup', finishPathPan);
 legendToggles.forEach((toggle) => {
     toggle.addEventListener('click', () => toggleLayer(toggle.dataset.layer));
@@ -1751,12 +2001,19 @@ vizTabButtons.forEach((button) => {
 if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
 }
+plannerModeInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+        updatePlannerModeUi();
+        runPlanner({ preserveInitialState: Boolean(currentData?.initial_state) });
+    });
+});
 paramForm.querySelectorAll('[data-param-group][data-param-key]').forEach((input) => {
     input.addEventListener('input', () => scheduleAutoReplan(input));
 });
 updateLegendToggleStyles();
 updateAxisButtonStyles();
+updatePlannerModeUi();
 setVizTab(activeVizTab);
 initParameterTooltips();
 updateInitialHeadingControls(null);
-runRandomDemo();
+runPlanner();

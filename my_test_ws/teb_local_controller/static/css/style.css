@@ -286,6 +286,65 @@ h1 {
     gap: 12px;
 }
 
+.mode-block {
+    display: grid;
+    gap: 10px;
+}
+
+.mode-header {
+    display: grid;
+    gap: 10px;
+}
+
+.mode-header > span {
+    font-weight: 700;
+}
+
+.mode-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.74);
+    border: 1px solid rgba(26, 34, 48, 0.08);
+}
+
+.mode-toggle label {
+    min-width: 0;
+}
+
+.mode-toggle input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.mode-toggle span {
+    display: flex;
+    justify-content: center;
+    border-radius: 999px;
+    padding: 8px 10px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.mode-toggle span:hover {
+    transform: translateY(-1px);
+}
+
+.mode-toggle input:checked + span {
+    color: var(--accent-strong);
+    background: linear-gradient(135deg, rgba(11, 79, 108, 0.12), rgba(15, 118, 110, 0.16));
+}
+
+[data-mode-panel].hidden {
+    display: none;
+}
+
 .param-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

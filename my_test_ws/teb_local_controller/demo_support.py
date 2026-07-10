@@ -130,6 +130,7 @@ def describe_demo_configuration(
             "w_accel": controller.w_accel,
             "w_time": controller.w_time,
             "w_dt_uniform": controller.w_dt_uniform,
+            "w_dt_ref": controller.w_dt_ref,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
         },
@@ -338,7 +339,7 @@ def _build_aligned_query_s(original_s: np.ndarray, projection_s: float, horizon:
         query_s = np.array([projection_s], dtype=float)
 
     has_room_for_end = horizon_count is None or query_s.size < horizon_count
-    if projection_s >= 0.0 and query_s[-1] < end_s - tol and has_room_for_end:
+    if query_s[-1] < end_s - tol and has_room_for_end:
         query_s = np.concatenate((query_s, np.array([end_s], dtype=float)))
 
     if horizon_count is not None and query_s.size > horizon_count:

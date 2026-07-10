@@ -14,10 +14,32 @@ for path_entry in (REPO_ROOT, CURRENT_DIR):
         sys.path.append(path_entry)
 
 from demo_support import default_demo_reference, describe_demo_configuration, run_random_demo, solve_demo
-from teb_mpc import VehicleState
+from teb_mpc import GoalPoint, TEBMPCController, VehicleState, build_goal_reference
 
 
 app = Flask(__name__)
+
+DEFAULT_GOAL_INITIAL_STATE = {
+    "x": 0.0,
+    "y": 0.0,
+    "theta": 0.0,
+    "v": 0.1,
+    "a": 0.0,
+    "kappa": 0.0,
+}
+
+GOAL_CONFIG_DEFAULTS = {
+    "x": 2.0,
+    "y": 1.0,
+    "theta": 0.3490658504,
+    "v": 0.0,
+    "a": 0.0,
+    "kappa": 0.0,
+    "ds": 0.2,
+    "cruise_speed": 0.8,
+    "dt_ref": 0.1,
+    "sample_count": 0,
+}
 
 
 def _state_to_dict(state):
@@ -53,6 +75,99 @@ def _reference_to_dict(reference):
         "s": reference.s.tolist(),
         "dt_ref": float(reference.dt_ref),
     }
+
+
+def _solution_to_dict(solution):
+    return {
+        "x": solution["x"].tolist(),
+        "y": solution["y"].tolist(),
+        "theta": solution["theta"].tolist(),
+        "v": solution["v"].tolist(),
+        "a": solution["a"].tolist(),
+        "kappa": solution["kappa"].tolist(),
+        "dt": solution["dt"].tolist(),
+        "jerk": solution["jerk"].tolist(),
+        "dkappa": solution["dkappa"].tolist(),
+        "time": solution["time"].tolist(),
+        "solve_time_ms": float(solution["solve_time_ms"]),
+        "solver_status": str(solution.get("solver_status", "Optimization succeeded")),
+        "costs": solution["costs"],
+        "cost_items": solution.get("cost_items", []),
+    }
+
+
+def _error_response(exc):
+    traceback.print_exc()
+    return jsonify(
+        {
+            "success": False,
+            "message": str(exc),
+            "optimization": {
+                "succeeded": False,
+                "message": str(exc),
+            },
+        }
+    ), 500
+
+
+def _merged_goal_config(goal_config):
+    merged = {**GOAL_CONFIG_DEFAULTS, **(goal_config or {})}
+    if merged.get("theta") == "":
+        merged["theta"] = None
+    if merged.get("sample_count") == "":
+        merged["sample_count"] = 0
+    return merged
+
+
+def _goal_from_config(goal_config):
+    theta = goal_config.get("theta")
+    return GoalPoint(
+        x=float(goal_config["x"]),
+        y=float(goal_config["y"]),
+        theta=None if theta is None else float(theta),
+        v=float(goal_config["v"]),
+        a=float(goal_config["a"]),
+        kappa=float(goal_config["kappa"]),
+    )
+
+
+def _goal_sample_count(goal_config):
+    sample_count = int(goal_config["sample_count"])
+    return None if sample_count <= 0 else sample_count
+
+
+def _goal_config_to_dict(goal, goal_config, reference_size):
+    return {
+        "x": goal.x,
+        "y": goal.y,
+        "theta": goal.theta,
+        "v": goal.v,
+        "a": goal.a,
+        "kappa": goal.kappa,
+        "ds": float(goal_config["ds"]),
+        "cruise_speed": float(goal_config["cruise_speed"]),
+        "dt_ref": float(goal_config["dt_ref"]),
+        "sample_count": int(goal_config["sample_count"]),
+        "resolved_sample_count": int(reference_size),
+    }
+
+
+def _goal_response_config(controller_params, goal, goal_config, reference):
+    config = describe_demo_configuration(params=controller_params)
+    config["reference"] = {
+        **config["reference"],
+        "ds": float(goal_config["ds"]),
+        "cruise_speed": float(goal_config["cruise_speed"]),
+        "dt_ref": float(goal_config["dt_ref"]),
+        "params": {
+            **config["reference"].get("params", {}),
+            "ds": float(goal_config["ds"]),
+            "cruise_speed": float(goal_config["cruise_speed"]),
+            "dt_ref": float(goal_config["dt_ref"]),
+        },
+    }
+    config["goal"] = _goal_config_to_dict(goal, goal_config, reference.size)
+    return config
 
 
 @app.route("/")
@@ -100,36 +215,65 @@ def random_demo():
                 "reference": _reference_to_dict(reference),
                 "display_reference": _reference_to_dict(display_reference),
                 "reference_meta": solution.get("reference_meta", {}),
-                "solution": {
-                    "x": solution["x"].tolist(),
-                    "y": solution["y"].tolist(),
-                    "theta": solution["theta"].tolist(),
-                    "v": solution["v"].tolist(),
-                    "a": solution["a"].tolist(),
-                    "kappa": solution["kappa"].tolist(),
-                    "dt": solution["dt"].tolist(),
-                    "jerk": solution["jerk"].tolist(),
-                    "dkappa": solution["dkappa"].tolist(),
-                    "time": solution["time"].tolist(),
-                    "solve_time_ms": float(solution["solve_time_ms"]),
-                    "solver_status": str(solution.get("solver_status", "Optimization succeeded")),
-                    "costs": solution["costs"],
-                    "cost_items": solution.get("cost_items", []),
-                },
+                "solution": _solution_to_dict(solution),
             }
         )
     except Exception as exc:
-        traceback.print_exc()
+        return _error_response(exc)
+
+
+@app.route("/api/goal_demo", methods=["POST"])
+def goal_demo():
+    try:
+        payload = request.get_json(silent=True) or {}
+        controller_params = payload.get("controller_params") or {}
+        goal_config = _merged_goal_config(payload.get("goal_config"))
+        initial_state_payload = payload.get("initial_state_override") or DEFAULT_GOAL_INITIAL_STATE
+        initial_state = _dict_to_state(initial_state_payload)
+        goal = _goal_from_config(goal_config)
+
+        controller = TEBMPCController(params=controller_params)
+        reference = build_goal_reference(
+            start=initial_state,
+            goal=goal,
+            ds=float(goal_config["ds"]),
+            cruise_speed=float(goal_config["cruise_speed"]),
+            dt_ref=float(goal_config["dt_ref"]),
+            sample_count=_goal_sample_count(goal_config),
+        )
+        solution = controller.solve(initial_state=initial_state, reference=reference)
+        solution["reference_meta"] = {
+            "mode": "point_goal",
+            "is_stopping_reference": False,
+            "goal": {
+                "x": goal.x,
+                "y": goal.y,
+                "theta": float(reference.theta[-1]),
+                "v": goal.v,
+                "a": goal.a,
+                "kappa": goal.kappa,
+            },
+            "reference_size": reference.size,
+            "reference_length": float(reference.s[-1]),
+        }
+
         return jsonify(
             {
-                "success": False,
-                "message": str(exc),
+                "success": True,
                 "optimization": {
-                    "succeeded": False,
-                    "message": str(exc),
+                    "succeeded": True,
+                    "message": str(solution.get("solver_status", "Optimization succeeded")),
                 },
+                "config": _goal_response_config(controller_params, goal, goal_config, reference),
+                "initial_state": _state_to_dict(initial_state),
+                "reference": _reference_to_dict(reference),
+                "display_reference": _reference_to_dict(reference),
+                "reference_meta": solution.get("reference_meta", {}),
+                "solution": _solution_to_dict(solution),
             }
-        ), 500
+        )
+    except Exception as exc:
+        return _error_response(exc)
 
 
 if __name__ == "__main__":

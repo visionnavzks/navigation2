@@ -20,6 +20,16 @@ class VehicleState:
 
 
 @dataclass(frozen=True)
+class GoalPoint:
+    x: float
+    y: float
+    theta: float | None = None
+    v: float = 0.0
+    a: float = 0.0
+    kappa: float = 0.0
+
+
+@dataclass(frozen=True)
 class LineSegment:
     length: float
 
@@ -41,6 +51,7 @@ class ArcSegment:
 
 
 PathSegment = Union[LineSegment, ArcSegment]
+GoalInput = Union[GoalPoint, VehicleState, Sequence[float], Dict[str, float]]
 
 
 @dataclass(frozen=True)
@@ -155,6 +166,160 @@ def build_reference_trajectory(
     return ReferenceTrajectory(x=x, y=y, theta=theta, v=v, a=a, kappa=kappa, s=s, dt_ref=float(dt_ref))
 
 
+def _coerce_goal_point(goal: GoalInput, goal_theta: float | None = None) -> GoalPoint:
+    if isinstance(goal, GoalPoint):
+        theta = goal.theta if goal_theta is None else goal_theta
+        return GoalPoint(x=goal.x, y=goal.y, theta=theta, v=goal.v, a=goal.a, kappa=goal.kappa)
+
+    if isinstance(goal, VehicleState):
+        theta = goal.theta if goal_theta is None else goal_theta
+        return GoalPoint(x=goal.x, y=goal.y, theta=theta, v=goal.v, a=goal.a, kappa=goal.kappa)
+
+    if isinstance(goal, dict):
+        theta_value = goal.get("theta", goal_theta)
+        return GoalPoint(
+            x=float(goal["x"]),
+            y=float(goal["y"]),
+            theta=None if theta_value is None else float(theta_value),
+            v=float(goal.get("v", 0.0)),
+            a=float(goal.get("a", 0.0)),
+            kappa=float(goal.get("kappa", 0.0)),
+        )
+
+    values = list(goal)
+    if len(values) not in {2, 3}:
+        raise ValueError("Goal sequence must be (x, y) or (x, y, theta)")
+    theta = goal_theta if goal_theta is not None else (float(values[2]) if len(values) == 3 else None)
+    return GoalPoint(x=float(values[0]), y=float(values[1]), theta=theta)
+
+
+def _smoothstep_quintic(alpha: np.ndarray) -> np.ndarray:
+    return 6.0 * np.power(alpha, 5) - 15.0 * np.power(alpha, 4) + 10.0 * np.power(alpha, 3)
+
+
+def _derive_heading_from_positions(
+    positions: np.ndarray,
+    theta_start: float,
+    theta_end: float,
+) -> np.ndarray:
+    if positions.shape[0] == 1:
+        return np.array([theta_end], dtype=float)
+
+    deltas = np.diff(positions, axis=0)
+    segment_theta = np.array(
+        [
+            theta_start if float(np.linalg.norm(delta)) <= 1e-9 else math.atan2(float(delta[1]), float(delta[0]))
+            for delta in deltas
+        ],
+        dtype=float,
+    )
+    theta = np.empty(positions.shape[0], dtype=float)
+    theta[0] = theta_start
+    theta[1:] = np.unwrap(segment_theta, discont=math.pi)
+    theta = np.unwrap(theta, discont=math.pi)
+    theta[0] = theta_start
+    theta[-1] = theta_end
+    return theta
+
+
+def _curvature_from_heading(theta: np.ndarray, s: np.ndarray, initial_kappa: float, terminal_kappa: float) -> np.ndarray:
+    if theta.shape[0] <= 1:
+        return np.array([float(terminal_kappa)], dtype=float)
+
+    kappa = np.zeros(theta.shape[0], dtype=float)
+    ds = np.diff(s)
+    dtheta = np.diff(theta)
+    valid = ds > 1e-9
+    kappa[1:][valid] = dtheta[valid] / ds[valid]
+    kappa[0] = float(initial_kappa)
+    kappa[-1] = float(terminal_kappa)
+    return kappa
+
+
+def build_goal_reference(
+    start: VehicleState,
+    goal: GoalInput,
+    ds: float = 0.2,
+    cruise_speed: float = 1.0,
+    dt_ref: float = 0.1,
+    sample_count: int | None = None,
+    min_samples: int = 8,
+    max_samples: int | None = 50,
+    goal_theta: float | None = None,
+) -> ReferenceTrajectory:
+    if ds <= 0.0:
+        raise ValueError("ds must be positive")
+    if dt_ref <= 0.0:
+        raise ValueError("dt_ref must be positive")
+
+    target = _coerce_goal_point(goal, goal_theta=goal_theta)
+    start_xy = np.array([float(start.x), float(start.y)], dtype=float)
+    goal_xy = np.array([float(target.x), float(target.y)], dtype=float)
+    delta = goal_xy - start_xy
+    distance = float(np.linalg.norm(delta))
+
+    if target.theta is None:
+        terminal_theta = math.atan2(float(delta[1]), float(delta[0])) if distance > 1e-9 else float(start.theta)
+    else:
+        terminal_theta = float(target.theta)
+
+    if sample_count is None:
+        sample_count = max(int(math.ceil(distance / ds)) + 1, int(min_samples), 2)
+    else:
+        sample_count = max(int(sample_count), 2)
+    if max_samples is not None:
+        sample_count = min(sample_count, max(int(max_samples), 2))
+
+    alpha = np.linspace(0.0, 1.0, sample_count, dtype=float)
+    if distance <= 1e-9:
+        positions = np.repeat(start_xy[np.newaxis, :], sample_count, axis=0)
+    elif target.theta is None:
+        blend = _smoothstep_quintic(alpha)
+        positions = start_xy + np.outer(blend, delta)
+    else:
+        tangent_scale = max(distance, ds * (sample_count - 1)) * 0.45
+        start_tangent = tangent_scale * np.array([math.cos(start.theta), math.sin(start.theta)], dtype=float)
+        goal_tangent = tangent_scale * np.array([math.cos(terminal_theta), math.sin(terminal_theta)], dtype=float)
+        h00 = 2.0 * alpha**3 - 3.0 * alpha**2 + 1.0
+        h10 = alpha**3 - 2.0 * alpha**2 + alpha
+        h01 = -2.0 * alpha**3 + 3.0 * alpha**2
+        h11 = alpha**3 - alpha**2
+        positions = (
+            np.outer(h00, start_xy)
+            + np.outer(h10, start_tangent)
+            + np.outer(h01, goal_xy)
+            + np.outer(h11, goal_tangent)
+        )
+
+    positions[0] = start_xy
+    positions[-1] = goal_xy
+
+    s = np.zeros(sample_count, dtype=float)
+    if sample_count > 1:
+        s[1:] = np.cumsum(np.linalg.norm(np.diff(positions, axis=0), axis=1))
+
+    theta = _derive_heading_from_positions(positions, float(start.theta), terminal_theta)
+    kappa = _curvature_from_heading(theta, s, float(start.kappa), float(target.kappa))
+
+    v = np.full(sample_count, float(cruise_speed), dtype=float)
+    v[0] = float(start.v)
+    v[-1] = float(target.v)
+    a = np.zeros(sample_count, dtype=float)
+    a[0] = float(start.a)
+    a[-1] = float(target.a)
+
+    return ReferenceTrajectory(
+        x=np.array(positions[:, 0], dtype=float),
+        y=np.array(positions[:, 1], dtype=float),
+        theta=theta,
+        v=v,
+        a=a,
+        kappa=kappa,
+        s=s,
+        dt_ref=float(dt_ref),
+    )
+
+
 class TEBMPCController:
     def __init__(self, params: Dict[str, float] | None = None):
         self.params = params or {}
@@ -164,6 +329,8 @@ class TEBMPCController:
         self.dt_ref = float(self.params.get("dt_ref", 0.1))
         self.dt_min = float(self.params.get("dt_min", 0.03))
         self.dt_max = float(self.params.get("dt_max", 0.35))
+        if self.dt_min > self.dt_max:
+            raise ValueError("dt_min must be <= dt_max")
         self.max_speed = float(self.params.get("max_speed", 2.5))
         self.max_accel = float(self.params.get("max_accel", 1.0))
         self.max_lat_accel = float(self.params.get("max_lat_accel", 1.5))
@@ -177,17 +344,56 @@ class TEBMPCController:
         self.w_accel = float(self.params.get("w_accel", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
         self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
+        self.w_dt_ref = float(self.params.get("w_dt_ref", 0.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
         self.ipopt_max_iter = int(self.params.get("ipopt_max_iter", 500))
         self.ipopt_tol = float(self.params.get("ipopt_tol", 1e-6))
         self.ipopt_print_level = int(self.params.get("ipopt_print_level", 0))
 
+    def solve_to_goal(
+        self,
+        initial_state: VehicleState,
+        goal: GoalInput,
+        ds: float = 0.2,
+        cruise_speed: float | None = None,
+        dt_ref: float | None = None,
+        sample_count: int | None = None,
+        goal_theta: float | None = None,
+    ) -> Dict[str, object]:
+        reference = build_goal_reference(
+            start=initial_state,
+            goal=goal,
+            ds=ds,
+            cruise_speed=self.max_speed * 0.4 if cruise_speed is None else cruise_speed,
+            dt_ref=self.dt_ref if dt_ref is None else dt_ref,
+            sample_count=sample_count,
+            goal_theta=goal_theta,
+        )
+        solution = self.solve(initial_state=initial_state, reference=reference)
+        solution["reference_meta"] = {
+            "mode": "point_goal",
+            "is_stopping_reference": False,
+            "goal": {
+                "x": float(reference.x[-1]),
+                "y": float(reference.y[-1]),
+                "theta": float(reference.theta[-1]),
+                "v": float(reference.v[-1]),
+                "a": float(reference.a[-1]),
+                "kappa": float(reference.kappa[-1]),
+            },
+            "reference_size": reference.size,
+            "reference_length": float(reference.s[-1]),
+        }
+        return solution
+
     def solve(self, initial_state: VehicleState, reference: ReferenceTrajectory) -> Dict[str, object]:
         if reference.size < 2:
             raise ValueError("Reference trajectory must contain at least 2 samples")
 
         n = reference.size
+        dt_ref_raw = float(reference.dt_ref)
+        dt_ref_used = float(np.clip(dt_ref_raw, self.dt_min, self.dt_max))
         opti = ca.Opti()
 
         x = opti.variable(n)
@@ -204,12 +410,15 @@ class TEBMPCController:
         cost_jerk = 0
         cost_dkappa = 0
         cost_dt_uniform = 0
+        cost_dt_ref = 0
         cost_time = 0
 
         for i in range(n - 1):
             if i > 0:
                 dt_delta = dt[i] - dt[i - 1]
                 cost_dt_uniform += self.w_dt_uniform * dt_delta ** 2
+            dt_ref_error = dt[i] - dt_ref_used
+            cost_dt_ref += self.w_dt_ref * dt_ref_error ** 2
             cost_jerk += self.w_jerk * jerk[i] ** 2
             cost_dkappa += self.w_dkappa * dkappa[i] ** 2
             cost_time += dt[i]
@@ -238,7 +447,7 @@ class TEBMPCController:
             + terminal_accel_cost
         )
         time_cost = self.w_time * cost_time
-        cost_control = cost_dt_uniform + cost_jerk + cost_dkappa
+        cost_control = cost_dt_uniform + cost_dt_ref + cost_jerk + cost_dkappa
         total_cost = terminal_cost + cost_control + time_cost
         opti.minimize(total_cost)
 
@@ -289,7 +498,7 @@ class TEBMPCController:
         opti.set_initial(v, np.clip(reference.v, 0.0, self.max_speed))
         opti.set_initial(a, np.clip(reference.a, -self.max_accel, self.max_accel))
         opti.set_initial(kappa, np.clip(reference.kappa, -self.max_kappa, self.max_kappa))
-        opti.set_initial(dt, np.full(n - 1, reference.dt_ref, dtype=float))
+        opti.set_initial(dt, np.full(n - 1, dt_ref_used, dtype=float))
         opti.set_initial(jerk, np.zeros(n - 1, dtype=float))
         opti.set_initial(dkappa, np.zeros(n - 1, dtype=float))
 
@@ -316,6 +525,7 @@ class TEBMPCController:
         jerk_values = np.atleast_1d(np.array(sol.value(jerk), dtype=float))
         dkappa_values = np.atleast_1d(np.array(sol.value(dkappa), dtype=float))
         dt_delta_values = np.diff(dt_values)
+        dt_ref_error_values = dt_values - dt_ref_used
 
         def rms(values: np.ndarray) -> float:
             if values.size == 0:
@@ -372,6 +582,14 @@ class TEBMPCController:
                 "cost": float(sol.value(cost_dt_uniform)),
             },
             {
+                "key": "dt_ref",
+                "label": "dt reference error",
+                "residual": rms(dt_ref_error_values),
+                "unit": "s RMS",
+                "weight": self.w_dt_ref,
+                "cost": float(sol.value(cost_dt_ref)),
+            },
+            {
                 "key": "jerk",
                 "label": "jerk smoothness",
                 "residual": rms(jerk_values),
@@ -412,6 +630,7 @@ class TEBMPCController:
             "costs": {
                 "control": float(sol.value(cost_control)),
                 "dt_uniform": float(sol.value(cost_dt_uniform)),
+                "dt_ref": float(sol.value(cost_dt_ref)),
                 "jerk": float(sol.value(cost_jerk)),
                 "dkappa": float(sol.value(cost_dkappa)),
                 "time": float(sol.value(time_cost)),
@@ -427,6 +646,9 @@ class TEBMPCController:
                 "terminal_theta_error": float(sol.value(terminal_theta_error)),
                 "terminal_speed_error": float(sol.value(terminal_speed_error)),
                 "terminal_accel_error": float(sol.value(terminal_accel_error)),
+                "dt_ref_error": rms(dt_ref_error_values),
+                "dt_ref_raw": dt_ref_raw,
+                "dt_ref_used": dt_ref_used,
             },
             "cost_items": cost_items,
         }
