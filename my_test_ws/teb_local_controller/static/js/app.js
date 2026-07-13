@@ -126,6 +126,11 @@ let isDraggingInitialState = false;
 let isDraggingGoalPoint = false;
 let isPanningPath = false;
 let pathPanStart = null;
+// 一次 mousemove 处理期间缓存画布 rect,避免 findNearestHover 对每个点都触发 getBoundingClientRect 回流。
+let cachedPathRect = null;
+// mousemove 用 rAF 合并,每帧最多处理一次,避免原生高频事件把主线程打满。
+let pendingMoveEvent = null;
+let moveRafId = null;
 const layerVisibility = {
     reference: true,
     stopReference: true,
@@ -928,13 +933,13 @@ function bindPathPlotInteractions() {
     const nextTarget = pathPlot;
     if (pathPlot.__interactionTarget !== nextTarget) {
         if (pathPlot.__interactionTarget) {
-            pathPlot.__interactionTarget.removeEventListener('mousemove', handleCanvasMove, true);
+            pathPlot.__interactionTarget.removeEventListener('mousemove', handlePlotMouseMove, true);
             pathPlot.__interactionTarget.removeEventListener('mousedown', handlePathMouseDown, true);
             pathPlot.__interactionTarget.removeEventListener('mouseleave', clearCanvasHover, true);
             pathPlot.__interactionTarget.removeEventListener('wheel', handlePathWheelZoom, true);
             pathPlot.__interactionTarget.removeEventListener('contextmenu', preventPathContextMenu, true);
         }
-        nextTarget.addEventListener('mousemove', handleCanvasMove, true);
+        nextTarget.addEventListener('mousemove', handlePlotMouseMove, true);
         nextTarget.addEventListener('mousedown', handlePathMouseDown, true);
         nextTarget.addEventListener('mouseleave', clearCanvasHover, true);
         nextTarget.addEventListener('wheel', handlePathWheelZoom, { capture: true, passive: false });
@@ -1530,13 +1535,19 @@ function getCanvasCursorPosition(event) {
     };
 }
 
+function getPathPlotRect() {
+    // mousemove 处理期间(scheduleCanvasMove 已填充缓存)复用同一个 rect;
+    // 其它零散调用(滚轮/按下)缓存为空时实时取,始终拿到最新值。
+    return cachedPathRect || pathPlot.getBoundingClientRect();
+}
+
 function getPathPlotAxes() {
     const fullLayout = pathPlot?._fullLayout;
     if (!fullLayout?.xaxis || !fullLayout?.yaxis) {
         return null;
     }
     return {
-        rect: pathPlot.getBoundingClientRect(),
+        rect: getPathPlotRect(),
         xaxis: fullLayout.xaxis,
         yaxis: fullLayout.yaxis,
     };
@@ -1694,7 +1705,8 @@ function updatePathPan(event) {
             pathPanStart.yRange[1] - yDelta,
         ],
     });
-    event.preventDefault();
+    // preventDefault 已在同步入口(handlePlotMouseMove/handleWindowMouseMove)完成;
+    // 这里运行在 rAF 回调里,再调用会因事件已 passive 化而失效并告警。
 }
 
 function finishPathPan() {
@@ -1883,17 +1895,47 @@ function finishGoalPointDrag() {
     runPlanner({ preserveInitialState: true, goalDragTriggered: true });
 }
 
-function handleWindowMouseMove(event) {
-    if (isPanningPath) {
-        updatePathPan(event);
-        return;
+// 画布上的 mousemove 入口:同步阶段只做 preventDefault(拖拽/平移需要),
+// 重活交给 rAF 合并后的 processCanvasMove。
+function handlePlotMouseMove(event) {
+    if (isPanningPath || isDraggingInitialState || isDraggingGoalPoint) {
+        event.preventDefault();
     }
-    if (isDraggingInitialState || isDraggingGoalPoint) {
-        handleCanvasMove(event);
-    }
+    scheduleCanvasMove(event);
 }
 
-function handleCanvasMove(event) {
+// window 级 mousemove 只在拖拽/平移(鼠标可能移出画布)时才需要参与。
+function handleWindowMouseMove(event) {
+    if (!isPanningPath && !isDraggingInitialState && !isDraggingGoalPoint) {
+        return;
+    }
+    event.preventDefault();
+    scheduleCanvasMove(event);
+}
+
+function scheduleCanvasMove(event) {
+    pendingMoveEvent = event;
+    if (moveRafId !== null) {
+        return;
+    }
+    moveRafId = requestAnimationFrame(() => {
+        moveRafId = null;
+        const nextEvent = pendingMoveEvent;
+        pendingMoveEvent = null;
+        if (!nextEvent) {
+            return;
+        }
+        // 整帧内 rect 只取一次,供 findNearestHover 等对所有点复用;帧末清空避免陈旧。
+        cachedPathRect = pathPlot.getBoundingClientRect();
+        try {
+            processCanvasMove(nextEvent);
+        } finally {
+            cachedPathRect = null;
+        }
+    });
+}
+
+function processCanvasMove(event) {
     if (isPanningPath) {
         updatePathPan(event);
         return;
@@ -1956,6 +1998,12 @@ function handleInitialHeadingInput() {
 function clearCanvasHover() {
     if (isDraggingInitialState || isDraggingGoalPoint || isPanningPath) {
         return;
+    }
+    // 取消尚未执行的 move rAF,避免鼠标移出后它又把悬浮框重新显示出来。
+    if (moveRafId !== null) {
+        cancelAnimationFrame(moveRafId);
+        moveRafId = null;
+        pendingMoveEvent = null;
     }
     activeHoverKey = null;
     hoverOverlay.classList.add('hidden');
