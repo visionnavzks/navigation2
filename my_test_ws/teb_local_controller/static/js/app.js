@@ -79,11 +79,11 @@ const PARAM_HELP_TEXTS = {
     max_jerk: '控制量 jerk 的绝对值上界，单位 m/s³。越小表示速度变化更平滑，但机动性更弱。',
     max_kappa: '曲率绝对值上界，单位 1/m。越小表示允许的转弯半径更大。',
     max_dkappa: '曲率变化率绝对值上界，单位 1/(m*s)。越小表示转向变化更平滑。',
-    w_lat: '终点横向误差权重。误差按参考终点航向投影，越大越优先把末端拉回参考线。',
-    w_lon: '终点纵向误差权重。误差按参考终点航向投影，越大越优先让末端前后位置对齐。',
-    w_theta: '终点航向误差权重。越大，优化越优先让末端朝向对齐参考终点。',
-    w_speed: '终点速度误差权重。越大，末端速度越接近参考终点速度。',
-    w_accel: '终点加速度误差权重。越大，末端加速度越接近参考终点加速度。',
+    w_lat_goal: '终点横向误差权重。误差按参考终点航向投影，越大越优先把末端拉回参考线。',
+    w_lon_goal: '终点纵向误差权重。误差按参考终点航向投影，越大越优先让末端前后位置对齐。',
+    w_theta_goal: '终点航向误差权重。越大，优化越优先让末端朝向对齐参考终点。',
+    w_speed_goal: '终点速度误差权重。越大，末端速度越接近参考终点速度。',
+    w_accel_goal: '终点加速度误差权重。越大，末端加速度越接近参考终点加速度。',
     w_time: '总时间代价权重。越大，优化越倾向缩短总时长。',
     w_dt_uniform: '相邻时间步长均匀性权重。越大，相邻 dt 之间的跳变越小。',
     w_dt_ref: 'dt 参考值跟踪权重。0 表示 dt_ref 只用于初值和显示；大于 0 时会惩罚 Σ(dt - dt_ref)²。',
@@ -925,7 +925,13 @@ function renderPathView(data, activeKey = null, options = {}) {
         if (layerVisibility.arrows) {
             annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, 5, arrowLength));
         }
-        annotations.push(...buildEndpointHeadingAnnotations(referencePoints, displayReference.theta, arrowLength));
+        annotations.push(...buildEndpointHeadingAnnotations(
+            referencePoints,
+            displayReference.theta,
+            arrowLength,
+            5.2,
+            { skipStart: layerVisibility.initial },
+        ));
     }
 
     if (stopReferenceActive && layerVisibility.stopReference) {

@@ -337,11 +337,11 @@ class TEBMPCController:
         self.max_jerk = float(self.params.get("max_jerk", 3.0))
         self.max_kappa = float(self.params.get("max_kappa", 2.0))
         self.max_dkappa = float(self.params.get("max_dkappa", 1.5))
-        self.w_lat = float(self.params.get("w_lat", self.params.get("w_terminal", 300.0)))
-        self.w_lon = float(self.params.get("w_lon", self.params.get("w_terminal", 100.0)))
-        self.w_theta = float(self.params.get("w_theta", 60.0))
-        self.w_speed = float(self.params.get("w_speed", 10.0))
-        self.w_accel = float(self.params.get("w_accel", 2.0))
+        self.w_lat_goal = float(self.params.get("w_lat_goal", self.params.get("w_terminal", 300.0)))
+        self.w_lon_goal = float(self.params.get("w_lon_goal", self.params.get("w_terminal", 100.0)))
+        self.w_theta_goal = float(self.params.get("w_theta_goal", 60.0))
+        self.w_speed_goal = float(self.params.get("w_speed_goal", 10.0))
+        self.w_accel_goal = float(self.params.get("w_accel_goal", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
         self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
         self.w_dt_ref = float(self.params.get("w_dt_ref", 0.0))
@@ -434,11 +434,11 @@ class TEBMPCController:
         )
         terminal_speed_error = v[-1] - float(reference.v[-1])
         terminal_accel_error = a[-1] - float(reference.a[-1])
-        terminal_lat_cost = self.w_lat * terminal_lat_error ** 2
-        terminal_lon_cost = self.w_lon * terminal_lon_error ** 2
-        terminal_theta_cost = self.w_theta * terminal_theta_error ** 2
-        terminal_speed_cost = self.w_speed * terminal_speed_error ** 2
-        terminal_accel_cost = self.w_accel * terminal_accel_error ** 2
+        terminal_lat_cost = self.w_lat_goal * terminal_lat_error ** 2
+        terminal_lon_cost = self.w_lon_goal * terminal_lon_error ** 2
+        terminal_theta_cost = self.w_theta_goal * terminal_theta_error ** 2
+        terminal_speed_cost = self.w_speed_goal * terminal_speed_error ** 2
+        terminal_accel_cost = self.w_accel_goal * terminal_accel_error ** 2
         terminal_cost = (
             terminal_lat_cost
             + terminal_lon_cost
@@ -538,7 +538,7 @@ class TEBMPCController:
                 "label": "terminal lateral error",
                 "residual": float(sol.value(terminal_lat_error)),
                 "unit": "m",
-                "weight": self.w_lat,
+                "weight": self.w_lat_goal,
                 "cost": float(sol.value(terminal_lat_cost)),
             },
             {
@@ -546,7 +546,7 @@ class TEBMPCController:
                 "label": "terminal longitudinal error",
                 "residual": float(sol.value(terminal_lon_error)),
                 "unit": "m",
-                "weight": self.w_lon,
+                "weight": self.w_lon_goal,
                 "cost": float(sol.value(terminal_lon_cost)),
             },
             {
@@ -554,7 +554,7 @@ class TEBMPCController:
                 "label": "terminal heading error",
                 "residual": float(sol.value(terminal_theta_error)),
                 "unit": "rad",
-                "weight": self.w_theta,
+                "weight": self.w_theta_goal,
                 "cost": float(sol.value(terminal_theta_cost)),
             },
             {
@@ -562,7 +562,7 @@ class TEBMPCController:
                 "label": "terminal speed error",
                 "residual": float(sol.value(terminal_speed_error)),
                 "unit": "m/s",
-                "weight": self.w_speed,
+                "weight": self.w_speed_goal,
                 "cost": float(sol.value(terminal_speed_cost)),
             },
             {
@@ -570,7 +570,7 @@ class TEBMPCController:
                 "label": "terminal accel error",
                 "residual": float(sol.value(terminal_accel_error)),
                 "unit": "m/s^2",
-                "weight": self.w_accel,
+                "weight": self.w_accel_goal,
                 "cost": float(sol.value(terminal_accel_cost)),
             },
             {
