@@ -149,41 +149,12 @@ public:
     const double max_sweep_step = std::max(0.5 * costmap->getResolution(), 1e-3);
 
     auto validate_pose = [&](double x, double y, double theta, size_t segment_index) {
-        const double cos_theta = std::cos(theta);
-        const double sin_theta = std::sin(theta);
-        auto validate_checkpoint = [&](double local_x, double local_y) {
-            const double world_x = x + cos_theta * local_x - sin_theta * local_y;
-            const double world_y = y + sin_theta * local_x + cos_theta * local_y;
-            const double clearance = clearanceAtWorldPoint(
-              costmap, esdf_values, world_x, world_y);
-            if (!std::isfinite(clearance)) {
-              return throwOrStoreSmoothingFailure(
-                failure,
-                SmoothingFailureReason::PathOutOfBounds,
-                "Kinematic smoother output path leaves the map bounds during swept footprint validation",
-                static_cast<int>(segment_index));
-            }
-            if (clearance < radius) {
-              return throwOrStoreSmoothingFailure(
-                failure,
-                SmoothingFailureReason::FootprintCollision,
-                "Kinematic smoother output path collides with obstacles between optimized knots",
-                static_cast<int>(segment_index));
-            }
-            return true;
-          };
-
-        if (params.cost_check_points.empty()) {
-          return validate_checkpoint(0.0, 0.0);
-        }
-        for (size_t offset = 0; offset + 2 < params.cost_check_points.size(); offset += 3) {
-          if (!validate_checkpoint(
-              params.cost_check_points[offset], params.cost_check_points[offset + 1]))
-          {
-            return false;
-          }
-        }
-        return true;
+        return validatePoseCheckpoints(
+          x, y, theta, costmap, esdf_values, params, radius,
+          static_cast<int>(segment_index),
+          "Kinematic smoother output path leaves the map bounds during swept footprint validation",
+          "Kinematic smoother output path collides with obstacles between optimized knots",
+          failure);
       };
 
     if (!validate_pose(path.front().x(), path.front().y(), path.front().z(), 0)) {
@@ -300,6 +271,61 @@ private:
     }
 
     return esdf_values[flat_index];
+  }
+
+  /// Shared per-pose footprint clearance check used by both the knot-level
+  /// (`validateKinematicObstacleClearance`) and swept output-path
+  /// (`validateKinematicOutputPath`) obstacle validators.  Transforms every
+  /// configured checkpoint (or the pose itself when none are configured) into
+  /// world coordinates and reports the first one that leaves the map bounds or
+  /// violates the check radius.  The two callers only differ in their diagnostic
+  /// wording, so the messages are passed in.
+  bool validatePoseCheckpoints(
+    double x, double y, double theta,
+    const Costmap2D * costmap,
+    const std::vector<double> & esdf_values,
+    const SmootherParams & params,
+    double radius,
+    int failed_index,
+    const char * out_of_bounds_message,
+    const char * collision_message,
+    SmoothingFailureInfo * failure) const
+  {
+    const double cos_theta = std::cos(theta);
+    const double sin_theta = std::sin(theta);
+    auto validate_checkpoint = [&](double local_x, double local_y) {
+        const double world_x = x + cos_theta * local_x - sin_theta * local_y;
+        const double world_y = y + sin_theta * local_x + cos_theta * local_y;
+        const double clearance = clearanceAtWorldPoint(
+          costmap, esdf_values, world_x, world_y);
+        if (!std::isfinite(clearance)) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::PathOutOfBounds,
+            out_of_bounds_message,
+            failed_index);
+        }
+        if (clearance < radius) {
+          return throwOrStoreSmoothingFailure(
+            failure,
+            SmoothingFailureReason::FootprintCollision,
+            collision_message,
+            failed_index);
+        }
+        return true;
+      };
+
+    if (params.cost_check_points.empty()) {
+      return validate_checkpoint(0.0, 0.0);
+    }
+    for (size_t offset = 0; offset + 2 < params.cost_check_points.size(); offset += 3) {
+      if (!validate_checkpoint(
+          params.cost_check_points[offset], params.cost_check_points[offset + 1]))
+      {
+        return false;
+      }
+    }
+    return true;
   }
 
   static bool isFiniteState(const double * state)
@@ -718,48 +744,17 @@ private:
 
     for (size_t state_index = 0; state_index < request.state_count; ++state_index) {
       const double * state = KinematicStateLayout::data(request.variables, state_index);
-      const double x = state[KinematicStateLayout::X];
-      const double y = state[KinematicStateLayout::Y];
-      const double theta = state[KinematicStateLayout::Theta];
-      const double cos_theta = std::cos(theta);
-      const double sin_theta = std::sin(theta);
-
-      auto validate_checkpoint = [&](double local_x, double local_y) {
-          const double world_x = x + cos_theta * local_x - sin_theta * local_y;
-          const double world_y = y + sin_theta * local_x + cos_theta * local_y;
-          const double clearance = clearanceAtWorldPoint(
-            request.costmap, request.esdf_values, world_x, world_y);
-          if (!std::isfinite(clearance)) {
-            return throwOrStoreSmoothingFailure(
-              failure,
-              SmoothingFailureReason::PathOutOfBounds,
-              "Kinematic smoother returned a path that leaves the map bounds during footprint validation",
-              static_cast<int>(state_index));
-          }
-          if (clearance < radius) {
-            return throwOrStoreSmoothingFailure(
-              failure,
-              SmoothingFailureReason::FootprintCollision,
-              "Kinematic smoother returned a path that collides with obstacles during footprint validation",
-              static_cast<int>(state_index));
-          }
-          return true;
-        };
-
-      if (request.params.cost_check_points.empty()) {
-        if (!validate_checkpoint(0.0, 0.0)) {
-          return false;
-        }
-        continue;
-      }
-
-      for (size_t offset = 0; offset + 2 < request.params.cost_check_points.size(); offset += 3) {
-        if (!validate_checkpoint(
-            request.params.cost_check_points[offset + 0],
-            request.params.cost_check_points[offset + 1]))
-        {
-          return false;
-        }
+      if (!validatePoseCheckpoints(
+          state[KinematicStateLayout::X],
+          state[KinematicStateLayout::Y],
+          state[KinematicStateLayout::Theta],
+          request.costmap, request.esdf_values, request.params, radius,
+          static_cast<int>(state_index),
+          "Kinematic smoother returned a path that leaves the map bounds during footprint validation",
+          "Kinematic smoother returned a path that collides with obstacles during footprint validation",
+          failure))
+      {
+        return false;
       }
     }
 

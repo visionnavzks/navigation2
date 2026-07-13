@@ -178,6 +178,10 @@ public:
     }
 
     // 7) 校验通过后按运动学状态做段内插值，并同步生成同源曲率诊断 profile。
+    // 输出路径经过上采样后已包含全部 knot 位姿，因此这里的 swept 校验是
+    // 第 6 步 knot 级障碍净空检查的超集；保留 knot 级检查是为了在昂贵的
+    // 上采样之前对明显不合法的解提前退出。两者共用
+    // SmootherValidator::validatePoseCheckpoints，阈值/错误码天然一致。
     const auto output_profile = KinematicSmootherProblemBuilder::upsamplePathKinematicProfile(
       variables,
       processed,
