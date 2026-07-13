@@ -344,9 +344,10 @@ class TEBMPCController:
         self.w_accel_goal = float(self.params.get("w_accel_goal", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
         self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
-        self.w_dt_ref = float(self.params.get("w_dt_ref", 0.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
+        self.w_accel = float(self.params.get("w_accel", 0.0))
+        self.w_kappa = float(self.params.get("w_kappa", 0.0))
         self.ipopt_max_iter = int(self.params.get("ipopt_max_iter", 500))
         self.ipopt_tol = float(self.params.get("ipopt_tol", 1e-6))
         self.ipopt_print_level = int(self.params.get("ipopt_print_level", 0))
@@ -410,18 +411,18 @@ class TEBMPCController:
         cost_jerk = 0
         cost_dkappa = 0
         cost_dt_uniform = 0
-        cost_dt_ref = 0
         cost_time = 0
 
         for i in range(n - 1):
             if i > 0:
                 dt_delta = dt[i] - dt[i - 1]
                 cost_dt_uniform += self.w_dt_uniform * dt_delta ** 2
-            dt_ref_error = dt[i] - dt_ref_used
-            cost_dt_ref += self.w_dt_ref * dt_ref_error ** 2
             cost_jerk += self.w_jerk * jerk[i] ** 2
             cost_dkappa += self.w_dkappa * dkappa[i] ** 2
             cost_time += dt[i]
+
+        cost_accel = self.w_accel * ca.sumsqr(a)
+        cost_kappa = self.w_kappa * ca.sumsqr(kappa)
 
         terminal_theta_ref = float(reference.theta[-1])
         terminal_dx = x[-1] - float(reference.x[-1])
@@ -447,7 +448,7 @@ class TEBMPCController:
             + terminal_accel_cost
         )
         time_cost = self.w_time * cost_time
-        cost_control = cost_dt_uniform + cost_dt_ref + cost_jerk + cost_dkappa
+        cost_control = cost_dt_uniform + cost_jerk + cost_dkappa + cost_accel + cost_kappa
         total_cost = terminal_cost + cost_control + time_cost
         opti.minimize(total_cost)
 
@@ -524,6 +525,8 @@ class TEBMPCController:
         dt_values = np.atleast_1d(np.array(sol.value(dt), dtype=float))
         jerk_values = np.atleast_1d(np.array(sol.value(jerk), dtype=float))
         dkappa_values = np.atleast_1d(np.array(sol.value(dkappa), dtype=float))
+        a_values = np.atleast_1d(np.array(sol.value(a), dtype=float))
+        kappa_values = np.atleast_1d(np.array(sol.value(kappa), dtype=float))
         dt_delta_values = np.diff(dt_values)
         dt_ref_error_values = dt_values - dt_ref_used
 
@@ -582,14 +585,6 @@ class TEBMPCController:
                 "cost": float(sol.value(cost_dt_uniform)),
             },
             {
-                "key": "dt_ref",
-                "label": "dt reference error",
-                "residual": rms(dt_ref_error_values),
-                "unit": "s RMS",
-                "weight": self.w_dt_ref,
-                "cost": float(sol.value(cost_dt_ref)),
-            },
-            {
                 "key": "jerk",
                 "label": "jerk smoothness",
                 "residual": rms(jerk_values),
@@ -604,6 +599,22 @@ class TEBMPCController:
                 "unit": "1/(m*s) RMS",
                 "weight": self.w_dkappa,
                 "cost": float(sol.value(cost_dkappa)),
+            },
+            {
+                "key": "accel",
+                "label": "acceleration magnitude",
+                "residual": rms(a_values),
+                "unit": "m/s^2 RMS",
+                "weight": self.w_accel,
+                "cost": float(sol.value(cost_accel)),
+            },
+            {
+                "key": "kappa",
+                "label": "curvature magnitude",
+                "residual": rms(kappa_values),
+                "unit": "1/m RMS",
+                "weight": self.w_kappa,
+                "cost": float(sol.value(cost_kappa)),
             },
             {
                 "key": "time",
@@ -630,9 +641,10 @@ class TEBMPCController:
             "costs": {
                 "control": float(sol.value(cost_control)),
                 "dt_uniform": float(sol.value(cost_dt_uniform)),
-                "dt_ref": float(sol.value(cost_dt_ref)),
                 "jerk": float(sol.value(cost_jerk)),
                 "dkappa": float(sol.value(cost_dkappa)),
+                "accel": float(sol.value(cost_accel)),
+                "kappa": float(sol.value(cost_kappa)),
                 "time": float(sol.value(time_cost)),
                 "terminal": float(sol.value(terminal_cost)),
                 "terminal_lat": float(sol.value(terminal_lat_cost)),

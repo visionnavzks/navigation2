@@ -12,6 +12,8 @@ const plannerModeInputs = Array.from(document.querySelectorAll('input[name="plan
 const modePanels = Array.from(document.querySelectorAll('[data-mode-panel]'));
 const initialHeadingSlider = document.getElementById('initial-heading-slider');
 const initialHeadingValue = document.getElementById('initial-heading-value');
+const terminalHeadingSlider = document.getElementById('terminal-heading-slider');
+const terminalHeadingValue = document.getElementById('terminal-heading-value');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -47,7 +49,7 @@ const PARAM_HELP_TEXTS = {
     horizon: 'MPC 局部优化窗口的最大节点数。0 表示不截断，使用从投影点到参考终点的全部剩余点；正数会限制求解规模。',
     ds: '参考轨迹按弧长离散时的采样间距，单位 m。值越小，参考点越密，跟踪更细，但优化变量更多、求解更慢。',
     cruise_speed: '参考轨迹的名义巡航速度，单位 m/s。它会影响参考速度曲线，也会影响按时间显示时参考曲线的横轴换算。',
-    dt_ref: '名义时间步长，单位 s。用于初始化优化变量、生成参考时间轴、图表参考线；当 w_dt_ref > 0 时，也作为 dt 参考目标。实际用于优化的值会被夹到 dt_min/dt_max 内。',
+    dt_ref: '名义时间步长，单位 s。用于初始化优化变量、生成参考时间轴、图表参考线。实际用于优化的值会被夹到 dt_min/dt_max 内。',
     line_1_length: '第一段直线的长度，单位 m。改变它会直接拉长或缩短参考路径的开头。',
     arc_1_radius: '第一段圆弧的半径，单位 m。半径越小，转弯越急；半径越大，转弯越缓。',
     arc_1_angle: '第一段圆弧的转角，输入单位 rad。正值表示逆时针，负值表示顺时针。0.785 rad 大约等于 45 deg。',
@@ -62,7 +64,7 @@ const PARAM_HELP_TEXTS = {
     sample_count: '目标点模式下的局部优化节点数。0 表示按距离和 goal_ds 自动计算；正数表示手动指定。',
     goal_ds: '目标点虚拟参考的采样间距，单位 m。',
     goal_cruise_speed: '目标点模式的名义巡航速度，单位 m/s。',
-    goal_dt_ref: '目标点模式的名义时间步长，单位 s。用于初始化 dt 和图表参考线；w_dt_ref > 0 时会参与 dt 参考代价。实际用于优化的值会被夹到 dt_min/dt_max 内。',
+    goal_dt_ref: '目标点模式的名义时间步长，单位 s。用于初始化 dt 和图表参考线。实际用于优化的值会被夹到 dt_min/dt_max 内。',
     x_offset_range: '随机初始状态在 x 方向相对参考起点的采样范围，单位 m。实际采样区间是 [-range, +range]。',
     y_offset_range: '随机初始状态在 y 方向相对参考起点的采样范围，单位 m。值越大，初始横向偏差越大。',
     speed_min: '随机初始速度的最小值，单位 m/s。用于生成新的起始状态。',
@@ -86,9 +88,10 @@ const PARAM_HELP_TEXTS = {
     w_accel_goal: '终点加速度误差权重。越大，末端加速度越接近参考终点加速度。',
     w_time: '总时间代价权重。越大，优化越倾向缩短总时长。',
     w_dt_uniform: '相邻时间步长均匀性权重。越大，相邻 dt 之间的跳变越小。',
-    w_dt_ref: 'dt 参考值跟踪权重。0 表示 dt_ref 只用于初值和显示；大于 0 时会惩罚 Σ(dt - dt_ref)²。',
     w_jerk: 'jerk 平滑权重。越大，速度变化更平顺，但响应更保守。',
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
+    w_accel: '加速度幅值权重。越大，全程加速度绝对值越受抑制，运动更平缓。',
+    w_kappa: '曲率幅值权重。越大，全程曲率绝对值越受抑制，路径更偏直。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
     ipopt_tol: 'IPOPT 收敛容差。数值越小，解要求越严格，通常也会更慢。',
     ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印，更高值会输出更多求解细节。',
@@ -101,9 +104,10 @@ const COST_ITEM_LABELS = {
     terminal_speed: '终点速度误差',
     terminal_accel: '终点加速度误差',
     dt_uniform: '相邻 dt 跳变',
-    dt_ref: 'dt 参考误差',
     jerk: 'jerk 平滑',
     dkappa: 'dkappa 平滑',
+    accel: '加速度幅值',
+    kappa: '曲率幅值',
     time: '总时间',
 };
 
@@ -113,6 +117,7 @@ let activeHoverKey = null;
 let chartAxisMode = 'time';
 let activeVizTab = 'main';
 let autoReplanTimer = null;
+let terminalHeadingOverride = null;
 let solveInFlight = false;
 let pendingAutoReplanOptions = null;
 let globalParamTooltip = null;
@@ -276,6 +281,87 @@ function scheduleInitialHeadingReplan() {
         clearTimeout(autoReplanTimer);
     }
     setStatus('起点朝向已变更，正在等待基于当前状态自动重规划...', 'idle');
+    autoReplanTimer = window.setTimeout(() => {
+        autoReplanTimer = null;
+        runPlanner({ preserveInitialState: true, autoTriggered: true });
+    }, 220);
+}
+
+function updateTerminalHeadingControls(data) {
+    if (!terminalHeadingSlider || !terminalHeadingValue) {
+        return;
+    }
+
+    const referenceTheta = data?.reference?.theta;
+    const solutionTheta = data?.solution?.theta;
+    const solvedTerminalTheta = Array.isArray(referenceTheta) && referenceTheta.length
+        ? referenceTheta[referenceTheta.length - 1]
+        : Array.isArray(solutionTheta) && solutionTheta.length
+        ? solutionTheta[solutionTheta.length - 1]
+        : null;
+
+    const isGoalMode = getPlannerMode() === 'goal';
+    let terminalTheta = solvedTerminalTheta;
+    let hasGoalThetaInput = true;
+
+    if (isGoalMode) {
+        const input = goalThetaInput();
+        hasGoalThetaInput = Boolean(input);
+        const rawValue = input ? input.value.trim() : '';
+        // goal_theta 留空表示由起点/目标点连线自动计算朝向，这时用求解结果里的终点朝向展示。
+        terminalTheta = rawValue !== '' ? Number.parseFloat(rawValue) : solvedTerminalTheta;
+    }
+
+    if (terminalTheta === null || Number.isNaN(terminalTheta) || !hasGoalThetaInput) {
+        terminalHeadingSlider.disabled = true;
+        terminalHeadingSlider.value = '0';
+        terminalHeadingValue.textContent = '--';
+        terminalHeadingOverride = null;
+        return;
+    }
+
+    const normalizedTheta = normalizeAngle(terminalTheta);
+    terminalHeadingSlider.disabled = false;
+    terminalHeadingSlider.value = String(Math.round(radiansToDegrees(normalizedTheta)));
+    terminalHeadingValue.textContent = `${formatNumber(normalizedTheta, 3)} rad / ${formatNumber(radiansToDegrees(normalizedTheta), 0)} deg`;
+    // 目标点模式下 goal_theta 输入框本身就是状态来源，不需要额外的覆盖值；
+    // 参考/随机模式下让覆盖值跟随当前展示的终点朝向，避免重采样后残留旧值。
+    terminalHeadingOverride = isGoalMode ? null : normalizedTheta;
+}
+
+function handleTerminalHeadingInput() {
+    if (!terminalHeadingSlider || !currentData) {
+        return;
+    }
+
+    const sliderDegrees = Number.parseFloat(terminalHeadingSlider.value);
+    if (Number.isNaN(sliderDegrees)) {
+        return;
+    }
+
+    const normalizedTheta = normalizeAngle(degreesToRadians(sliderDegrees));
+    terminalHeadingValue.textContent = `${formatNumber(normalizedTheta, 3)} rad / ${formatNumber(radiansToDegrees(normalizedTheta), 0)} deg`;
+
+    if (getPlannerMode() === 'goal') {
+        const input = goalThetaInput();
+        if (!input) {
+            return;
+        }
+        // 复用 goal_theta 输入框自身的 input 监听，走和手动输入一致的自动重规划链路。
+        input.value = formatNumber(normalizedTheta, 6);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+
+    terminalHeadingOverride = normalizedTheta;
+    scheduleTerminalHeadingReplan();
+}
+
+function scheduleTerminalHeadingReplan() {
+    if (autoReplanTimer !== null) {
+        clearTimeout(autoReplanTimer);
+    }
+    setStatus('终点朝向已变更，正在等待基于当前状态自动重规划...', 'idle');
     autoReplanTimer = window.setTimeout(() => {
         autoReplanTimer = null;
         runPlanner({ preserveInitialState: true, autoTriggered: true });
@@ -1310,6 +1396,7 @@ function renderStats(data) {
     ].map(([label, value]) => `<div class="state-row"><span>${label}</span><strong>${value}</strong></div>`).join('');
 
     updateInitialHeadingControls(initialState);
+    updateTerminalHeadingControls(data);
     renderCostBreakdown(data.solution);
 }
 
@@ -1702,6 +1789,10 @@ function goalPositionInputs() {
     };
 }
 
+function goalThetaInput() {
+    return paramForm.querySelector('[data-param-group="goal"][data-param-key="theta"]');
+}
+
 function updateGoalPositionInputs(x, y) {
     const inputs = goalPositionInputs();
     if (inputs.x) {
@@ -1935,6 +2026,10 @@ async function runPlanner(options = {}) {
         if ((preserveInitialState || plannerMode === 'goal') && currentData?.initial_state) {
             payload.initial_state_override = currentData.initial_state;
         }
+        // 终点朝向覆盖仅在参考/随机模式的重规划中生效；全新随机采样时跟随几何终点朝向。
+        if (preserveInitialState && plannerMode !== 'goal' && terminalHeadingOverride !== null) {
+            payload.terminal_theta_override = terminalHeadingOverride;
+        }
         const response = await fetch(plannerMode === 'goal' ? '/api/goal_demo' : '/api/random_demo', {
             method: 'POST',
             headers: {
@@ -2007,6 +2102,9 @@ vizTabButtons.forEach((button) => {
 if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
 }
+if (terminalHeadingSlider) {
+    terminalHeadingSlider.addEventListener('input', handleTerminalHeadingInput);
+}
 plannerModeInputs.forEach((input) => {
     input.addEventListener('change', () => {
         updatePlannerModeUi();
@@ -2022,4 +2120,5 @@ updatePlannerModeUi();
 setVizTab(activeVizTab);
 initParameterTooltips();
 updateInitialHeadingControls(null);
+updateTerminalHeadingControls(null);
 runPlanner();

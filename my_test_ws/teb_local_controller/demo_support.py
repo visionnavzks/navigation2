@@ -130,9 +130,10 @@ def describe_demo_configuration(
             "w_accel_goal": controller.w_accel_goal,
             "w_time": controller.w_time,
             "w_dt_uniform": controller.w_dt_uniform,
-            "w_dt_ref": controller.w_dt_ref,
             "w_jerk": controller.w_jerk,
             "w_dkappa": controller.w_dkappa,
+            "w_accel": controller.w_accel,
+            "w_kappa": controller.w_kappa,
         },
         "solver": {
             "ipopt_max_iter": controller.ipopt_max_iter,
@@ -457,11 +458,33 @@ def align_reference_to_projection_with_constraints(
     )
 
 
+def _override_terminal_heading(
+    reference: ReferenceTrajectory,
+    terminal_theta: float | None,
+) -> ReferenceTrajectory:
+    """Replace the reference terminal heading target used by the solver's terminal cost."""
+    if terminal_theta is None or reference.size == 0:
+        return reference
+    theta = np.array(reference.theta, dtype=float)
+    theta[-1] = _normalize_angle(float(terminal_theta))
+    return ReferenceTrajectory(
+        x=reference.x,
+        y=reference.y,
+        theta=theta,
+        v=reference.v,
+        a=reference.a,
+        kappa=reference.kappa,
+        s=reference.s,
+        dt_ref=reference.dt_ref,
+    )
+
+
 def run_random_demo(
     seed: int | None = None,
     params: Dict[str, float] | None = None,
     reference_config: Dict[str, float] | None = None,
     sampling_config: Dict[str, float] | None = None,
+    terminal_theta_override: float | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     rng = np.random.default_rng(seed)
     merged_reference_config = _merged_reference_config(reference_config)
@@ -479,6 +502,7 @@ def run_random_demo(
         horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
+    reference = _override_terminal_heading(reference, terminal_theta_override)
     solution = controller.solve(initial_state=initial_state, reference=reference)
     solution["reference_meta"] = reference_meta
     return initial_state, reference, solution
@@ -488,6 +512,7 @@ def solve_demo(
     initial_state: VehicleState,
     params: Dict[str, float] | None = None,
     reference_config: Dict[str, float] | None = None,
+    terminal_theta_override: float | None = None,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     merged_reference_config = _merged_reference_config(reference_config)
     base_reference = default_demo_reference(reference_config=merged_reference_config)
@@ -503,6 +528,7 @@ def solve_demo(
         horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
+    reference = _override_terminal_heading(reference, terminal_theta_override)
     solution = controller.solve(initial_state=initial_state, reference=reference)
     solution["reference_meta"] = reference_meta
     return initial_state, reference, solution

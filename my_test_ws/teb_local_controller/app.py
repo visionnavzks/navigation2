@@ -184,6 +184,11 @@ def random_demo():
         sampling_config = payload.get("sampling_config") or {}
         seed = payload.get("seed")
         initial_state_override = payload.get("initial_state_override")
+        terminal_theta_override = payload.get("terminal_theta_override")
+        if terminal_theta_override == "":
+            terminal_theta_override = None
+        if terminal_theta_override is not None:
+            terminal_theta_override = float(terminal_theta_override)
         display_reference = default_demo_reference(reference_config=reference_config)
 
         if initial_state_override is not None:
@@ -191,6 +196,7 @@ def random_demo():
                 initial_state=_dict_to_state(initial_state_override),
                 params=controller_params,
                 reference_config=reference_config,
+                terminal_theta_override=terminal_theta_override,
             )
         else:
             initial_state, reference, solution = run_random_demo(
@@ -198,6 +204,7 @@ def random_demo():
                 params=controller_params,
                 reference_config=reference_config,
                 sampling_config=sampling_config,
+                terminal_theta_override=terminal_theta_override,
             )
         return jsonify(
             {
