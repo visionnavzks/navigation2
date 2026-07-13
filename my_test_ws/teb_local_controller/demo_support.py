@@ -139,6 +139,8 @@ def describe_demo_configuration(
             "ipopt_max_iter": controller.ipopt_max_iter,
             "ipopt_tol": controller.ipopt_tol,
             "ipopt_print_level": controller.ipopt_print_level,
+            "dt_hysteresis": controller.dt_hysteresis,
+            "max_outer_iterations": controller.max_outer_iterations,
         },
     }
 
@@ -485,6 +487,7 @@ def run_random_demo(
     reference_config: Dict[str, float] | None = None,
     sampling_config: Dict[str, float] | None = None,
     terminal_theta_override: float | None = None,
+    record: bool = False,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     rng = np.random.default_rng(seed)
     merged_reference_config = _merged_reference_config(reference_config)
@@ -503,8 +506,9 @@ def run_random_demo(
         stop_constraints=stop_constraints,
     )
     reference = _override_terminal_heading(reference, terminal_theta_override)
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve_with_resize(initial_state=initial_state, reference=reference, record=record)
     solution["reference_meta"] = reference_meta
+    reference = solution["resampled_reference"]
     return initial_state, reference, solution
 
 
@@ -513,6 +517,7 @@ def solve_demo(
     params: Dict[str, float] | None = None,
     reference_config: Dict[str, float] | None = None,
     terminal_theta_override: float | None = None,
+    record: bool = False,
 ) -> Tuple[VehicleState, ReferenceTrajectory, Dict[str, np.ndarray | float | Dict[str, float]]]:
     merged_reference_config = _merged_reference_config(reference_config)
     base_reference = default_demo_reference(reference_config=merged_reference_config)
@@ -529,8 +534,9 @@ def solve_demo(
         stop_constraints=stop_constraints,
     )
     reference = _override_terminal_heading(reference, terminal_theta_override)
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve_with_resize(initial_state=initial_state, reference=reference, record=record)
     solution["reference_meta"] = reference_meta
+    reference = solution["resampled_reference"]
     return initial_state, reference, solution
 
 
@@ -552,8 +558,9 @@ def demo_problem(
         horizon=merged_reference_config["horizon"],
         stop_constraints=stop_constraints,
     )
-    solution = controller.solve(initial_state=initial_state, reference=reference)
+    solution = controller.solve_with_resize(initial_state=initial_state, reference=reference)
     solution["reference_meta"] = reference_meta
+    reference = solution["resampled_reference"]
     return initial_state, reference, solution
 
 
@@ -561,7 +568,15 @@ if __name__ == "__main__":
     _, reference_traj, solution_dict = demo_problem()
     total_time = float(solution_dict["time"][-1])
     mean_dt = float(np.mean(solution_dict["dt"]))
-    print(f"Reference points: {reference_traj.size}")
+    print(f"Reference points (after resize): {reference_traj.size}")
+    print(f"Final trajectory points: {len(solution_dict['x'])}")
     print(f"Solve time: {solution_dict['solve_time_ms']:.2f} ms")
     print(f"Optimized horizon time: {total_time:.2f} s")
     print(f"Average dt: {mean_dt:.3f} s")
+    print("Resize log:")
+    for record in solution_dict.get("resize_log", []):
+        print(
+            f"  iter {record['iteration']}: n={record['reference_size']} "
+            f"mean_dt={record['mean_dt']:.3f} (dt_ref={record['dt_ref']:.3f}) "
+            f"-> n_new={record['resized_to']} resized={record['resized']}"
+        )

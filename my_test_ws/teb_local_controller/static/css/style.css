@@ -534,10 +534,6 @@ button.legend-chip:hover {
     background: var(--warning);
 }
 
-.legend-chip.arrows::before {
-    background: #7c3aed;
-}
-
 .legend-chip.correspondence::before {
     background: #8d8578;
 }
@@ -872,4 +868,121 @@ button.legend-chip:hover {
         height: auto;
         max-height: none;
     }
+}
+
+/* ---------- 录制开关 & 迭代回放 ---------- */
+.record-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.record-toggle input {
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.playback-panel[hidden] {
+    display: none;
+}
+
+.playback-rounds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.playback-round-chip {
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.playback-round-chip:hover {
+    transform: translateY(-1px);
+}
+
+.playback-round-chip.active {
+    color: var(--accent-strong);
+    background: linear-gradient(135deg, rgba(11, 79, 108, 0.14), rgba(15, 118, 110, 0.18));
+    border-color: rgba(15, 118, 110, 0.35);
+}
+
+.playback-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.playback-btn {
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--accent-strong);
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+.playback-btn:hover {
+    transform: translateY(-1px);
+}
+
+.playback-btn.playing {
+    color: var(--optimized);
+    background: var(--optimized-soft);
+    border-color: rgba(202, 90, 52, 0.35);
+}
+
+.playback-slider {
+    flex: 1;
+    min-width: 160px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.playback-speed {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--muted);
+}
+
+.playback-speed select {
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.playback-label {
+    margin: 10px 0 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-strong);
+    font-variant-numeric: tabular-nums;
 }

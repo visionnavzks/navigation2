@@ -93,6 +93,9 @@ def _solution_to_dict(solution):
         "solver_status": str(solution.get("solver_status", "Optimization succeeded")),
         "costs": solution["costs"],
         "cost_items": solution.get("cost_items", []),
+        "resize_log": solution.get("resize_log", []),
+        "resize_iterations": int(solution.get("resize_iterations", 0)),
+        "playback": solution.get("playback"),
     }
 
 
@@ -189,6 +192,7 @@ def random_demo():
             terminal_theta_override = None
         if terminal_theta_override is not None:
             terminal_theta_override = float(terminal_theta_override)
+        record = bool(payload.get("record_iterations"))
         display_reference = default_demo_reference(reference_config=reference_config)
 
         if initial_state_override is not None:
@@ -197,6 +201,7 @@ def random_demo():
                 params=controller_params,
                 reference_config=reference_config,
                 terminal_theta_override=terminal_theta_override,
+                record=record,
             )
         else:
             initial_state, reference, solution = run_random_demo(
@@ -205,6 +210,7 @@ def random_demo():
                 reference_config=reference_config,
                 sampling_config=sampling_config,
                 terminal_theta_override=terminal_theta_override,
+                record=record,
             )
         return jsonify(
             {
@@ -238,6 +244,7 @@ def goal_demo():
         initial_state_payload = payload.get("initial_state_override") or DEFAULT_GOAL_INITIAL_STATE
         initial_state = _dict_to_state(initial_state_payload)
         goal = _goal_from_config(goal_config)
+        record = bool(payload.get("record_iterations"))
 
         controller = TEBMPCController(params=controller_params)
         reference = build_goal_reference(
@@ -248,7 +255,8 @@ def goal_demo():
             dt_ref=float(goal_config["dt_ref"]),
             sample_count=_goal_sample_count(goal_config),
         )
-        solution = controller.solve(initial_state=initial_state, reference=reference)
+        solution = controller.solve_with_resize(initial_state=initial_state, reference=reference, record=record)
+        reference = solution["resampled_reference"]
         solution["reference_meta"] = {
             "mode": "point_goal",
             "is_stopping_reference": False,
@@ -260,7 +268,7 @@ def goal_demo():
                 "a": goal.a,
                 "kappa": goal.kappa,
             },
-            "reference_size": reference.size,
+            "reference_size": int(len(solution["x"])),
             "reference_length": float(reference.s[-1]),
         }
 

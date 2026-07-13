@@ -51,7 +51,7 @@ $$
 \{x_{ref}, y_{ref}, \theta_{ref}, v_{ref}, a_{ref}, \kappa_{ref}, s_{ref}, dt_{ref}\}
 $$
 
-其中 `s_ref` 是累计弧长，`dt_ref` 是参考时间步长，默认用于初始化 `dt` 并作为图表参考线。
+其中 `s_ref` 是累计弧长，`dt_ref` 是参考(期望)时间步长：既用于初始化 `dt`、作为图表参考线，也作为**外层重采样循环**的目标步长(见后文)。
 
 ## 轨迹生成
 
@@ -256,9 +256,11 @@ $$
 
 ### 时间相关
 
-- `dt_ref = 0.1`
+- `dt_ref = 0.1`(期望时间步长,外层重采样的目标)
 - `dt_min = 0.03`
 - `dt_max = 0.35`
+- `dt_hysteresis = 0.1 · dt_ref`(判断 dt 太大/太小的死区半径)
+- `max_outer_iterations = 3`(外层重采样最多迭代轮数,设为 1 即关闭)
 
 ### 状态/控制边界
 
@@ -271,15 +273,17 @@ $$
 
 ### 权重
 
-- `w_lat = 300.0`
-- `w_lon = 100.0`
-- `w_theta = 60.0`
-- `w_speed = 10.0`
-- `w_accel = 2.0`
+- `w_lat_goal = 30.0`
+- `w_lon_goal = 10.0`
+- `w_theta_goal = 60.0`
+- `w_speed_goal = 10.0`
+- `w_accel_goal = 2.0`
 - `w_time = 2.0`
-- `w_dt_uniform = 100.0`
+- `w_dt_uniform = 10000.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
+- `w_accel = 0.0`
+- `w_kappa = 0.0`
 
 ### IPOPT
 
@@ -295,9 +299,11 @@ $$
 2. 给定当前初始状态 `VehicleState`
 3. 将初始状态投影到参考轨迹上
 4. 从投影点开始构建对齐后的参考轨迹
-5. 使用 `TEBMPCController.solve(...)` 建立 CasADi `Opti` 问题
-6. 调用 IPOPT 求解
-7. 返回优化状态、控制量和各项代价值
+5. 进入外层重采样循环 `TEBMPCController.solve_with_resize(...)`，每轮：
+   1. 用 `solve(...)` 建立 CasADi `Opti` 问题并调用 IPOPT 求解
+   2. 检查平均 `dt` 是否落在 `dt_ref ± dt_hysteresis` 内；若是则收敛退出
+   3. 否则按 `round(总时长 / dt_ref) + 1` 重采样参考(沿弧长重插值,首尾不变),再解一轮
+6. 返回优化状态、控制量、各项代价值,以及每轮重采样记录 `resize_log`
 
 返回结果中主要包括：
 
@@ -306,6 +312,35 @@ $$
 - `dt, jerk, dkappa`
 - `time`：由 `dt` 累加得到的时间轴
 - `costs`：`terminal / control / time / total`，并包含终点横向、纵向、角度、速度、加速度误差
+- `resize_log`：外层每一轮的 `reference_size / mean_dt / desired_size / resized` 记录
+
+## 外层重采样(autoResize)
+
+单轮 `solve` 会固定采样点数 `n`，只优化每段 `dt`。但由于近似有
+
+$$
+dt_i \approx \frac{\Delta s_i}{v_i} \approx \frac{L / n}{v_i}
+$$
+
+`dt` 的量级其实由采样密度 `n` 和速度共同决定，天然不会等于 `dt_ref`；而且时间代价 `w_time·Σdt` 还会把 `dt` 往 `dt_min` 压。所以让 `dt_ref` 真正“生效”的机制不是往目标函数里加软代价(那会和时间最优、终端可达直接打架)，而是外层循环调整 `n`：
+
+1. 解一轮，拿到总时长 $T = \sum dt_i$。
+2. 若平均 `dt`($T/(n-1)$)落在 `dt_ref ± dt_hysteresis` 内，视为收敛，退出。
+3. 否则令目标点数 $n_{new} = \mathrm{round}(T / dt_{ref}) + 1$：`dt` 太大就加点、太小就删点，沿弧长把参考重插值到 $n_{new}$(首尾/终点目标保持不变)，再解一轮。
+4. 最多迭代 `max_outer_iterations` 轮。
+
+`n` 控制 `Δs`、`Δs` 控制 `dt`，所以调 `n` 就能把平均 `dt` 拉到 `dt_ref` 附近。这等价于 TEB 原版的 autoResize，只是这里用“全局按总时长重采样”而非逐段插删。`dt_hysteresis` 作为死区避免在相邻点数之间来回抖动，通常 1–2 轮即收敛。
+
+## 迭代回放
+
+勾选界面上的“录制迭代过程”后，`solve_with_resize(..., record=True)` 会把两级迭代完整录进 `solution["playback"]`：
+
+- **内层**：通过 CasADi `opti.callback` 抓每一次 IPOPT 迭代的中间轨迹（`opti.debug.value` 读当前解），看优化器如何从初值收敛到最优。
+- **外层**：每一轮重采样后的解各成一段，并附上该轮使用的参考线，看点数如何随 `dt` 被增/减。
+
+数据结构为 `playback.rounds[i] = { outer_iteration, reference_size, resized, resized_to, reference, frames[] }`，每个 `frame` 含 `x/y/theta/v/a/kappa/dt/jerk/dkappa`。前端把这些帧展平成一维序列，提供播放/暂停/单步/滑块和轮次跳转，拖动时路径图与下方曲线随帧联动重绘。
+
+录制会因回调开销拖慢求解、增大响应体积，因此默认关闭，只在勾选时生效。
 
 ## demo 说明
 

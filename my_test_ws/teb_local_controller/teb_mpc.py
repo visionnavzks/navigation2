@@ -320,6 +320,51 @@ def build_goal_reference(
     )
 
 
+def resample_reference(
+    reference: ReferenceTrajectory,
+    sample_count: int,
+    time_values: np.ndarray | None = None,
+) -> ReferenceTrajectory:
+    """把参考轨迹重采样为 sample_count 个点。
+
+    首尾(含终点目标)保持不变,因此重采样只改变时间/空间离散密度,不改变
+    起点约束和终端代价所对应的目标位姿。用于外层 autoResize 循环:当优化得到的
+    dt 系统性偏离 dt_ref 时,通过增/减采样点把 dt 拉回期望值附近。
+
+    ``time_values`` 是上一轮求解得到的、跟 reference 各点一一对应的累计时间
+    (即 solution["time"]);给定时按"预估时间"等距重采样——用上一轮的速度画像把
+    新知识点在弧长上重新分布(慢的地方点更密、快的地方点更疏),让下一轮逐段 dt
+    更接近 dt_ref,而不只是平均值接近。不给或退化失败时按弧长 s 等距重采样。
+    """
+    sample_count = max(int(sample_count), 2)
+    if sample_count == reference.size:
+        return reference
+
+    original_s = np.asarray(reference.s, dtype=float)
+    total_s = float(original_s[-1])
+    if total_s <= 1e-9:
+        return reference
+
+    query_s = np.linspace(0.0, total_s, sample_count)
+    if time_values is not None:
+        old_t = np.asarray(time_values, dtype=float)
+        total_t = float(old_t[-1]) if old_t.size else 0.0
+        if old_t.shape == original_s.shape and total_t > 1e-9:
+            query_t = np.linspace(0.0, total_t, sample_count)
+            query_s = np.interp(query_t, old_t, original_s)
+
+    return ReferenceTrajectory(
+        x=np.interp(query_s, original_s, reference.x),
+        y=np.interp(query_s, original_s, reference.y),
+        theta=np.interp(query_s, original_s, reference.theta),
+        v=np.interp(query_s, original_s, reference.v),
+        a=np.interp(query_s, original_s, reference.a),
+        kappa=np.interp(query_s, original_s, reference.kappa),
+        s=query_s,
+        dt_ref=float(reference.dt_ref),
+    )
+
+
 class TEBMPCController:
     def __init__(self, params: Dict[str, float] | None = None):
         self.params = params or {}
@@ -331,19 +376,23 @@ class TEBMPCController:
         self.dt_max = float(self.params.get("dt_max", 0.35))
         if self.dt_min > self.dt_max:
             raise ValueError("dt_min must be <= dt_max")
+        # 外层重采样(autoResize):dt_ref 是期望的时间步长,dt_hysteresis 是判断
+        # "dt 太大/太小"的死区半径,max_outer_iterations 是外层最多迭代几轮。
+        self.dt_hysteresis = float(self.params.get("dt_hysteresis", 0.1 * self.dt_ref))
+        self.max_outer_iterations = int(self.params.get("max_outer_iterations", 3))
         self.max_speed = float(self.params.get("max_speed", 2.5))
         self.max_accel = float(self.params.get("max_accel", 1.0))
         self.max_lat_accel = float(self.params.get("max_lat_accel", 1.5))
         self.max_jerk = float(self.params.get("max_jerk", 3.0))
         self.max_kappa = float(self.params.get("max_kappa", 2.0))
         self.max_dkappa = float(self.params.get("max_dkappa", 1.5))
-        self.w_lat_goal = float(self.params.get("w_lat_goal", self.params.get("w_terminal", 300.0)))
-        self.w_lon_goal = float(self.params.get("w_lon_goal", self.params.get("w_terminal", 100.0)))
+        self.w_lat_goal = float(self.params.get("w_lat_goal", self.params.get("w_terminal", 30.0)))
+        self.w_lon_goal = float(self.params.get("w_lon_goal", self.params.get("w_terminal", 10.0)))
         self.w_theta_goal = float(self.params.get("w_theta_goal", 60.0))
         self.w_speed_goal = float(self.params.get("w_speed_goal", 10.0))
         self.w_accel_goal = float(self.params.get("w_accel_goal", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
-        self.w_dt_uniform = float(self.params.get("w_dt_uniform", 100.0))
+        self.w_dt_uniform = float(self.params.get("w_dt_uniform", 10000.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
         self.w_accel = float(self.params.get("w_accel", 0.0))
@@ -371,7 +420,7 @@ class TEBMPCController:
             sample_count=sample_count,
             goal_theta=goal_theta,
         )
-        solution = self.solve(initial_state=initial_state, reference=reference)
+        solution = self.solve_with_resize(initial_state=initial_state, reference=reference)
         solution["reference_meta"] = {
             "mode": "point_goal",
             "is_stopping_reference": False,
@@ -383,12 +432,120 @@ class TEBMPCController:
                 "a": float(reference.a[-1]),
                 "kappa": float(reference.kappa[-1]),
             },
-            "reference_size": reference.size,
+            "reference_size": int(np.asarray(solution["x"]).shape[0]),
             "reference_length": float(reference.s[-1]),
         }
         return solution
 
-    def solve(self, initial_state: VehicleState, reference: ReferenceTrajectory) -> Dict[str, object]:
+    def solve_with_resize(
+        self,
+        initial_state: VehicleState,
+        reference: ReferenceTrajectory,
+        max_outer_iterations: int | None = None,
+        dt_hysteresis: float | None = None,
+        min_samples: int = 3,
+        max_samples: int = 300,
+        record: bool = False,
+    ) -> Dict[str, object]:
+        """外层 autoResize 循环:反复 solve,并在 dt 系统性偏离 dt_ref 时重采样参考。
+
+        单轮 ``solve`` 固定采样点数 n,只优化每段 dt;由于 dt_i ≈ Δs_i / v_i,dt 的
+        大小其实由采样密度 n 和速度画像共同决定,天然不会等于 dt_ref。这里在外层
+        根据优化得到的总时长把 n 调成 ``round(T / dt_ref) + 1``,并用本轮的 dt/速度
+        画像按预估时间重新分布新采样点(慢的地方点密、快的地方点疏,见
+        ``resample_reference``),从而把平均 dt 和逐段 dt 都拉回 dt_ref 附近:
+        dt 太大就加点,dt 太小就删点。用 ``dt_hysteresis`` 作死区避免抖动,最多迭代
+        ``max_outer_iterations`` 轮。每轮的诊断记录放在 ``solution["resize_log"]``。
+
+        ``record=True`` 时会额外把内层(每次 IPOPT 迭代)与外层(每轮重采样)的完整
+        轨迹录进 ``solution["playback"]``,供前端逐帧回放。
+        """
+        max_outer = self.max_outer_iterations if max_outer_iterations is None else int(max_outer_iterations)
+        max_outer = max(max_outer, 1)
+        hysteresis = self.dt_hysteresis if dt_hysteresis is None else float(dt_hysteresis)
+        hysteresis = max(hysteresis, 0.0)
+        dt_ref = float(np.clip(reference.dt_ref, self.dt_min, self.dt_max))
+
+        resize_log: List[Dict[str, object]] = []
+        playback_rounds: List[Dict[str, object]] = []
+        solution: Dict[str, object] | None = None
+
+        for iteration in range(max_outer):
+            solution = self.solve(initial_state=initial_state, reference=reference, record=record)
+            dt_values = np.atleast_1d(np.asarray(solution["dt"], dtype=float))
+            total_time = float(np.sum(dt_values))
+            n_current = reference.size
+            mean_dt = total_time / max(n_current - 1, 1)
+
+            n_desired = (int(round(total_time / dt_ref)) + 1) if dt_ref > 0.0 else n_current
+            n_new = int(np.clip(n_desired, min_samples, max_samples))
+
+            within_band = abs(mean_dt - dt_ref) <= hysteresis
+            will_resize = iteration < max_outer - 1 and not within_band and n_new != n_current
+
+            resize_log.append(
+                {
+                    "iteration": int(iteration),
+                    "reference_size": int(n_current),
+                    "mean_dt": float(mean_dt),
+                    "min_dt": float(np.min(dt_values)),
+                    "max_dt": float(np.max(dt_values)),
+                    "total_time": float(total_time),
+                    "dt_ref": float(dt_ref),
+                    "desired_size": int(n_desired),
+                    "resized_to": int(n_new) if will_resize else int(n_current),
+                    "resized": bool(will_resize),
+                }
+            )
+
+            if record:
+                playback_rounds.append(
+                    {
+                        "outer_iteration": int(iteration),
+                        "reference_size": int(n_current),
+                        "mean_dt": float(mean_dt),
+                        "dt_ref": float(dt_ref),
+                        "resized": bool(will_resize),
+                        "resized_to": int(n_new) if will_resize else int(n_current),
+                        # 本轮使用的参考线(点数会随重采样变化),供回放叠加显示。
+                        "reference": {
+                            "x": np.asarray(reference.x, dtype=float).tolist(),
+                            "y": np.asarray(reference.y, dtype=float).tolist(),
+                            "theta": np.asarray(reference.theta, dtype=float).tolist(),
+                            "v": np.asarray(reference.v, dtype=float).tolist(),
+                            "a": np.asarray(reference.a, dtype=float).tolist(),
+                            "kappa": np.asarray(reference.kappa, dtype=float).tolist(),
+                            "s": np.asarray(reference.s, dtype=float).tolist(),
+                            "dt_ref": float(reference.dt_ref),
+                        },
+                        "frames": list(solution.get("inner_frames", [])),
+                    }
+                )
+                solution.pop("inner_frames", None)
+
+            if not will_resize:
+                break
+            reference = resample_reference(reference, n_new, time_values=solution["time"])
+
+        assert solution is not None
+        solution["resize_log"] = resize_log
+        solution["resize_iterations"] = len(resize_log)
+        # 最终(可能已重采样)的参考轨迹,便于调用方让展示用的参考线与优化结果点数一致。
+        solution["resampled_reference"] = reference
+        if record:
+            solution["playback"] = {
+                "recorded": True,
+                "dt_ref": float(dt_ref),
+                "rounds": playback_rounds,
+            }
+        return solution
+
+    def solve(
+        self,
+        initial_state: VehicleState,
+        reference: ReferenceTrajectory,
+        record: bool = False,
+    ) -> Dict[str, object]:
         if reference.size < 2:
             raise ValueError("Reference trajectory must contain at least 2 samples")
 
@@ -502,6 +659,30 @@ class TEBMPCController:
         opti.set_initial(dt, np.full(n - 1, dt_ref_used, dtype=float))
         opti.set_initial(jerk, np.zeros(n - 1, dtype=float))
         opti.set_initial(dkappa, np.zeros(n - 1, dtype=float))
+
+        inner_frames: List[Dict[str, list]] = []
+        if record:
+            # 通过 opti.callback 抓每次 IPOPT 迭代的中间迭代值,用 opti.debug.value 读当前解。
+            def _capture_iterate(_iteration: int) -> None:
+                try:
+                    inner_frames.append(
+                        {
+                            "x": np.atleast_1d(np.array(opti.debug.value(x), dtype=float)).tolist(),
+                            "y": np.atleast_1d(np.array(opti.debug.value(y), dtype=float)).tolist(),
+                            "theta": np.atleast_1d(np.array(opti.debug.value(theta), dtype=float)).tolist(),
+                            "v": np.atleast_1d(np.array(opti.debug.value(v), dtype=float)).tolist(),
+                            "a": np.atleast_1d(np.array(opti.debug.value(a), dtype=float)).tolist(),
+                            "kappa": np.atleast_1d(np.array(opti.debug.value(kappa), dtype=float)).tolist(),
+                            "dt": np.atleast_1d(np.array(opti.debug.value(dt), dtype=float)).tolist(),
+                            "jerk": np.atleast_1d(np.array(opti.debug.value(jerk), dtype=float)).tolist(),
+                            "dkappa": np.atleast_1d(np.array(opti.debug.value(dkappa), dtype=float)).tolist(),
+                        }
+                    )
+                except Exception:
+                    # 求解早期某些迭代取值可能失败,跳过该帧即可,不影响最终解。
+                    pass
+
+            opti.callback(_capture_iterate)
 
         p_opts = {"expand": True, "print_time": False}
         s_opts = {
@@ -665,4 +846,6 @@ class TEBMPCController:
             "cost_items": cost_items,
         }
         result["time"] = np.concatenate(([0.0], np.cumsum(result["dt"])))
+        if record:
+            result["inner_frames"] = inner_frames
         return result

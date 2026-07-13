@@ -20,6 +20,9 @@
             </div>
             <div class="hero-actions">
                 <button id="randomize-btn" class="primary-btn">随机初始化并求解</button>
+                <label class="record-toggle" title="录制内层(每次 IPOPT 迭代)和外层(每轮重采样)的完整轨迹,求解后可逐帧回放。会拖慢求解并增大响应,默认关闭。">
+                    <input type="checkbox" id="record-iterations"> 录制迭代过程
+                </label>
                 <div class="status-box">
                     <span id="status-badge" class="status-badge idle">Idle</span>
                     <p id="status-text" class="status-text">等待首次运行</p>
@@ -115,17 +118,25 @@
                     <details class="config-block">
                         <summary>权重</summary>
                         <div class="param-grid">
-                            <label class="param-field"><span>w_lat_goal</span><input data-param-group="controller" data-param-key="w_lat_goal" type="number" step="0.1" value="300.0"></label>
-                            <label class="param-field"><span>w_lon_goal</span><input data-param-group="controller" data-param-key="w_lon_goal" type="number" step="0.1" value="100.0"></label>
+                            <label class="param-field"><span>w_lat_goal</span><input data-param-group="controller" data-param-key="w_lat_goal" type="number" step="0.1" value="30.0"></label>
+                            <label class="param-field"><span>w_lon_goal</span><input data-param-group="controller" data-param-key="w_lon_goal" type="number" step="0.1" value="10.0"></label>
                             <label class="param-field"><span>w_theta_goal</span><input data-param-group="controller" data-param-key="w_theta_goal" type="number" step="0.1" value="60.0"></label>
                             <label class="param-field"><span>w_speed_goal</span><input data-param-group="controller" data-param-key="w_speed_goal" type="number" step="0.1" value="10.0"></label>
                             <label class="param-field"><span>w_accel_goal</span><input data-param-group="controller" data-param-key="w_accel_goal" type="number" step="0.1" value="2.0"></label>
                             <label class="param-field"><span>w_time</span><input data-param-group="controller" data-param-key="w_time" type="number" step="0.1" value="2.0"></label>
-                            <label class="param-field"><span>w_dt_uniform</span><input data-param-group="controller" data-param-key="w_dt_uniform" type="number" step="0.1" value="100.0"></label>
+                            <label class="param-field"><span>w_dt_uniform</span><input data-param-group="controller" data-param-key="w_dt_uniform" type="number" step="0.1" value="10000.0"></label>
                             <label class="param-field"><span>w_jerk</span><input data-param-group="controller" data-param-key="w_jerk" type="number" step="0.1" value="0.5"></label>
                             <label class="param-field"><span>w_dkappa</span><input data-param-group="controller" data-param-key="w_dkappa" type="number" step="0.1" value="0.5"></label>
                             <label class="param-field"><span>w_accel</span><input data-param-group="controller" data-param-key="w_accel" type="number" step="0.1" value="0.0"></label>
                             <label class="param-field"><span>w_kappa</span><input data-param-group="controller" data-param-key="w_kappa" type="number" step="0.1" value="0.0"></label>
+                        </div>
+                    </details>
+
+                    <details class="config-block">
+                        <summary>外层重采样</summary>
+                        <div class="param-grid">
+                            <label class="param-field"><span>max_outer_iterations</span><input data-param-group="controller" data-param-key="max_outer_iterations" data-param-type="int" type="number" step="1" min="1" value="3"></label>
+                            <label class="param-field"><span>dt_hysteresis</span><input data-param-group="controller" data-param-key="dt_hysteresis" type="number" step="0.005" min="0" value="0.01"></label>
                         </div>
                     </details>
 
@@ -147,11 +158,35 @@
                 </div>
 
                 <div class="viz-tab-pane active" data-viz-tab-panel="main">
+                    <article class="panel playback-panel" id="playback-panel" hidden>
+                        <div class="panel-header">
+                            <div>
+                                <h2>迭代回放</h2>
+                                <p class="panel-note">逐帧回放录制的求解过程:内层为每次 IPOPT 迭代,外层为每轮重采样。拖动滑块或点击播放,路径图与下方曲线随帧联动。</p>
+                            </div>
+                        </div>
+                        <div class="playback-rounds" id="playback-rounds"></div>
+                        <div class="playback-controls">
+                            <button type="button" id="playback-play" class="playback-btn play">▶ 播放</button>
+                            <button type="button" id="playback-prev" class="playback-btn" title="上一帧">⏮</button>
+                            <button type="button" id="playback-next" class="playback-btn" title="下一帧">⏭</button>
+                            <input type="range" id="playback-slider" class="playback-slider" min="0" max="0" value="0" step="1">
+                            <label class="playback-speed">速度
+                                <select id="playback-speed">
+                                    <option value="400">慢</option>
+                                    <option value="160" selected>中</option>
+                                    <option value="70">快</option>
+                                </select>
+                            </label>
+                        </div>
+                        <p class="playback-label" id="playback-label">--</p>
+                    </article>
+
                     <article class="panel canvas-panel">
                         <div class="panel-header">
                             <div>
                                 <h2>路径视图</h2>
-                                <p class="panel-note">显示参考路径、优化路径、点级对应关系和姿态箭头。可直接拖动主图中的随机起点来更新初始位置。</p>
+                                <p class="panel-note">显示参考路径、优化路径和点级对应关系。可直接拖动主图中的随机起点来更新初始位置,悬停在任意点上可查看该点的姿态箭头。</p>
                             </div>
                             <div class="legend-row">
                                 <button type="button" class="legend-chip legend-toggle reference active" data-layer="reference">参考路径</button>
@@ -159,7 +194,6 @@
                                 <button type="button" class="legend-chip legend-toggle optimized active" data-layer="optimized">优化路径</button>
                                 <button type="button" class="legend-chip legend-toggle correspondence active" data-layer="correspondence">对应关系</button>
                                 <button type="button" class="legend-chip legend-toggle initial active" data-layer="initial">随机起点</button>
-                                <button type="button" class="legend-chip legend-toggle arrows active" data-layer="arrows">姿态箭头</button>
                             </div>
                         </div>
                         <div class="canvas-wrap">
@@ -226,6 +260,10 @@
                     <div class="stat-card">
                         <span class="label">轨迹点数</span>
                         <strong id="point-count">--</strong>
+                    </div>
+                    <div class="stat-card">
+                        <span class="label">外层重采样</span>
+                        <strong id="resize-info">--</strong>
                     </div>
                     <div class="stat-card">
                         <span class="label">优化长度</span>

@@ -14,6 +14,15 @@ const initialHeadingSlider = document.getElementById('initial-heading-slider');
 const initialHeadingValue = document.getElementById('initial-heading-value');
 const terminalHeadingSlider = document.getElementById('terminal-heading-slider');
 const terminalHeadingValue = document.getElementById('terminal-heading-value');
+const recordCheckbox = document.getElementById('record-iterations');
+const playbackPanel = document.getElementById('playback-panel');
+const playbackRoundsEl = document.getElementById('playback-rounds');
+const playbackPlayBtn = document.getElementById('playback-play');
+const playbackPrevBtn = document.getElementById('playback-prev');
+const playbackNextBtn = document.getElementById('playback-next');
+const playbackSlider = document.getElementById('playback-slider');
+const playbackSpeedSelect = document.getElementById('playback-speed');
+const playbackLabel = document.getElementById('playback-label');
 const PATH_PLOT_CONFIG = {
     responsive: true,
     displaylogo: false,
@@ -23,12 +32,21 @@ const PATH_WHEEL_ZOOM_IN_FACTOR = 0.82;
 const PATH_WHEEL_ZOOM_OUT_FACTOR = 1.22;
 const PATH_MIN_ZOOM_SPAN = 0.05;
 const MAIN_VIEW_OPACITY = 0.5;
-const ENDPOINT_POSE_ARROW_OPACITY = 0.3;
-const ENDPOINT_POSE_ARROW_HEAD_SCALE = 0.5;
+const POSE_ARROW_LINE_WIDTH = 1.4;
+const POSE_ARROW_HEAD = 2;
+const POSE_ARROW_HEAD_SIZE = 1.2;
 const START_ARROW_COLOR = '#2563eb';
 const END_ARROW_COLOR = '#dc2626';
-const MID_ARROW_COLOR = '#7c3aed';
-const LOCAL_GOAL_COLOR = '#f59e0b';
+const HOVER_ARROW_COLOR = '#d97706';
+const HOVER_POSE_ARROW_OPACITY = 0.85;
+
+// 拖拽某个点时,坐标会随之改变的 trace 角色。局部终点(local-goal-0)已无独立
+// marker,它体现在参考路径终点、对应关系连线与停车参考的终点上;起点(initial-0)
+// 只有自身 marker 在动。据此拖拽帧只 restyle 这些 trace。
+const DRAG_TRACE_ROLES = {
+    'local-goal-0': ['correspondence', 'reference', 'stopReference'],
+    'initial-0': ['initial'],
+};
 
 const statsEls = {
     optimizationStatus: document.getElementById('optimization-status'),
@@ -38,6 +56,7 @@ const statsEls = {
     avgDt: document.getElementById('avg-dt'),
     dtRange: document.getElementById('dt-range'),
     pointCount: document.getElementById('point-count'),
+    resizeInfo: document.getElementById('resize-info'),
     pathLength: document.getElementById('path-length'),
     terminalError: document.getElementById('terminal-error'),
     totalCost: document.getElementById('total-cost'),
@@ -92,6 +111,8 @@ const PARAM_HELP_TEXTS = {
     w_dkappa: '曲率变化率平滑权重。越大，转向变化更柔和。',
     w_accel: '加速度幅值权重。越大，全程加速度绝对值越受抑制，运动更平缓。',
     w_kappa: '曲率幅值权重。越大，全程曲率绝对值越受抑制，路径更偏直。',
+    max_outer_iterations: '外层重采样最多迭代几轮。单轮 solve 只优化每段 dt；每轮结束后按 round(总时长/dt_ref)+1 调整采样点数，把平均 dt 拉回 dt_ref。设为 1 即关闭重采样。',
+    dt_hysteresis: '判断“dt 太大/太小”的死区半径，单位 s。当平均 dt 与 dt_ref 之差在此范围内就视为收敛、停止重采样。太小会反复抖动，通常取 0.1·dt_ref 左右。',
     ipopt_max_iter: 'IPOPT 最大迭代次数。遇到复杂参数组合时可以适当增大。',
     ipopt_tol: 'IPOPT 收敛容差。数值越小，解要求越严格，通常也会更慢。',
     ipopt_print_level: 'IPOPT 日志等级。0 表示几乎不打印，更高值会输出更多求解细节。',
@@ -126,6 +147,11 @@ let isDraggingInitialState = false;
 let isDraggingGoalPoint = false;
 let isPanningPath = false;
 let pathPanStart = null;
+// 迭代回放状态:playbackFrames 是把内外层展平后的帧序列。
+let playbackFrames = [];
+let playbackIndex = 0;
+let playbackTimer = null;
+let playbackBaseData = null;
 // 一次 mousemove 处理期间缓存画布 rect,避免 findNearestHover 对每个点都触发 getBoundingClientRect 回流。
 let cachedPathRect = null;
 // mousemove 用 rAF 合并,每帧最多处理一次,避免原生高频事件把主线程打满。
@@ -137,7 +163,6 @@ const layerVisibility = {
     optimized: true,
     correspondence: true,
     initial: true,
-    arrows: true,
 };
 
 function formatNumber(value, digits = 3) {
@@ -851,6 +876,16 @@ function buildEndpointMarkerColors(points, defaultColor) {
     });
 }
 
+// 起点/终点统一用空心圆圈("o")标记,配合细线姿态箭头形成 "o->"。
+function buildEndpointMarkerSymbols(points, defaultSymbol) {
+    return points.map((_point, index) => {
+        if (index === 0 || index === points.length - 1) {
+            return 'circle-open';
+        }
+        return defaultSymbol;
+    });
+}
+
 function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, lineWidth = 1.4, arrowSize = 1.0, arrowHead = 3) {
     return {
         x: x + arrowLength * Math.cos(theta),
@@ -869,64 +904,23 @@ function buildPathArrowAnnotation(x, y, theta, color, opacity, arrowLength, line
     };
 }
 
-function buildHeadingAnnotations(points, headings, step, arrowLength, lineWidth = 1.4) {
-    const annotations = [];
-    for (let index = 0; index < points.length; index += step) {
-        if (index === 0 || index === points.length - 1) {
-            continue;
-        }
-        annotations.push(
-            buildPathArrowAnnotation(
-                points[index][0],
-                points[index][1],
-                headings[index],
-                MID_ARROW_COLOR,
-                0.3,
-                arrowLength * 1.45,
-                Math.max(lineWidth, 3.0),
-                1.55,
-            ),
-        );
+function buildHoverArrowAnnotation(item, arrowLength) {
+    if (!item || !Number.isFinite(item.theta)) {
+        return [];
     }
-    return annotations;
-}
-
-function buildEndpointHeadingAnnotations(points, headings, arrowLength, lineWidth = 5.2, options = {}) {
-    const annotations = [];
-    if (!points.length) {
-        return annotations;
-    }
-    const endpointArrowSize = 1.15 * ENDPOINT_POSE_ARROW_HEAD_SCALE;
-    if (!options.skipStart) {
-        annotations.push(
-            buildPathArrowAnnotation(
-                points[0][0],
-                points[0][1],
-                headings[0],
-                START_ARROW_COLOR,
-                ENDPOINT_POSE_ARROW_OPACITY,
-                arrowLength,
-                lineWidth,
-                endpointArrowSize,
-            ),
-        );
-    }
-    if (points.length > 1 && !options.skipEnd) {
-        const last = points.length - 1;
-        annotations.push(
-            buildPathArrowAnnotation(
-                points[last][0],
-                points[last][1],
-                headings[last],
-                END_ARROW_COLOR,
-                ENDPOINT_POSE_ARROW_OPACITY,
-                arrowLength,
-                lineWidth,
-                endpointArrowSize,
-            ),
-        );
-    }
-    return annotations;
+    return [
+        buildPathArrowAnnotation(
+            item.x,
+            item.y,
+            item.theta,
+            HOVER_ARROW_COLOR,
+            HOVER_POSE_ARROW_OPACITY,
+            arrowLength,
+            POSE_ARROW_LINE_WIDTH,
+            POSE_ARROW_HEAD_SIZE,
+            POSE_ARROW_HEAD,
+        ),
+    ];
 }
 
 function bindPathPlotInteractions() {
@@ -962,6 +956,7 @@ function updatePathHighlight(key) {
         },
         [currentScene.highlightTraceIndex],
     );
+    Plotly.relayout(pathPlot, { annotations: buildHoverArrowAnnotation(item, currentScene.arrowLength) });
 }
 
 function renderPathView(data, activeKey = null, options = {}) {
@@ -1010,19 +1005,9 @@ function renderPathView(data, activeKey = null, options = {}) {
             customdata: referenceKeys,
             hovertemplate: '<extra></extra>',
             line: { color: 'rgba(15, 118, 110, 0.5)', width: 3.6, dash: 'dash' },
-            marker: { color: buildEndpointMarkerColors(referencePoints, '#0f766e'), size: 8, symbol: 'x', opacity: MAIN_VIEW_OPACITY },
+            marker: { color: buildEndpointMarkerColors(referencePoints, '#0f766e'), size: 8, symbol: buildEndpointMarkerSymbols(referencePoints, 'x'), opacity: MAIN_VIEW_OPACITY },
             showlegend: false,
         });
-        if (layerVisibility.arrows) {
-            annotations.push(...buildHeadingAnnotations(referencePoints, displayReference.theta, 5, arrowLength));
-        }
-        annotations.push(...buildEndpointHeadingAnnotations(
-            referencePoints,
-            displayReference.theta,
-            arrowLength,
-            5.2,
-            { skipStart: layerVisibility.initial },
-        ));
     }
 
     if (stopReferenceActive && layerVisibility.stopReference) {
@@ -1038,28 +1023,16 @@ function renderPathView(data, activeKey = null, options = {}) {
             marker: {
                 color: buildEndpointMarkerColors(stopReferencePoints, '#d97706'),
                 size: 8,
-                symbol: 'diamond',
+                symbol: buildEndpointMarkerSymbols(stopReferencePoints, 'diamond'),
                 opacity: MAIN_VIEW_OPACITY,
                 line: { color: buildEndpointMarkerColors(stopReferencePoints, '#d97706'), width: 1.2 },
             },
             showlegend: false,
         });
-        if (layerVisibility.arrows) {
-            annotations.push(...buildHeadingAnnotations(stopReferencePoints, reference.theta, 4, arrowLength * 0.95, 1.55));
-        }
-        annotations.push(...buildEndpointHeadingAnnotations(
-            stopReferencePoints,
-            reference.theta,
-            arrowLength * 0.95,
-            5.2,
-            { skipStart: layerVisibility.initial },
-        ));
     }
 
     if (layerVisibility.optimized) {
         const optimizedKeys = solutionPoints.map((_point, index) => `solution-${index}`);
-        const localGoalIndex = solverReferencePoints.length - 1;
-        const localGoalPoint = solverReferencePoints[localGoalIndex];
         traces.push({
             x: solutionPoints.map((point) => point[0]),
             y: solutionPoints.map((point) => point[1]),
@@ -1071,38 +1044,12 @@ function renderPathView(data, activeKey = null, options = {}) {
             marker: {
                 color: buildEndpointMarkerColors(solutionPoints, '#ca5a34'),
                 size: 9,
-                symbol: 'circle-open',
+                symbol: buildEndpointMarkerSymbols(solutionPoints, 'circle-open'),
                 opacity: MAIN_VIEW_OPACITY,
                 line: { color: buildEndpointMarkerColors(solutionPoints, '#ca5a34'), width: 1.8 },
             },
             showlegend: false,
         });
-        traces.push({
-            x: [localGoalPoint[0]],
-            y: [localGoalPoint[1]],
-            mode: 'markers',
-            name: '局部终点',
-            customdata: ['local-goal-0'],
-            hovertemplate: '<extra></extra>',
-            marker: {
-                color: LOCAL_GOAL_COLOR,
-                size: 18,
-                symbol: 'star',
-                opacity: 0.85,
-                line: { color: '#92400e', width: 1.6 },
-            },
-            showlegend: false,
-        });
-        if (layerVisibility.arrows) {
-            annotations.push(...buildHeadingAnnotations(solutionPoints, solution.theta, 5, arrowLength));
-        }
-        annotations.push(...buildEndpointHeadingAnnotations(
-            solutionPoints,
-            solution.theta,
-            arrowLength,
-            5.2,
-            { skipStart: layerVisibility.initial },
-        ));
     }
 
     if (layerVisibility.initial) {
@@ -1121,16 +1068,6 @@ function renderPathView(data, activeKey = null, options = {}) {
             },
             showlegend: false,
         });
-        annotations.push(buildPathArrowAnnotation(
-            initialState.x,
-            initialState.y,
-            initialState.theta,
-            START_ARROW_COLOR,
-            ENDPOINT_POSE_ARROW_OPACITY,
-            arrowLength * 1.15,
-            5.2,
-            1.15 * ENDPOINT_POSE_ARROW_HEAD_SCALE,
-        ));
     }
 
     const highlightTraceIndex = traces.length;
@@ -1178,8 +1115,64 @@ function renderPathView(data, activeKey = null, options = {}) {
         },
     };
 
+    // 记录各 trace 在 data 数组中的下标,供拖拽增量更新按角色只 restyle 变化的 trace。
+    // 顺序必须与上方 traces.push 的顺序严格一致。
+    const traceRoles = {};
+    let roleCursor = 0;
+    if (layerVisibility.correspondence && layerVisibility.optimized) {
+        traceRoles.correspondence = roleCursor++;
+    }
+    if (layerVisibility.reference) {
+        traceRoles.reference = roleCursor++;
+    }
+    if (stopReferenceActive && layerVisibility.stopReference) {
+        traceRoles.stopReference = roleCursor++;
+    }
+    if (layerVisibility.optimized) {
+        traceRoles.optimized = roleCursor++;
+    }
+    if (layerVisibility.initial) {
+        traceRoles.initial = roleCursor++;
+    }
+
+    // 拖拽起点/目标点时,只有极少数 trace 的坐标在变(其余路径不变),
+    // 用 restyle + relayout 局部更新代替整幅 Plotly.react,大幅降低每帧开销。
+    // roleCursor === highlightTraceIndex 说明 trace 结构与已渲染的一致,增量才成立。
+    const dragKey = options.incremental || null;
+    const canIncremental = dragKey
+        && Array.isArray(pathPlot.data)
+        && pathPlot.data.length === traces.length
+        && roleCursor === highlightTraceIndex;
+    if (canIncremental) {
+        const changedIndices = (DRAG_TRACE_ROLES[dragKey] || [])
+            .map((role) => traceRoles[role])
+            .filter((index) => index != null);
+        // 关键:把变化的 trace、高亮圈、朝向箭头合并进同一次 Plotly.update。
+        // Plotly 每次重绘有固定开销(约 20ms),拖拽流畅度取决于每帧的重绘次数,
+        // 因此这里只触发一次,而不是 update + updatePathHighlight 两次。
+        const highlightItem = activeKey ? itemMap.get(activeKey) : null;
+        const updateIndices = [...changedIndices, highlightTraceIndex];
+        Plotly.update(
+            pathPlot,
+            {
+                x: [...changedIndices.map((index) => traces[index].x), highlightItem ? [highlightItem.x] : []],
+                y: [...changedIndices.map((index) => traces[index].y), highlightItem ? [highlightItem.y] : []],
+                visible: [...changedIndices.map(() => true), Boolean(highlightItem)],
+            },
+            {
+                annotations: buildHoverArrowAnnotation(highlightItem, arrowLength),
+                'xaxis.range': layout.xaxis.range,
+                'yaxis.range': layout.yaxis.range,
+            },
+            updateIndices,
+        );
+        currentScene = { itemMap, hoverItems, highlightTraceIndex, traceRoles, arrowLength };
+        bindPathPlotInteractions();
+        return;
+    }
+
     Plotly.react(pathPlot, traces, layout, PATH_PLOT_CONFIG);
-    currentScene = { itemMap, hoverItems, highlightTraceIndex };
+    currentScene = { itemMap, hoverItems, highlightTraceIndex, traceRoles, arrowLength };
     bindPathPlotInteractions();
     updatePathHighlight(activeKey);
 }
@@ -1386,6 +1379,19 @@ function renderStats(data) {
     statsEls.avgDt.textContent = `${formatNumber(dtValues.reduce((sum, value) => sum + value, 0) / dtValues.length, 3)} s`;
     statsEls.dtRange.textContent = `${formatNumber(minDt, 3)} - ${formatNumber(maxDt, 3)} s`;
     statsEls.pointCount.textContent = `${data.reference.x.length}`;
+    if (statsEls.resizeInfo) {
+        const resizeLog = data.solution.resize_log || [];
+        const rounds = data.solution.resize_iterations || resizeLog.length;
+        if (resizeLog.length) {
+            const initialN = resizeLog[0].reference_size;
+            const finalN = resizeLog[resizeLog.length - 1].reference_size;
+            statsEls.resizeInfo.textContent = initialN === finalN
+                ? `${rounds} 轮 (${finalN} 点)`
+                : `${rounds} 轮 (${initialN}→${finalN} 点)`;
+        } else {
+            statsEls.resizeInfo.textContent = '--';
+        }
+    }
     statsEls.pathLength.textContent = `${formatNumber(pathLength, 2)} m`;
     statsEls.terminalError.textContent = `${formatNumber(terminalError, 3)} m`;
     statsEls.totalCost.textContent = formatNumber(data.solution.costs.total, 2);
@@ -1464,14 +1470,19 @@ function findNearestHover(event) {
     if (!cursor) {
         return null;
     }
+    // axes 每帧只取一次,循环内直接投影,避免逐点重建 axes 对象。
+    const axes = getPathPlotAxes();
+    if (!axes) {
+        return null;
+    }
+    const baseX = axes.rect.left + axes.xaxis._offset;
+    const baseY = axes.rect.top + axes.yaxis._offset;
     let best = null;
     let bestDistance = 18;
     currentScene.hoverItems.forEach((item) => {
-        const pixelPosition = projectPlotItemToPixels(item);
-        if (!pixelPosition) {
-            return;
-        }
-        const distance = Math.hypot(pixelPosition.px - cursor.clientX, pixelPosition.py - cursor.clientY);
+        const px = baseX + axes.xaxis.l2p(item.x);
+        const py = baseY + axes.yaxis.l2p(item.y);
+        const distance = Math.hypot(px - cursor.clientX, py - cursor.clientY);
         if (distance < bestDistance) {
             best = item;
             bestDistance = distance;
@@ -1750,7 +1761,7 @@ function updateDraggedInitialState(event) {
         y: cursor.cursorY,
     };
     activeHoverKey = 'initial-0';
-    renderPathView(currentData, activeHoverKey, { preserveView: true });
+    renderPathView(currentData, activeHoverKey, { preserveView: true, incremental: 'initial-0' });
 
     const draggedItem = currentScene?.hoverItems.find((item) => item.key === 'initial-0') || null;
     if (draggedItem) {
@@ -1850,8 +1861,9 @@ function updateDraggedGoalPoint(event) {
     updateGoalPositionInputs(cursor.cursorX, cursor.cursorY);
     updateGoalPointInScene(cursor.cursorX, cursor.cursorY);
     activeHoverKey = 'local-goal-0';
-    renderPathView(currentData, activeHoverKey, { preserveView: true });
-    renderStats(currentData);
+    // 拖拽期间 solution 尚未重规划,renderStats 结果不变,略去以省一次统计+图表刷新;
+    // 渲染走增量分支,只更新参考路径终点与朝向箭头,松开鼠标后 runPlanner 再整幅重绘。
+    renderPathView(currentData, activeHoverKey, { preserveView: true, incremental: 'local-goal-0' });
 
     const draggedItem = currentScene?.hoverItems.find((item) => item.key === 'local-goal-0') || null;
     if (draggedItem) {
@@ -2030,6 +2042,211 @@ function setChartAxisMode(mode) {
     }
 }
 
+// ---------- 迭代回放 ----------
+// 把 solution.playback 的“外层轮次 → 内层 IPOPT 迭代”两级结构展平成一维帧序列,
+// 每帧带上所属轮次、该轮参考线和重采样信息,便于滑块统一寻址。
+function buildPlaybackFrames(data) {
+    const pb = data?.solution?.playback;
+    if (!pb || !Array.isArray(pb.rounds) || !pb.rounds.length) {
+        return [];
+    }
+    const frames = [];
+    pb.rounds.forEach((round, roundIndex) => {
+        const innerTotal = round.frames.length;
+        round.frames.forEach((frame, innerIter) => {
+            frames.push({
+                roundIndex,
+                outerIteration: round.outer_iteration,
+                innerIter,
+                innerTotal,
+                referenceSize: round.reference_size,
+                resized: round.resized,
+                resizedTo: round.resized_to,
+                isRoundEnd: innerIter === innerTotal - 1,
+                reference: round.reference,
+                frame,
+            });
+        });
+    });
+    return frames;
+}
+
+// 用某一帧的中间轨迹拼出一个和正常响应同构的 data,直接复用 renderPathView / renderPlotlyCharts。
+function playbackFrameToData(base, entry) {
+    const frame = entry.frame;
+    const time = [0];
+    for (let i = 0; i < frame.dt.length; i += 1) {
+        time.push(time[i] + frame.dt[i]);
+    }
+    const dtRefUsed = base.solution?.playback?.dt_ref ?? entry.reference.dt_ref;
+    const solution = {
+        ...base.solution,
+        x: frame.x,
+        y: frame.y,
+        theta: frame.theta,
+        v: frame.v,
+        a: frame.a,
+        kappa: frame.kappa,
+        dt: frame.dt,
+        jerk: frame.jerk,
+        dkappa: frame.dkappa,
+        time,
+        costs: { ...(base.solution.costs || {}), dt_ref_used: dtRefUsed },
+    };
+    const reference = {
+        x: entry.reference.x,
+        y: entry.reference.y,
+        theta: entry.reference.theta,
+        v: entry.reference.v,
+        a: entry.reference.a,
+        kappa: entry.reference.kappa,
+        s: entry.reference.s,
+        dt_ref: entry.reference.dt_ref,
+    };
+    return { ...base, solution, reference, display_reference: reference };
+}
+
+function updatePlaybackLabel(entry) {
+    if (!playbackLabel) {
+        return;
+    }
+    const roundHuman = entry.outerIteration + 1;
+    let text;
+    if (entry.isRoundEnd) {
+        const resizeText = entry.resized ? ` → 重采样至 ${entry.resizedTo} 点` : ' · 已收敛';
+        text = `第 ${roundHuman} 轮末 · n=${entry.referenceSize}${resizeText}`;
+    } else {
+        text = `第 ${roundHuman} 轮 · IPOPT 迭代 ${entry.innerIter + 1}/${entry.innerTotal} · n=${entry.referenceSize}`;
+    }
+    playbackLabel.textContent = `${text} · 帧 ${playbackIndex + 1}/${playbackFrames.length}`;
+}
+
+function updatePlaybackRoundChips(entry) {
+    if (!playbackRoundsEl) {
+        return;
+    }
+    Array.from(playbackRoundsEl.children).forEach((chip) => {
+        chip.classList.toggle('active', Number(chip.dataset.roundIndex) === entry.roundIndex);
+    });
+}
+
+function applyPlaybackFrame(index) {
+    if (!playbackFrames.length || !playbackBaseData) {
+        return;
+    }
+    playbackIndex = Math.max(0, Math.min(index, playbackFrames.length - 1));
+    const entry = playbackFrames[playbackIndex];
+    const frameData = playbackFrameToData(playbackBaseData, entry);
+    activeHoverKey = null;
+    renderPathView(frameData, null, { preserveView: true });
+    renderPlotlyCharts(frameData);
+    if (playbackSlider) {
+        playbackSlider.value = String(playbackIndex);
+    }
+    updatePlaybackLabel(entry);
+    updatePlaybackRoundChips(entry);
+}
+
+function updatePlaybackPlayButton() {
+    if (!playbackPlayBtn) {
+        return;
+    }
+    const playing = playbackTimer !== null;
+    playbackPlayBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+    playbackPlayBtn.classList.toggle('playing', playing);
+}
+
+function stopPlaybackTimer() {
+    if (playbackTimer !== null) {
+        window.clearInterval(playbackTimer);
+        playbackTimer = null;
+    }
+    updatePlaybackPlayButton();
+}
+
+function startPlaybackTimer() {
+    const intervalMs = Number(playbackSpeedSelect?.value) || 160;
+    playbackTimer = window.setInterval(() => {
+        // 求解中或用户正在拖拽/平移时让出,避免和交互重绘打架。
+        if (solveInFlight || isDraggingInitialState || isDraggingGoalPoint || isPanningPath) {
+            return;
+        }
+        if (playbackIndex >= playbackFrames.length - 1) {
+            stopPlaybackTimer();
+            return;
+        }
+        applyPlaybackFrame(playbackIndex + 1);
+    }, intervalMs);
+    updatePlaybackPlayButton();
+}
+
+function togglePlayback() {
+    if (!playbackFrames.length) {
+        return;
+    }
+    if (playbackTimer !== null) {
+        stopPlaybackTimer();
+        return;
+    }
+    if (playbackIndex >= playbackFrames.length - 1) {
+        applyPlaybackFrame(0);
+    }
+    startPlaybackTimer();
+}
+
+function playbackStep(delta) {
+    if (!playbackFrames.length) {
+        return;
+    }
+    stopPlaybackTimer();
+    applyPlaybackFrame(playbackIndex + delta);
+}
+
+function setupPlayback(data) {
+    stopPlaybackTimer();
+    playbackFrames = buildPlaybackFrames(data);
+    playbackBaseData = data;
+    if (!playbackPanel) {
+        return;
+    }
+    if (!playbackFrames.length) {
+        playbackPanel.hidden = true;
+        playbackBaseData = null;
+        if (playbackRoundsEl) {
+            playbackRoundsEl.innerHTML = '';
+        }
+        return;
+    }
+    playbackPanel.hidden = false;
+    playbackIndex = playbackFrames.length - 1;
+    if (playbackSlider) {
+        playbackSlider.max = String(playbackFrames.length - 1);
+        playbackSlider.value = String(playbackIndex);
+    }
+    if (playbackRoundsEl) {
+        const rounds = data.solution.playback.rounds;
+        let cursor = 0;
+        playbackRoundsEl.innerHTML = '';
+        rounds.forEach((round, roundIndex) => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'playback-round-chip';
+            chip.dataset.roundIndex = String(roundIndex);
+            chip.dataset.frameIndex = String(cursor);
+            chip.textContent = `第${roundIndex + 1}轮 n=${round.reference_size}`;
+            chip.addEventListener('click', () => {
+                stopPlaybackTimer();
+                applyPlaybackFrame(Number(chip.dataset.frameIndex));
+            });
+            playbackRoundsEl.appendChild(chip);
+            cursor += round.frames.length;
+        });
+    }
+    // 主视图此刻已是最终解(等于最后一帧),只需同步标签与轮次高亮,不必重绘。
+    updatePlaybackLabel(playbackFrames[playbackIndex]);
+    updatePlaybackRoundChips(playbackFrames[playbackIndex]);
+}
+
 async function runPlanner(options = {}) {
     const {
         preserveInitialState = false,
@@ -2071,6 +2288,7 @@ async function runPlanner(options = {}) {
     setStatus(solvingMessage, 'loading');
     try {
         const payload = collectParameterPayload();
+        payload.record_iterations = Boolean(recordCheckbox?.checked);
         if ((preserveInitialState || plannerMode === 'goal') && currentData?.initial_state) {
             payload.initial_state_override = currentData.initial_state;
         }
@@ -2094,6 +2312,7 @@ async function runPlanner(options = {}) {
         renderPathView(data, null, { pathViewRanges: preservedPathViewRanges });
         renderPlotlyCharts(data);
         renderStats(data);
+        setupPlayback(data);
         applyConfigToForm(data.config);
         renderHoverDetails(null);
         updateCanvasCursor();
@@ -2147,6 +2366,29 @@ axisButtons.forEach((button) => {
 vizTabButtons.forEach((button) => {
     button.addEventListener('click', () => setVizTab(button.dataset.vizTab));
 });
+if (playbackPlayBtn) {
+    playbackPlayBtn.addEventListener('click', togglePlayback);
+}
+if (playbackPrevBtn) {
+    playbackPrevBtn.addEventListener('click', () => playbackStep(-1));
+}
+if (playbackNextBtn) {
+    playbackNextBtn.addEventListener('click', () => playbackStep(1));
+}
+if (playbackSlider) {
+    playbackSlider.addEventListener('input', (event) => {
+        stopPlaybackTimer();
+        applyPlaybackFrame(Number(event.target.value));
+    });
+}
+if (playbackSpeedSelect) {
+    playbackSpeedSelect.addEventListener('change', () => {
+        if (playbackTimer !== null) {
+            stopPlaybackTimer();
+            startPlaybackTimer();
+        }
+    });
+}
 if (initialHeadingSlider) {
     initialHeadingSlider.addEventListener('input', handleInitialHeadingInput);
 }
