@@ -39,6 +39,7 @@ GOAL_CONFIG_DEFAULTS = {
     "cruise_speed": 0.8,
     "dt_ref": 0.1,
     "sample_count": 0,
+    "start_v": 0.1,
 }
 
 
@@ -152,6 +153,7 @@ def _goal_config_to_dict(goal, goal_config, reference_size):
         "dt_ref": float(goal_config["dt_ref"]),
         "sample_count": int(goal_config["sample_count"]),
         "resolved_sample_count": int(reference_size),
+        "start_v": float(goal_config["start_v"]),
     }
 
 
@@ -242,6 +244,7 @@ def goal_demo():
         controller_params = payload.get("controller_params") or {}
         goal_config = _merged_goal_config(payload.get("goal_config"))
         initial_state_payload = payload.get("initial_state_override") or DEFAULT_GOAL_INITIAL_STATE
+        initial_state_payload = {**initial_state_payload, "v": float(goal_config["start_v"])}
         initial_state = _dict_to_state(initial_state_payload)
         goal = _goal_from_config(goal_config)
         record = bool(payload.get("record_iterations"))

@@ -165,10 +165,10 @@ $$
 
 ## 代价函数
 
-总代价由三部分组成：
+总代价由四部分组成：
 
 $$
-J = J_{terminal} + J_{control} + J_{time}
+J = J_{terminal} + J_{control} + J_{time} + J_{length}
 $$
 
 ### 1. 终端代价
@@ -222,6 +222,19 @@ $$
 - `w_dt_uniform` 控制相邻 `dt` 的均匀程度
 - `w_jerk` 抑制过大的加加速度
 - `w_dkappa` 抑制曲率变化过快
+
+### 3. 长度代价
+
+$$
+J_{length} = w_{length}\sum_i \Delta s_i, \qquad \Delta s_i = dt_i \cdot v_{mid,i}
+$$
+
+其中 $\Delta s_i$ 就是动力学离散模型里每段中点近似推进的弧长(见下文"中点近似")。
+
+解释：
+
+- `w_length` 越大，优化越倾向缩短实际行驶路程，抑制绕远路；它和 `w_time` 的区别是：`w_time` 惩罚的是耗时，同样的路程可以靠提速把时间代价压低，而 `w_length` 直接惩罚走过的弧长，不受速度影响
+- 默认值为 `0.0`(不生效)，与 `w_accel`、`w_kappa` 一样是可选的正则项，需要显式设置才会起作用
 
 ## 约束条件
 
@@ -279,6 +292,7 @@ $$
 - `w_speed_goal = 10.0`
 - `w_accel_goal = 2.0`
 - `w_time = 2.0`
+- `w_length = 0.0`
 - `w_dt_uniform = 10000.0`
 - `w_jerk = 0.5`
 - `w_dkappa = 0.5`
@@ -311,7 +325,7 @@ $$
 - `v, a, kappa`
 - `dt, jerk, dkappa`
 - `time`：由 `dt` 累加得到的时间轴
-- `costs`：`terminal / control / time / total`，并包含终点横向、纵向、角度、速度、加速度误差
+- `costs`：`terminal / control / time / length / total`，并包含终点横向、纵向、角度、速度、加速度误差
 - `resize_log`：外层每一轮的 `reference_size / mean_dt / desired_size / resized` 记录
 
 ## 外层重采样(autoResize)

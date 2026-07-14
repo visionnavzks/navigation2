@@ -128,6 +128,7 @@ def build_reference_trajectory(
     ds: float = 0.2,
     cruise_speed: float = 1.0,
     dt_ref: float = 0.1,
+    terminal_speed: float = 0.0,
 ) -> ReferenceTrajectory:
     if ds <= 0.0:
         raise ValueError("ds must be positive")
@@ -158,7 +159,7 @@ def build_reference_trajectory(
     v = np.full_like(x, float(cruise_speed))
     if x.shape[0] > 0:
         v[0] = start.v
-        v[-1] = 0.0
+        v[-1] = float(terminal_speed)
     a = np.zeros_like(x)
     if x.shape[0] > 0:
         a[0] = start.a
@@ -392,6 +393,7 @@ class TEBMPCController:
         self.w_speed_goal = float(self.params.get("w_speed_goal", 10.0))
         self.w_accel_goal = float(self.params.get("w_accel_goal", 2.0))
         self.w_time = float(self.params.get("w_time", 2.0))
+        self.w_length = float(self.params.get("w_length", 0.0))
         self.w_dt_uniform = float(self.params.get("w_dt_uniform", 10000.0))
         self.w_jerk = float(self.params.get("w_jerk", 0.5))
         self.w_dkappa = float(self.params.get("w_dkappa", 0.5))
@@ -606,8 +608,10 @@ class TEBMPCController:
         )
         time_cost = self.w_time * cost_time
         cost_control = cost_dt_uniform + cost_jerk + cost_dkappa + cost_accel + cost_kappa
-        total_cost = terminal_cost + cost_control + time_cost
-        opti.minimize(total_cost)
+
+        # cost_length 累加每段实际推进弧长 ds,与 cost_time 累加 dt 是同样的写法;
+        # 需要 dynamics 循环里算出的 ds,所以 opti.minimize(total_cost) 挪到该循环之后。
+        cost_length = 0
 
         for i in range(n - 1):
             a_next = a[i] + dt[i] * jerk[i]
@@ -626,6 +630,7 @@ class TEBMPCController:
             y_straight = y[i] + ds * ca.sin(theta[i])
             x_next = ca.if_else(near_straight, x_straight, x_arc)
             y_next = ca.if_else(near_straight, y_straight, y_arc)
+            cost_length += ds
 
             opti.subject_to(a[i + 1] == a_next)
             opti.subject_to(kappa[i + 1] == kappa_next)
@@ -634,6 +639,10 @@ class TEBMPCController:
             opti.subject_to(x[i + 1] == x_next)
             opti.subject_to(y[i + 1] == y_next)
             opti.subject_to(opti.bounded(-self.max_lat_accel, lat_accel_mid, self.max_lat_accel))
+
+        length_cost = self.w_length * cost_length
+        total_cost = terminal_cost + cost_control + time_cost + length_cost
+        opti.minimize(total_cost)
 
         opti.subject_to(x[0] == initial_state.x)
         opti.subject_to(y[0] == initial_state.y)
@@ -805,6 +814,14 @@ class TEBMPCController:
                 "weight": self.w_time,
                 "cost": float(sol.value(time_cost)),
             },
+            {
+                "key": "length",
+                "label": "total path length",
+                "residual": float(sol.value(cost_length)),
+                "unit": "m",
+                "weight": self.w_length,
+                "cost": float(sol.value(length_cost)),
+            },
         ]
 
         result = {
@@ -827,6 +844,7 @@ class TEBMPCController:
                 "accel": float(sol.value(cost_accel)),
                 "kappa": float(sol.value(cost_kappa)),
                 "time": float(sol.value(time_cost)),
+                "length": float(sol.value(length_cost)),
                 "terminal": float(sol.value(terminal_cost)),
                 "terminal_lat": float(sol.value(terminal_lat_cost)),
                 "terminal_lon": float(sol.value(terminal_lon_cost)),

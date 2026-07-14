@@ -25,6 +25,7 @@ DEMO_REFERENCE_DEFAULTS: Dict[str, float] = {
     "ds": DEMO_REFERENCE_DS,
     "cruise_speed": DEMO_CRUISE_SPEED,
     "dt_ref": DEMO_DT_REF,
+    "terminal_speed": 0.0,
     "line_1_length": 1.8,
     "arc_1_radius": 1.8,
     "arc_1_angle": math.pi / 4.0,
@@ -78,6 +79,7 @@ def default_demo_reference(reference_config: Dict[str, float] | None = None) -> 
         ds=float(config["ds"]),
         cruise_speed=float(config["cruise_speed"]),
         dt_ref=float(config["dt_ref"]),
+        terminal_speed=float(config["terminal_speed"]),
     )
 
 
